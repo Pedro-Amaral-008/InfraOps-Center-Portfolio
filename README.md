@@ -184,42 +184,42 @@ security/         Certificados SSL
 ## 📸 Screenshots
 
 ### Login
-![Login](docs/screenshots/01-login.jpg)
+<img src="docs/screenshots/01-login.jpg" width="600">
 
 ### Visão Geral
-![Dashboard](docs/screenshots/02-dashboard-overview.jpg)
+<img src="docs/screenshots/02-dashboard-overview.jpg" width="600">
 
 ### Servidores
-![Servidores](docs/screenshots/03-servidores.jpg)
+<img src="docs/screenshots/03-servidores.jpg" width="600">
 
 ### Automações
-![Automações](docs/screenshots/04-automacoes.jpg)
+<img src="docs/screenshots/04-automacoes.jpg" width="600">
 
 ### Backups
-![Backups](docs/screenshots/05-backups.jpg)
+<img src="docs/screenshots/05-backups.jpg" width="600">
 
 ### Controller
-![Controller](docs/screenshots/06-controller.jpg)
+<img src="docs/screenshots/06-controller.jpg" width="600">
 
 ### Access Points
-![Access Points](docs/screenshots/07-access-points.jpg)
+<img src="docs/screenshots/07-access-points.jpg" width="600">
 
 ### Links de Rede
-![Links de Rede](docs/screenshots/08-links-rede.jpg)
+<img src="docs/screenshots/08-links-rede.jpg" width="600">
 
 ### Impressoras
-![Impressoras](docs/screenshots/09-impressoras.jpg)
+<img src="docs/screenshots/09-impressoras.jpg" width="600">
 
 ### Auditoria
-![Auditoria](docs/screenshots/10-auditoria.jpg)
+<img src="docs/screenshots/10-auditoria.jpg" width="600">
 
 ### Notificações via Telegram
 Alertas automáticos de backup e status de infraestrutura enviados via bot do Telegram.
 
-![Notificação Telegram 1](docs/screenshots/11-telegram-notificacao-1.jpg)
-![Notificação Telegram 2](docs/screenshots/12-telegram-notificacao-2.jpg)
-![Notificação Telegram 3](docs/screenshots/13-telegram-notificacao-3.jpg)
-![Notificação Telegram 4](docs/screenshots/14-telegram-notificacao-4.jpg)
+<img src="docs/screenshots/11-telegram-notificacao-1.jpg" width="300">
+<img src="docs/screenshots/12-telegram-notificacao-2.jpg" width="300">
+<img src="docs/screenshots/13-telegram-notificacao-3.jpg" width="300">
+<img src="docs/screenshots/14-telegram-notificacao-4.jpg" width="300">
 
 ---
 
