@@ -1,0 +1,26 @@
+groups:
+  - name: infraops_blackbox_alerts
+    rules:
+      - alert: ServidorOffline
+        expr: probe_success{job=~"blackbox-servidores-tcp|blackbox-servidor-backup-principal"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Servidor offline"
+
+      - alert: AccessPointOffline
+        expr: probe_success{job="blackbox-access-points"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Access Point sem resposta"
+
+      - alert: PainelWebOffline
+        expr: probe_success{job="blackbox-unifi-controller"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Painel web sem resposta"

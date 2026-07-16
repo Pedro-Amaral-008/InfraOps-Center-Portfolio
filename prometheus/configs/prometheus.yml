@@ -1,0 +1,147 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - '/etc/prometheus/rules/alerts.yml'
+  - '/etc/prometheus/rules/blackbox_alerts.yml'
+  - '/etc/prometheus/rules/veeam_alerts.yml'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: 'blackbox-servidores-tcp'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets: ['IP_INTERNO_AQUI:445']
+        labels: { nome: "Srv Arquivos", servico: "Armazenamento de Arquivos" }
+      - targets: ['IP_INTERNO_AQUI:445']
+        labels: { nome: "Srv Impressao", servico: "Digitalizacao de Documentos" }
+      - targets: ['IP_INTERNO_AQUI:445']
+        labels: { nome: "Srv Proxy Veeam", servico: "Processamento Backup" }
+      - targets: ['IP_INTERNO_AQUI:4445']
+        labels: { nome: "Srv SysAdmin", servico: "Gerenciamento InControl e Robo SharePoint" }
+      - targets: ['IP_INTERNO_AQUI:445']
+        labels: { nome: "Srv Backup 2", servico: "Redundancia Backups" }
+      - targets: ['IP_INTERNO_AQUI:445']
+        labels: { nome: "Srv Arquivos Espelho", servico: "Redundancia Srv Arquivos" }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: 'blackbox-servidor-backup-principal'
+    metrics_path: /probe
+    params:
+      module: [icmp_ping]
+    static_configs:
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "Srv Backup Principal", servico: "Armazenamento de Backup e Sentinela Principal" }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: 'blackbox-access-points'
+    metrics_path: /probe
+    params:
+      module: [icmp_ping]
+    static_configs:
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "COMPRAS/FROTAS" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "ADMINISTRATIVO GERAL" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "USW-24-PoE" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "TI" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "RECURSOS HUMANOS" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "JURIDICO/COMPLIANCE" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "ALMOXARIFADO/PLANEJAMENTO" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "RECEPCAO" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "DIRETORIA" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "DEPARTAMENTO PESSOAL" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "SESMT" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "GERENCIA" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "AUDITORIO" }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: 'blackbox-unifi-controller'
+    metrics_path: /probe
+    params:
+      module: [http_2xx_insecure]
+    static_configs:
+      - targets: ['https://IP_INTERNO_AQUI']
+        labels:
+          nome: "Gen2-ELCOP-SEDE (Controladora UniFi)"
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: 'pushgateway'
+    honor_labels: true
+    static_configs:
+      - targets: ['pushgateway:9091']
+
+  - job_name: 'blackbox-impressoras'
+    metrics_path: /probe
+    params:
+      module: [icmp_ping]
+    static_configs:
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "Impressora Financeiro/Fiscal" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "Impressora Hall" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "Impressora Frotas" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "Impressora DP" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "Impressora SESMT" }
+      - targets: ['IP_INTERNO_AQUI']
+        labels: { nome: "Impressora RH" }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

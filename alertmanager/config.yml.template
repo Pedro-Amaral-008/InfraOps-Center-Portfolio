@@ -1,0 +1,27 @@
+global:
+  resolve_timeout: 5m
+route:
+  receiver: telegram-infraops
+  group_by: ['alertname', 'instance']
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 720h
+receivers:
+  - name: telegram-infraops
+    telegram_configs:
+      - bot_token: 'TELEGRAM_BOT_TOKEN_PLACEHOLDER'
+        chat_id: TELEGRAM_CHAT_ID_PLACEHOLDER
+        parse_mode: 'Markdown'
+        message: |
+          {{ range .Alerts }}🔔 *Monitoramento InfraOps Center*
+
+          {{ if eq .Status "firing" }}*CONEXÃO PERDIDA* ❌:{{ else }}*CONEXÃO RESTAURADA* ✅:{{ end }}
+
+          {{ if eq .Status "firing" }}🔴{{ else }}🟢{{ end }} *{{ if eq .Labels.alertname "AccessPointOffline" }}Access Point{{ else if eq .Labels.alertname "ServidorOffline" }}Servidor{{ else if eq .Labels.alertname "ImpressoraOffline" }}Impressora{{ else if eq .Labels.alertname "PainelWebOffline" }}Painel Web{{ else }}Equipamento{{ end }}: {{ if .Labels.nome }}{{ .Labels.nome }}{{ else }}{{ .Labels.instance }}{{ end }}*
+          {{ if .Labels.servico }}🗂️ Serviço: {{ .Labels.servico }}
+          {{ end }}🌐 IP: {{ .Labels.instance }}
+          📶 Status: {{ if eq .Status "firing" }}Off-line{{ else }}On-line{{ end }}
+          🕐 Horário: {{ .StartsAt.Local.Format "02/01/2006 15:04:05" }}
+          {{ if eq .Status "firing" }}⚠️ Ação: Verificar host/dispositivo imediatamente
+          {{ end }}
+          {{ end }}
