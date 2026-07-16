@@ -13,7 +13,7 @@ import Auditoria from './components/Auditoria';
 import Automacoes from './components/Automacoes';
 import './App.css';
 
-const API_URL = 'http://IP_INTERNO_AQUI:8000';
+const API_URL = 'IP_INTERNO_AQUI:8000';
 
 const ABAS = [
   { id: 'controller', label: 'Controller' },
@@ -23,6 +23,13 @@ const ABAS = [
   { id: 'backups', label: 'Backups' },
   { id: 'links_internet', label: 'Links de Internet' },
 ];
+
+function formatarTamanho(gb) {
+  if (gb >= 1024) {
+    return `${(gb / 1024).toFixed(1)} TB`;
+  }
+  return `${gb} GB`;
+}
 
 function calcularJanelaMinutos(intervaloMs) {
   if (intervaloMs <= 5000) return 3;
@@ -505,7 +512,7 @@ function App() {
                     <tr key={h.id}>
                       <td>{h.job_name}</td>
                       <td>{h.backup_type || '—'}</td>
-                      <td>{h.tamanho_transferido_gb} GB</td>
+                      <td>{formatarTamanho(h.tamanho_transferido_gb)}</td>
                       <td>{new Date(h.executado_em).toLocaleString('pt-BR')}</td>
                       <td>
                         <span className={`status-tag status-tag-${h.status === 'Success' ? 'online' : h.status === 'Warning' ? 'warning' : 'offline'}`}>

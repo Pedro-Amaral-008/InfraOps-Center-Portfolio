@@ -1,5 +1,12 @@
 import './ServerResourceCard.css';
 
+function formatarTamanho(gb) {
+  if (gb >= 1024) {
+    return `${(gb / 1024).toFixed(1)} TB`;
+  }
+  return `${gb} GB`;
+}
+
 function BarraRecurso({ label, percent, corLimite = 90 }) {
   const cor = percent >= corLimite ? 'var(--status-offline)' : percent >= 75 ? 'var(--status-warning)' : 'var(--status-online)';
 
@@ -52,18 +59,18 @@ function ServerResourceCard({ agente }) {
       </div>
 
       <BarraRecurso label="CPU" percent={agente.cpu_percent} />
-      <BarraRecurso label={`RAM (${agente.ram_total_gb} GB)`} percent={agente.ram_percent} />
+      <BarraRecurso label={`RAM (${formatarTamanho(agente.ram_total_gb)})`} percent={agente.ram_percent} />
 
       {temMultiplosDiscos ? (
         agente.discos.map((disco) => (
           <BarraRecurso
             key={disco.drive}
-            label={`Disco ${disco.drive} (${disco.total_gb} GB)`}
+            label={`Disco ${disco.drive} (${formatarTamanho(disco.total_gb)})`}
             percent={disco.percent}
           />
         ))
       ) : (
-        <BarraRecurso label={`Disco (${agente.disco_total_gb} GB)`} percent={agente.disco_percent} />
+        <BarraRecurso label={`Disco (${formatarTamanho(agente.disco_total_gb)})`} percent={agente.disco_percent} />
       )}
     </div>
   );
