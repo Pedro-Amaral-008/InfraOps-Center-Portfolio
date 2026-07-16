@@ -213,6 +213,14 @@ security/         Certificados SSL
 ### Auditoria
 ![Auditoria](docs/screenshots/10-auditoria.jpg)
 
+### Notificações via Telegram
+Alertas automáticos de backup e status de infraestrutura enviados via bot do Telegram.
+
+![Notificação Telegram 1](docs/screenshots/11-telegram-notificacao-1.jpg)
+![Notificação Telegram 2](docs/screenshots/12-telegram-notificacao-2.jpg)
+![Notificação Telegram 3](docs/screenshots/13-telegram-notificacao-3.jpg)
+![Notificação Telegram 4](docs/screenshots/14-telegram-notificacao-4.jpg)
+
 ---
 
 ## Autor
