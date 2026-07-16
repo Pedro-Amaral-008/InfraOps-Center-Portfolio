@@ -1,0 +1,29 @@
+groups:
+  - name: infraops_alerts
+    rules:
+      - alert: InstanciaOffline
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Servico offline"
+          description: "O servico nao responde ha mais de 1 minuto"
+
+      - alert: DiscoAcimaDe90
+        expr: 100 - ((node_filesystem_avail_bytes{fstype!="tmpfs"} * 100) / node_filesystem_size_bytes{fstype!="tmpfs"}) > 90
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disco acima de 90%"
+          description: "Particao com uso elevado de disco"
+
+      - alert: MemoriaAlta
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Uso de memoria alto"
+          description: "Memoria em uso acima de 90%"

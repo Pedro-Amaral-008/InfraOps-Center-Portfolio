@@ -1,0 +1,175 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: infraops_postgres
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /mnt/data/infraops/postgres:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    networks:
+      - infraops_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: infraops_backend
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_HOST: postgres
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "${API_PORT}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - infraops_network
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: infraops_node_exporter
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
+    networks:
+      - infraops_network
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: infraops_blackbox
+    restart: unless-stopped
+    cap_add:
+      - NET_RAW
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ../../monitoring/blackbox/config.yml:/etc/blackbox_exporter/config.yml:ro
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+    ports:
+      - "9115:9115"
+    networks:
+      - infraops_network
+
+  pushgateway:
+    image: prom/pushgateway:latest
+    container_name: infraops_pushgateway
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "9091:9091"
+    networks:
+      - infraops_network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: infraops_prometheus
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ../../prometheus/configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../prometheus/rules:/etc/prometheus/rules:ro
+      - /mnt/data/infraops/prometheus:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    ports:
+      - "9090:9090"
+    networks:
+      - infraops_network
+    depends_on:
+      - node-exporter
+      - blackbox-exporter
+      - pushgateway
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: infraops_alertmanager
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ../../alertmanager/config.yml:/etc/alertmanager/config.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+    ports:
+      - "9093:9093"
+    networks:
+      - infraops_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: infraops_grafana
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /mnt/data/infraops/grafana:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - infraops_network
+    depends_on:
+      - prometheus
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: infraops_frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    networks:
+      - infraops_network
+    depends_on:
+      - backend
+
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: infraops_nginx_proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "81:81"
+    volumes:
+      - /mnt/data/infraops/nginx-proxy/data:/data
+      - /mnt/data/infraops/nginx-proxy/letsencrypt:/etc/letsencrypt
+    networks:
+      - infraops_network
+
+networks:
+  infraops_network:
+    driver: bridge

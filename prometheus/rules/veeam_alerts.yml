@@ -1,0 +1,18 @@
+groups:
+  - name: infraops_veeam_alerts
+    rules:
+      - alert: VeeamBackupFalhou
+        expr: veeam_backup_success == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backup Veeam falhou"
+
+      - alert: VeeamBackupAtrasado
+        expr: (time() - veeam_backup_last_run_timestamp) > 97200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backup Veeam nao executa ha mais de 27 horas"

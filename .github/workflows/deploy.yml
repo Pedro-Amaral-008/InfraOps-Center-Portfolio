@@ -1,0 +1,25 @@
+name: Deploy InfraOps Center
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Atualiza o codigo
+        run: |
+          cd ~/infraops-center
+          git pull origin main
+
+      - name: Reconstroi e reinicia os containers
+        run: |
+          cd ~/infraops-center/docker/docker-compose
+          docker compose --env-file ../../.env up -d --build
+
+      - name: Confirma que os containers estao saudaveis
+        run: |
+          sleep 10
+          docker compose --env-file ~/infraops-center/.env -f ~/infraops-center/docker/docker-compose/docker-compose.yml ps
