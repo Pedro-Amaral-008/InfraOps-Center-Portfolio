@@ -47,7 +47,7 @@ Servidores em redes remotas (ex: Fluig, Protheus), inacessiveis diretamente pelo
 
 ### Hardware
 
-<img src="docs/screenshots/raspberry-pi.jpg" width="500">
+<img src="docs/screenshots/raspberry-pi.jpg" width="350">
 
 *O Raspberry Pi 5 que hospeda toda a stack — fixado com fita dupla-face, solução simples e funcional.*
 
