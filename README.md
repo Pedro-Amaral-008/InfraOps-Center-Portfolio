@@ -220,6 +220,7 @@ Alertas automáticos de backup e status de infraestrutura enviados via bot do Te
 <img src="docs/screenshots/12-telegram-notificacao-2.jpg" width="300">
 <img src="docs/screenshots/13-telegram-notificacao-3.jpg" width="300">
 <img src="docs/screenshots/14-telegram-notificacao-4.jpg" width="300">
+<img src="docs/screenshots/15-telegram-notificacao-5.jpg" width="300">
 
 ---
 
