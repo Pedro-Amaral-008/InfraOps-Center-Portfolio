@@ -45,6 +45,12 @@ Toda a stack roda em containers Docker sobre um Raspberry Pi 5, com HTTPS via Ng
 
 Servidores em redes remotas (ex: Fluig, Protheus), inacessiveis diretamente pelo Raspberry Pi, sao monitorados e controlados via um **agente proxy**: um servidor ja presente na rede interna, com VPN estabelecida, atua como intermediario - coletando metricas via WinRM e executando comandos remotos em nome do backend.
 
+### Hardware
+
+<img src="docs/screenshots/raspberry-pi.jpg" width="500">
+
+*O Raspberry Pi 5 que hospeda toda a stack — fixado com fita dupla-face, solução simples e funcional.*
+
 ---
 
 ## Nota sobre visualizacao
