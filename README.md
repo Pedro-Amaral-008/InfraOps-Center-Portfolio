@@ -181,6 +181,40 @@ security/         Certificados SSL
 
 ---
 
+## 📸 Screenshots
+
+### Login
+![Login](docs/screenshots/01-login.jpg)
+
+### Visão Geral
+![Dashboard](docs/screenshots/02-dashboard-overview.jpg)
+
+### Servidores
+![Servidores](docs/screenshots/03-servidores.jpg)
+
+### Automações
+![Automações](docs/screenshots/04-automacoes.jpg)
+
+### Backups
+![Backups](docs/screenshots/05-backups.jpg)
+
+### Controller
+![Controller](docs/screenshots/06-controller.jpg)
+
+### Access Points
+![Access Points](docs/screenshots/07-access-points.jpg)
+
+### Links de Rede
+![Links de Rede](docs/screenshots/08-links-rede.jpg)
+
+### Impressoras
+![Impressoras](docs/screenshots/09-impressoras.jpg)
+
+### Auditoria
+![Auditoria](docs/screenshots/10-auditoria.jpg)
+
+---
+
 ## Autor
 
 Pedro Amaral
