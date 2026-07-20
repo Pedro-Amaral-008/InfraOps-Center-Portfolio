@@ -366,15 +366,32 @@ from app.database import AsyncSessionLocal
 
 async def loop_verificacao_agentes():
     while True:
-        try:
-            async with AsyncSessionLocal() as db:
+        async with AsyncSessionLocal() as db:
+            try:
                 await verificar_limites_agentes(db)
+            except Exception as e:
+                print(f"ERRO em verificar_limites_agentes: {e}")
+
+            try:
                 await verificar_disponibilidade_agentes(db)
+            except Exception as e:
+                print(f"ERRO em verificar_disponibilidade_agentes: {e}")
+
+            try:
                 await verificar_failover_srv_arquivos(db)
+            except Exception as e:
+                print(f"ERRO em verificar_failover_srv_arquivos: {e}")
+
+            try:
                 await verificar_limites_controller(db)
+            except Exception as e:
+                print(f"ERRO em verificar_limites_controller: {e}")
+
+            try:
                 await registrar_status_links(db)
-        except Exception:
-            pass
+            except Exception as e:
+                print(f"ERRO em registrar_status_links: {e}")
+
         await asyncio.sleep(120)
 
 @app.on_event("startup")
