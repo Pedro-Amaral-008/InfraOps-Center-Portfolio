@@ -38,6 +38,8 @@ scrape_configs:
         labels: { nome: "Srv Backup 2", servico: "Redundancia Backups" }
       - targets: ['IP_INTERNO_AQUI:445']
         labels: { nome: "Srv Arquivos Espelho", servico: "Redundancia Srv Arquivos" }
+      - targets: ['IP_INTERNO_AQUI:22']
+        labels: { nome: "Srv Monitoramento", servico: "E-CAM e Sistemas de Monitoramento" }
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

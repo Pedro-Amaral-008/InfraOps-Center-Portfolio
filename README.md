@@ -45,12 +45,6 @@ Toda a stack roda em containers Docker sobre um Raspberry Pi 5, com HTTPS via Ng
 
 Servidores em redes remotas (ex: Fluig, Protheus), inacessiveis diretamente pelo Raspberry Pi, sao monitorados e controlados via um **agente proxy**: um servidor ja presente na rede interna, com VPN estabelecida, atua como intermediario - coletando metricas via WinRM e executando comandos remotos em nome do backend.
 
-### Hardware
-
-<img src="docs/screenshots/raspberry-pi.jpg" width="350">
-
-*O Raspberry Pi 5 que hospeda toda a stack — fixado com fita dupla-face, solução simples e funcional.*
-
 ---
 
 ## Nota sobre visualizacao
@@ -101,7 +95,7 @@ O projeto foi inicialmente concebido utilizando o Grafana como interface princip
 ### Interface
 - [x] Dashboard web proprio em React, com graficos, historico e atualizacao em tempo real
 - [x] Janela de tempo dos graficos ajustavel conforme a frequencia de atualizacao escolhida
-- [x] Agentes de coleta personalizados (PowerShell) para servidores Windows
+- [x] Agentes de coleta personalizados (PowerShell e Bash) para servidores Windows e Linux
 
 ### DevOps
 - [x] Pipeline de CI/CD via GitHub Actions, com deploy automatico a cada push na branch principal
@@ -164,6 +158,7 @@ security/         Certificados SSL
 | **Docker / Docker Compose** | Orquestracao de todos os servicos em containers |
 | **Nginx Proxy Manager** | Reverse proxy com certificado SSL, expoe o Dashboard via HTTPS |
 | **GitHub Actions** | Pipeline de CI/CD, com self-hosted runner executando deploys automaticos localmente |
+| **PowerShell / Bash** | Agentes de coleta de metricas multiplataforma (Windows e Linux) |
 
 ---
 
@@ -177,56 +172,12 @@ security/         Certificados SSL
 - [x] Modulo de Agentes (coleta de metricas de servidores Windows)
 - [x] Integracao UniFi (clientes por access point)
 - [x] Integracao pfSense (status e trafego de links WAN via SNMP)
-- [x] Monitoramento Fluig (ambiente de testes)
 - [x] Modulo de Automacoes (reinicializacao remota de servicos)
 - [x] Monitoramento de servidor de storage redundante
 - [x] Sistema de failover manual e automatico, com verificacao de seguranca
 - [x] CI/CD (GitHub Actions com self-hosted runner, deploy automatico a cada push)
 - [ ] Migracao do monitoramento do Fluig para o ambiente de producao
 - [ ] Monitoramento Protheus
-
----
-
-## 📸 Screenshots
-
-### Login
-<img src="docs/screenshots/01-login.jpg" width="600">
-
-### Visão Geral
-<img src="docs/screenshots/02-dashboard-overview.jpg" width="600">
-
-### Servidores
-<img src="docs/screenshots/03-servidores.jpg" width="600">
-
-### Automações
-<img src="docs/screenshots/04-automacoes.jpg" width="600">
-
-### Backups
-<img src="docs/screenshots/05-backups.jpg" width="600">
-
-### Controller
-<img src="docs/screenshots/06-controller.jpg" width="600">
-
-### Access Points
-<img src="docs/screenshots/07-access-points.jpg" width="600">
-
-### Links de Rede
-<img src="docs/screenshots/08-links-rede.jpg" width="600">
-
-### Impressoras
-<img src="docs/screenshots/09-impressoras.jpg" width="600">
-
-### Auditoria
-<img src="docs/screenshots/10-auditoria.jpg" width="600">
-
-### Notificações via Telegram
-Alertas automáticos de backup e status de infraestrutura enviados via bot do Telegram.
-
-<img src="docs/screenshots/11-telegram-notificacao-1.jpg" width="300">
-<img src="docs/screenshots/12-telegram-notificacao-2.jpg" width="300">
-<img src="docs/screenshots/13-telegram-notificacao-3.jpg" width="300">
-<img src="docs/screenshots/14-telegram-notificacao-4.jpg" width="300">
-<img src="docs/screenshots/15-telegram-notificacao-5.jpg" width="300">
 
 ---
 

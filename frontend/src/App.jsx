@@ -52,7 +52,6 @@ function App() {
   const [pfsenseLinks, setPfsenseLinks] = useState([]);
   const [pfsenseUptime, setPfsenseUptime] = useState([]);
   const [pfsenseTrafego, setPfsenseTrafego] = useState({});
-  const [latenciaFluig, setLatenciaFluig] = useState([]);
   const [restartandoFluig, setRestartandoFluig] = useState(false);
   const [backups, setBackups] = useState([]);
   const [backupsHistorico, setBackupsHistorico] = useState([]);
@@ -114,9 +113,6 @@ function App() {
       axios.get(`${API_URL}/dashboard/agents`, {
         headers: { Authorization: `Bearer ${token}` },
       }).then((response) => setAgentes(response.data)).catch(() => {});
-      axios.get(`${API_URL}/dashboard/metrics/latencia-agentes?minutos=${calcularJanelaMinutos(intervaloAtualizacao)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }).then((response) => setLatenciaFluig(response.data)).catch(() => {});
     }
     if (abaAtiva === "access_points") {
       axios.get(`${API_URL}/dashboard/unifi/aps`, {
@@ -386,15 +382,6 @@ function App() {
 
           {(abaAtiva === 'servidores' || abaAtiva === 'access_points' || abaAtiva === 'impressoras') && (
             <div className="metrics-grid">
-              {abaAtiva === 'servidores' && latenciaFluig.map((item, idx) => (
-                <MetricChart
-                  key={`fluig-${item.instance}`}
-                  titulo={`${item.nome} — Latência (ms)`}
-                  dados={item.pontos}
-                  cor="#F39C12"
-                  unidade="ms"
-                />
-              ))}
               {(latencias[abaAtiva] || []).map((item, idx) => (
                 <MetricChart
                   key={item.instance}

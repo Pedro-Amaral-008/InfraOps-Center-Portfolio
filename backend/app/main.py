@@ -168,9 +168,9 @@ async def dashboard_metrics_latencia(
 
 
 @app.get("/dashboard/backups")
-async def dashboard_backups(usuario: User = Depends(get_current_user)):
+async def dashboard_backups(usuario: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     from app.dashboard import get_backups_detalhado
-    return await get_backups_detalhado()
+    return await get_backups_detalhado(db)
 
 
 @app.post("/backups/registrar")
@@ -545,34 +545,6 @@ async def loop_resumo_diario():
         except Exception:
             pass
         await asyncio.sleep(300)
-
-
-@app.get("/dashboard/metrics/latencia-agentes")
-async def dashboard_metrics_latencia_agentes(
-    minutos: int = 60,
-    usuario: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    from datetime import timezone
-    limite = datetime.now(timezone.utc) - timedelta(minutes=minutos)
-
-    result = await db.execute(
-        select(AgentMetric)
-        .where(AgentMetric.instance == "srvfrotas", AgentMetric.coletado_em >= limite)
-        .order_by(AgentMetric.coletado_em)
-    )
-    registros = result.scalars().all()
-
-    return [
-        {
-            "nome": "SRV-FLUIG",
-            "instance": "srvfrotas",
-            "pontos": [
-                {"timestamp": int(r.coletado_em.timestamp() * 1000), "valor": r.latencia_ms}
-                for r in registros if r.latencia_ms is not None
-            ],
-        }
-    ]
 
 
 from app.models import AutomationJob
