@@ -413,12 +413,23 @@ async def dashboard_controller_current(
     ram_total = await query_prometheus('node_memory_MemTotal_bytes')
     temperatura = await query_prometheus('node_thermal_zone_temp{type="cpu-thermal"}')
     disco_total = await query_prometheus('node_filesystem_size_bytes{mountpoint="/"}')
+    disco_hd_percent = await query_prometheus('100 - ((node_filesystem_avail_bytes{mountpoint="/mnt/data"} * 100) / node_filesystem_size_bytes{mountpoint="/mnt/data"})')
+    disco_hd_total = await query_prometheus('node_filesystem_size_bytes{mountpoint="/mnt/data"}')
 
     def extrair_valor(resultado):
         if resultado and len(resultado) > 0:
             return float(resultado[0].get("value", [None, "0"])[1])
         return 0
 
+    discos_lista = [
+        {"drive": "/", "total_gb": round(extrair_valor(disco_total) / (1024**3)), "percent": round(extrair_valor(disco))},
+    ]
+    if extrair_valor(disco_hd_total) > 0:
+        discos_lista.append({
+            "drive": "/mnt/data",
+            "total_gb": round(extrair_valor(disco_hd_total) / (1024**3)),
+            "percent": round(extrair_valor(disco_hd_percent)),
+        })
     return {
         "hostname": "InfraOps Controller",
         "instance": "raspberry-pi-controller",
@@ -427,6 +438,7 @@ async def dashboard_controller_current(
         "ram_total_gb": round(extrair_valor(ram_total) / (1024**3)),
         "disco_percent": round(extrair_valor(disco)),
         "disco_total_gb": round(extrair_valor(disco_total) / (1024**3)),
+        "discos": discos_lista,
         "temperatura_celsius": round(extrair_valor(temperatura), 1),
         "uptime_horas": None,
     }
