@@ -81,8 +81,37 @@ async def get_dashboard_summary(db=None):
     unifi = await query_prometheus('probe_success{job="blackbox-unifi-controller"}')
     unifi_status = "online" if unifi and unifi[0].get("value", [None, "0"])[1] == "1" else "offline"
 
-    backups = await query_prometheus('veeam_backup_success')
-    backups_ok, backups_falharam = count_by_value(backups)
+    from sqlalchemy import select, func as sqlfunc
+    from datetime import timezone, timedelta
+    from app.models import BackupExecution
+
+    backups_ok = 0
+    backups_falharam = 0
+    if db is not None:
+        limite = datetime.now(timezone.utc) - timedelta(hours=48)
+        subquery_backup = (
+            select(
+                BackupExecution.job_name,
+                sqlfunc.max(BackupExecution.executado_em).label("max_executado")
+            )
+            .where(BackupExecution.executado_em >= limite)
+            .group_by(BackupExecution.job_name)
+            .subquery()
+        )
+        result_backups = await db.execute(
+            select(BackupExecution)
+            .join(
+                subquery_backup,
+                (BackupExecution.job_name == subquery_backup.c.job_name) &
+                (BackupExecution.executado_em == subquery_backup.c.max_executado)
+            )
+        )
+        ultimas_execucoes = result_backups.scalars().all()
+        for execucao in ultimas_execucoes:
+            if execucao.status in ("Success", "Warning"):
+                backups_ok += 1
+            else:
+                backups_falharam += 1
 
     impressoras = await query_prometheus('probe_success{job="blackbox-impressoras"}')
     impressoras_online, impressoras_offline = count_by_value(impressoras)
@@ -104,45 +133,47 @@ async def get_dashboard_summary(db=None):
     }
 
 
-async def get_backups_detalhado():
-    sucesso = await query_prometheus('veeam_backup_success')
-    timestamps = await query_prometheus('veeam_backup_last_run_timestamp')
-    tamanhos = await query_prometheus('veeam_backup_size_bytes')
 
-    def indexar(resultados):
-        indice = {}
-        for r in resultados:
-            instance = r.get("metric", {}).get("instance", "")
-            valor = r.get("value", [None, None])[1]
-            indice[instance] = valor
-        return indice
 
-    idx_sucesso = indexar(sucesso)
-    idx_timestamp = indexar(timestamps)
-    idx_tamanho = indexar(tamanhos)
+async def get_backups_detalhado(db=None):
+    from sqlalchemy import select, func as sqlfunc
+    from app.models import BackupExecution
 
     nomes_amigaveis = {
         "servidor_arquivos": "Backup Servidor de Arquivos",
         "servidor_impressao": "Backup Servidor de Impressão",
     }
 
+    if db is None:
+        return []
+
+    subquery = (
+        select(
+            BackupExecution.instance,
+            sqlfunc.max(BackupExecution.executado_em).label("max_executado")
+        )
+        .group_by(BackupExecution.instance)
+        .subquery()
+    )
+    result = await db.execute(
+        select(BackupExecution)
+        .join(
+            subquery,
+            (BackupExecution.instance == subquery.c.instance) &
+            (BackupExecution.executado_em == subquery.c.max_executado)
+        )
+    )
+    ultimas_execucoes = result.scalars().all()
+
     backups = []
-    for instance in idx_sucesso.keys():
-        tamanho_bytes = float(idx_tamanho.get(instance, 0))
-        tamanho_gb = round(tamanho_bytes / (1024**3), 2)
-
-        ultimo_ts = idx_timestamp.get(instance)
-        ultima_execucao = None
-        if ultimo_ts:
-            ultima_execucao = datetime.fromtimestamp(float(ultimo_ts)).isoformat()
-
+    for execucao in ultimas_execucoes:
+        tamanho_gb = round((execucao.tamanho_transferido_bytes or 0) / (1024**3), 2)
         backups.append({
-            "nome": nomes_amigaveis.get(instance, instance),
+            "nome": nomes_amigaveis.get(execucao.instance, execucao.instance),
             "tamanho_transferido_gb": tamanho_gb,
-            "instance": instance,
-            "sucesso": idx_sucesso.get(instance) == "1",
+            "instance": execucao.instance,
+            "sucesso": execucao.status in ("Success", "Warning"),
             "tamanho_gb": tamanho_gb,
-            "ultima_execucao": ultima_execucao,
+            "ultima_execucao": execucao.executado_em.isoformat() if execucao.executado_em else None,
         })
-
     return backups
