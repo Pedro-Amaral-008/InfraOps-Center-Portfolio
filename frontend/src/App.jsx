@@ -59,6 +59,20 @@ function App() {
   const [detalheAberto, setDetalheAberto] = useState(null);
   const [intervaloAtualizacao, setIntervaloAtualizacao] = useState(30000);
   const [abaAtiva, setAbaAtiva] = useState('controller');
+
+
+  useEffect(() => {
+    if (!token || usuario) return;
+    axios.get(`${API_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((response) => setUsuario(response.data))
+      .catch(() => {
+        localStorage.removeItem('infraops_token');
+        setToken(null);
+        setUsuario(null);
+      });
+  }, [token, usuario]);
   const [navPrincipal, setNavPrincipal] = useState('dashboard');
 
   const buscarDados = useCallback(() => {
