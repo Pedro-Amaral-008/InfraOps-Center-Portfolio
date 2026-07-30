@@ -126,6 +126,7 @@ O projeto foi inicialmente concebido utilizando o Grafana como interface princip
 - Projetar uma arquitetura de agente proxy para monitorar e automatizar servidores em redes inacessiveis diretamente, usando um servidor intermediario ja presente na rede de destino
 - Implementar uma fila de comandos assincrona para execucao remota de automacoes, com feedback em tempo real via Telegram e rastreabilidade completa
 - Implementar CI/CD em uma infraestrutura sem IP publico exposto, utilizando um self-hosted runner do GitHub Actions que executa localmente, eliminando a necessidade de abrir portas para a internet
+- Diagnosticar esgotamento de espaco em disco no cartao microSD do Raspberry Pi (77% de uso). Investigacao revelou que os dados persistentes (PostgreSQL, Prometheus, Grafana) ja estavam corretamente armazenados no HD externo desde o inicio; a causa raiz era cache de build do Docker acumulado (12GB) de sucessivos rebuilds da aplicacao. Resolvido sem custo adicional, liberando o cartao de 77% para 37% de uso, com limpeza automatica mensal configurada via cron para prevenir recorrencia
 
 ---
 
