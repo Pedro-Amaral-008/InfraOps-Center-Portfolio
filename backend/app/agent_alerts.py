@@ -12,14 +12,14 @@ LIMITE_DISCO = 90
 COOLDOWN_HORAS = 24
 
 
-async def enviar_telegram(mensagem: str):
+async def enviar_telegram(mensagem: str, parse_mode: str = "Markdown"):
     url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             await client.post(url, json={
                 "chat_id": settings.telegram_chat_id,
                 "text": mensagem,
-                "parse_mode": "Markdown",
+                "parse_mode": parse_mode,
             })
         except Exception:
             pass
@@ -35,12 +35,17 @@ async def obter_estado(db: AsyncSession, instance: str, recurso: str):
     return result.scalar_one_or_none()
 
 
-async def definir_estado(db: AsyncSession, instance: str, recurso: str, em_alerta: bool):
+async def definir_estado(db: AsyncSession, instance: str, recurso: str, em_alerta: bool, notificacao_enviada: bool = None):
     registro = await obter_estado(db, instance, recurso)
     if registro:
         registro.em_alerta = em_alerta
+        if notificacao_enviada is not None:
+            registro.notificacao_enviada = notificacao_enviada
     else:
-        registro = AgentAlertState(instance=instance, recurso=recurso, em_alerta=em_alerta)
+        registro = AgentAlertState(
+            instance=instance, recurso=recurso, em_alerta=em_alerta,
+            notificacao_enviada=notificacao_enviada if notificacao_enviada is not None else False,
+        )
         db.add(registro)
     await db.commit()
 
@@ -71,20 +76,24 @@ async def processar_recurso(db: AsyncSession, hostname: str, instance: str, nome
                 f"_Próximo alerta deste tipo, se persistir, em até {COOLDOWN_HORAS}h._"
             )
             await enviar_telegram(msg)
-
-        await definir_estado(db, instance, nome_recurso, True)
+            await definir_estado(db, instance, nome_recurso, True, notificacao_enviada=True)
+        else:
+            await definir_estado(db, instance, nome_recurso, True, notificacao_enviada=False)
 
     elif not esta_em_alerta and estava_em_alerta:
-        msg = (
-            f"🔔 *Monitoramento InfraOps Center*\n\n"
-            f"*USO NORMALIZADO* ✅:\n\n"
-            f"{emoji} *Servidor:* {hostname}\n"
-            f"📊 *{nome_recurso}* {valor}%\n"
-            f"🌐 *Instância:* {instance}\n"
-            f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-        )
-        await enviar_telegram(msg)
-        await definir_estado(db, instance, nome_recurso, False)
+        notificacao_foi_enviada = registro.notificacao_enviada if registro else False
+        if notificacao_foi_enviada:
+            msg = (
+                f"🔔 *Monitoramento InfraOps Center*\n\n"
+                f"*USO NORMALIZADO* ✅:\n\n"
+                f"{emoji} *Servidor:* {hostname}\n"
+                f"📊 *{nome_recurso}* {valor}%\n"
+                f"🌐 *Instância:* {instance}\n"
+                f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+            )
+            await enviar_telegram(msg)
+        await definir_estado(db, instance, nome_recurso, False, notificacao_enviada=False)
+
 
 
 async def verificar_limites_agentes(db: AsyncSession):
