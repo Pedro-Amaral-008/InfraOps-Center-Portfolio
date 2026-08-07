@@ -59,7 +59,7 @@ O projeto foi inicialmente concebido utilizando o Grafana como interface princip
 
 - [x] Monitoramento de servidores Windows (CPU, RAM, multiplos discos, uptime)
 - [x] Monitoramento de disponibilidade de servidores, access points e impressoras
-- [x] Integracao com pfSense via SNMP (status e trafego em tempo real dos links WAN)
+- [x] Integracao com pfSense via SNMP e SSH (status real de conectividade, trafego em tempo real e alertas de queda/normalizacao dos links WAN)
 - [x] Integracao com UniFi Controller (clientes conectados por access point)
 - [x] Blackbox Exporter para checagem de disponibilidade de rede
 - [x] Monitoramento de servidores em redes remotas via agente proxy (WinRM)
@@ -127,6 +127,8 @@ O projeto foi inicialmente concebido utilizando o Grafana como interface princip
 - Implementar uma fila de comandos assincrona para execucao remota de automacoes, com feedback em tempo real via Telegram e rastreabilidade completa
 - Implementar CI/CD em uma infraestrutura sem IP publico exposto, utilizando um self-hosted runner do GitHub Actions que executa localmente, eliminando a necessidade de abrir portas para a internet
 - Diagnosticar esgotamento de espaco em disco no cartao microSD do Raspberry Pi (77% de uso). Investigacao revelou que os dados persistentes (PostgreSQL, Prometheus, Grafana) ja estavam corretamente armazenados no HD externo desde o inicio; a causa raiz era cache de build do Docker acumulado (12GB) de sucessivos rebuilds da aplicacao. Resolvido sem custo adicional, liberando o cartao de 77% para 37% de uso, com limpeza automatica mensal configurada via cron para prevenir recorrencia
+- Diagnosticar inconsistencia no monitoramento de links WAN do pfSense: o status via SNMP padrao (ifOperStatus) refletia apenas conectividade fisica da interface, nao a saude real do link, fazendo o painel mostrar "online" para um link com 100% de perda de pacote e nenhum alerta ser disparado. Corrigido migrando a coleta para SSH + pfSsh.php (gatewaystatus), a mesma fonte de dado usada pela propria interface do pfSense, com autenticacao por chave dedicada e usuario restrito
+- Refinar a precisao do calculo de trafego de rede (Mbps) por link WAN, substituindo uma janela de amostragem fixa de 1 segundo por medicao baseada no tempo real decorrido entre leituras consecutivas do contador SNMP, reduzindo distorcoes causadas por variacoes de latencia na propria coleta
 
 ---
 
