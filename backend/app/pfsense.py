@@ -134,6 +134,8 @@ async def get_trafego_links():
     return resultado
 
 
+
+
 async def verificar_alertas_links(db):
     from datetime import datetime
     from app.agent_alerts import obter_estado, definir_estado, enviar_telegram
@@ -148,22 +150,22 @@ async def verificar_alertas_links(db):
 
         if offline and not estava_offline:
             msg = (
-                f"🔔 *Monitoramento InfraOps Center*\n\n"
-                f"*LINK DE REDE OFFLINE* ❌:\n\n"
-                f"🌐 *Link:* {nome}\n"
-                f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
-                f"⚠️ *Ação:* Verificar conectividade do link imediatamente"
+                f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
+                f"<b>LINK DE REDE OFFLINE</b> ❌:\n\n"
+                f"🌐 <b>Link:</b> {nome}\n"
+                f"🕐 <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+                f"⚠️ <b>Ação:</b> Verificar conectividade do link imediatamente"
             )
-            await enviar_telegram(msg)
+            await enviar_telegram(msg, parse_mode="HTML")
             await definir_estado(db, "pfsense", nome, True, notificacao_enviada=True)
         elif not offline and estava_offline:
             notificacao_foi_enviada = registro.notificacao_enviada if registro else False
             if notificacao_foi_enviada:
                 msg = (
-                    f"🔔 *Monitoramento InfraOps Center*\n\n"
-                    f"*LINK DE REDE NORMALIZADO* ✅:\n\n"
-                    f"🌐 *Link:* {nome}\n"
-                    f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                    f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
+                    f"<b>LINK DE REDE NORMALIZADO</b> ✅:\n\n"
+                    f"🌐 <b>Link:</b> {nome}\n"
+                    f"🕐 <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
                 )
-                await enviar_telegram(msg)
+                await enviar_telegram(msg, parse_mode="HTML")
             await definir_estado(db, "pfsense", nome, False, notificacao_enviada=False)
