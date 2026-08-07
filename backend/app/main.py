@@ -360,7 +360,7 @@ async def dashboard_agent_history(
 import asyncio
 from app.agent_alerts import verificar_limites_agentes, verificar_disponibilidade_agentes, verificar_failover_srv_arquivos
 from app.controller_alerts import verificar_limites_controller
-from app.pfsense import registrar_status_links, registrar_trafego
+from app.pfsense import registrar_status_links, registrar_trafego, verificar_alertas_links
 from app.database import AsyncSessionLocal
 
 
@@ -386,6 +386,11 @@ async def loop_verificacao_agentes():
                 await verificar_limites_controller(db)
             except Exception as e:
                 print(f"ERRO em verificar_limites_controller: {e}")
+
+            try:
+                await verificar_alertas_links(db)
+            except Exception as e:
+                print(f"ERRO em verificar_alertas_links: {e}")
 
             try:
                 await registrar_status_links(db)
