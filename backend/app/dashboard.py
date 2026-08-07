@@ -87,6 +87,7 @@ async def get_dashboard_summary(db=None):
 
     backups_ok = 0
     backups_falharam = 0
+    backups_detalhe = []
     if db is not None:
         limite = datetime.now(timezone.utc) - timedelta(hours=48)
         subquery_backup = (
@@ -107,14 +108,30 @@ async def get_dashboard_summary(db=None):
             )
         )
         ultimas_execucoes = result_backups.scalars().all()
+        nomes_amigaveis_backup = {
+            "servidor_arquivos": "Backup Servidor de Arquivos",
+            "servidor_impressao": "Backup Servidor de Impressão",
+        }
         for execucao in ultimas_execucoes:
-            if execucao.status in ("Success", "Warning"):
+            ok = execucao.status in ("Success", "Warning")
+            if ok:
                 backups_ok += 1
             else:
                 backups_falharam += 1
+            backups_detalhe.append({
+                "nome": nomes_amigaveis_backup.get(execucao.instance, execucao.instance),
+                "instance": execucao.backup_type or "-",
+                "status": "online" if ok else "offline",
+            })
 
     impressoras = await query_prometheus('probe_success{job="blackbox-impressoras"}')
     impressoras_online, impressoras_offline = count_by_value(impressoras)
+
+    from app.pfsense import get_status_links
+    links_wan = await get_status_links()
+    links_online = sum(1 for l in links_wan if l["status"] == "online")
+    links_offline = sum(1 for l in links_wan if l["status"] == "offline")
+    links_detalhe = [{"nome": l["nome"], "instance": l["nome"], "status": l["status"]} for l in links_wan]
 
     return {
         "servidores_online": servidores_online,
@@ -126,8 +143,12 @@ async def get_dashboard_summary(db=None):
         "painel_unifi": unifi_status,
         "backups_ok": backups_ok,
         "backups_falharam": backups_falharam,
+        "backups_detalhe": backups_detalhe,
         "impressoras_online": impressoras_online,
         "impressoras_offline": impressoras_offline,
+        "links_online": links_online,
+        "links_offline": links_offline,
+        "links_detalhe": links_detalhe,
         "impressoras_detalhe": to_device_list(impressoras),
         "atualizado_em": datetime.now().isoformat(),
     }

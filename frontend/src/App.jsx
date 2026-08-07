@@ -249,6 +249,11 @@ function App() {
 
           {dados && (
             <div className="cards-grid">
+              <StatusCard
+                title="Painel UniFi"
+                value={dados.painel_unifi === 'online' ? 'Online' : 'Offline'}
+                status={dados.painel_unifi === 'online' ? 'online' : 'offline'}
+              />
               <div onClick={() => abrirDetalhe('servidores')} style={{ cursor: 'pointer' }}>
                 <StatusCard
                   title="Servidores Online"
@@ -265,17 +270,22 @@ function App() {
                   subtitle={`${dados.access_points_offline} offline · clique para detalhes`}
                 />
               </div>
-              <StatusCard
-                title="Painel UniFi"
-                value={dados.painel_unifi === 'online' ? 'Online' : 'Offline'}
-                status={dados.painel_unifi === 'online' ? 'online' : 'offline'}
-              />
-              <StatusCard
-                title="Backups OK"
-                value={dados.backups_ok}
-                status={dados.backups_falharam > 0 ? 'offline' : 'online'}
-                subtitle={`${dados.backups_falharam} falharam`}
-              />
+              <div onClick={() => abrirDetalhe('links')} style={{ cursor: 'pointer' }}>
+                <StatusCard
+                  title="Links de Rede"
+                  value={dados.links_online}
+                  status={dados.links_offline > 0 ? 'offline' : 'online'}
+                  subtitle={`${dados.links_offline} offline · clique para detalhes`}
+                />
+              </div>
+              <div onClick={() => abrirDetalhe('backups')} style={{ cursor: 'pointer' }}>
+                <StatusCard
+                  title="Backups OK"
+                  value={dados.backups_ok}
+                  status={dados.backups_falharam > 0 ? 'offline' : 'online'}
+                  subtitle={`${dados.backups_falharam} falharam · clique para detalhes`}
+                />
+              </div>
               <div onClick={() => abrirDetalhe('impressoras')} style={{ cursor: 'pointer' }}>
                 <StatusCard
                   title="Impressoras Online"
@@ -290,7 +300,7 @@ function App() {
           {detalheAberto && dados[`${detalheAberto}_detalhe`] && (
             <div className="detail-table">
               <h3 className="detail-table-title">
-                Detalhes — {detalheAberto === 'access_points' ? 'Access Points' : detalheAberto === 'servidores' ? 'Servidores' : 'Impressoras'}
+                Detalhes — {detalheAberto === 'access_points' ? 'Access Points' : detalheAberto === 'servidores' ? 'Servidores' : detalheAberto === 'links' ? 'Links de Rede' : detalheAberto === 'backups' ? 'Backups' : 'Impressoras'}
               </h3>
               <table>
                 <thead>
@@ -302,7 +312,7 @@ function App() {
                 </thead>
                 <tbody>
                   {dados[`${detalheAberto}_detalhe`].map((item) => (
-                    <tr key={item.instance}>
+                    <tr key={`${detalheAberto}-${item.nome}`}>
                       <td>{item.nome}</td>
                       <td>{item.instance}</td>
                       <td>
