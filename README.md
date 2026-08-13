@@ -68,6 +68,7 @@ O projeto foi inicialmente concebido utilizando o Grafana como interface princip
 
 - [x] Backend proprio em FastAPI com autenticacao JWT
 - [x] Controle de acesso por papeis - RBAC (super_admin, admin, operador)
+- [x] Gerenciamento completo de usuarios pelo painel web (criar, resetar senha, alterar papel, desativar), com senha temporaria gerada automaticamente e troca obrigatoria no primeiro acesso
 - [x] Logs de auditoria de acoes sensiveis
 - [x] Backup automatizado do banco de dados, replicado para dois servidores via SSH
 - [x] HTTPS com certificado SSL e reverse proxy (Nginx Proxy Manager)
