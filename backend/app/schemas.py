@@ -49,3 +49,30 @@ class AgentMetricCreate(BaseModel):
     coletado_em: str
     discos: list[DiscoInfo] | None = None
     latencia_ms: int | None = None
+
+
+class UsuarioCreate(BaseModel):
+    username: str
+    nome_completo: str
+    role: str
+
+
+class UsuarioResponse(BaseModel):
+    id: int
+    username: str
+    nome_completo: str
+    role: str
+    ativo: bool
+    deve_trocar_senha: bool
+
+    class Config:
+        from_attributes = True
+
+
+class UsuarioRoleUpdate(BaseModel):
+    role: str
+
+
+class SenhaResetResponse(BaseModel):
+    username: str
+    senha_temporaria: str

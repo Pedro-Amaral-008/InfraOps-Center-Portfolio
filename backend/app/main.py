@@ -1,9 +1,10 @@
 import os
+import secrets
 from fastapi import FastAPI, Depends, HTTPException, status, Header, Request
 from app.config import settings
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text, select, desc, func
+from sqlalchemy import text, select, desc, func, case
 from datetime import datetime, timedelta, timezone
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -12,7 +13,7 @@ from app.database import get_db
 from app.dashboard import get_dashboard_summary
 from app.metrics import get_metricas_host
 from app.models import User, BackupExecution, AuditLog
-from app.schemas import LoginRequest, LoginResponse, TrocarSenhaRequest, BackupExecutionCreate
+from app.schemas import LoginRequest, LoginResponse, TrocarSenhaRequest, BackupExecutionCreate, UsuarioCreate, UsuarioResponse, UsuarioRoleUpdate, SenhaResetResponse
 from app.auth import verificar_senha, criar_token, hash_senha
 from app.deps import get_current_user, exigir_papel
 from app.audit import registrar_log
@@ -782,3 +783,152 @@ async def solicitar_failover_srv_arquivos(
     )
 
     return {"status": "solicitado", "job_id": job.id}
+
+
+# ============================================
+# GERENCIAMENTO DE USUARIOS (admin e super_admin)
+# ============================================
+
+def _pode_gerenciar(usuario: User, alvo_role: str | None = None) -> bool:
+    if usuario.role == "super_admin":
+        return True
+    if usuario.role == "admin" and alvo_role != "super_admin":
+        return True
+    return False
+
+
+@app.get("/usuarios", response_model=list[UsuarioResponse])
+async def listar_usuarios(
+    usuario: User = Depends(exigir_papel("super_admin", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    ordem_role = case(
+        (User.role == "super_admin", 1),
+        (User.role == "admin", 2),
+        (User.role == "operador", 3),
+        else_=4,
+    )
+    result = await db.execute(select(User).order_by(ordem_role, User.username))
+    return result.scalars().all()
+
+
+@app.post("/usuarios", response_model=SenhaResetResponse)
+async def criar_usuario(
+    dados: UsuarioCreate,
+    usuario: User = Depends(exigir_papel("super_admin", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    if dados.role not in ("super_admin", "admin", "operador"):
+        raise HTTPException(status_code=400, detail="Role invalido")
+
+    if not _pode_gerenciar(usuario, dados.role):
+        raise HTTPException(status_code=403, detail="Voce nao tem permissao para criar usuario com este papel")
+
+    result = await db.execute(select(User).where(User.username == dados.username))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Nome de usuario ja existe")
+
+    senha_temporaria = secrets.token_urlsafe(9)
+    novo_usuario = User(
+        username=dados.username,
+        nome_completo=dados.nome_completo,
+        password_hash=hash_senha(senha_temporaria),
+        role=dados.role,
+        deve_trocar_senha=True,
+    )
+    db.add(novo_usuario)
+    await db.commit()
+
+    await registrar_log(
+        db, usuario.username, "criar_usuario", "sucesso",
+        detalhes=f"Usuario criado: {dados.username} ({dados.role})",
+    )
+
+    return {"username": dados.username, "senha_temporaria": senha_temporaria}
+
+
+@app.post("/usuarios/{username}/resetar-senha", response_model=SenhaResetResponse)
+async def resetar_senha_usuario(
+    username: str,
+    usuario: User = Depends(exigir_papel("super_admin", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.username == username))
+    alvo = result.scalar_one_or_none()
+    if not alvo:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    if not _pode_gerenciar(usuario, alvo.role):
+        raise HTTPException(status_code=403, detail="Voce nao tem permissao para gerenciar este usuario")
+
+    senha_temporaria = secrets.token_urlsafe(9)
+    alvo.password_hash = hash_senha(senha_temporaria)
+    alvo.deve_trocar_senha = True
+    await db.commit()
+
+    await registrar_log(
+        db, usuario.username, "resetar_senha", "sucesso",
+        detalhes=f"Senha resetada para: {username}",
+    )
+
+    return {"username": username, "senha_temporaria": senha_temporaria}
+
+
+@app.patch("/usuarios/{username}/role")
+async def atualizar_role_usuario(
+    username: str,
+    dados: UsuarioRoleUpdate,
+    usuario: User = Depends(exigir_papel("super_admin", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    if dados.role not in ("super_admin", "admin", "operador"):
+        raise HTTPException(status_code=400, detail="Role invalido")
+
+    result = await db.execute(select(User).where(User.username == username))
+    alvo = result.scalar_one_or_none()
+    if not alvo:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    if not _pode_gerenciar(usuario, alvo.role) or not _pode_gerenciar(usuario, dados.role):
+        raise HTTPException(status_code=403, detail="Voce nao tem permissao para esta alteracao")
+
+    if alvo.username == usuario.username and dados.role != usuario.role:
+        raise HTTPException(status_code=400, detail="Voce nao pode alterar o proprio papel")
+
+    alvo.role = dados.role
+    await db.commit()
+
+    await registrar_log(
+        db, usuario.username, "atualizar_role", "sucesso",
+        detalhes=f"Role de {username} alterado para {dados.role}",
+    )
+
+    return {"status": "atualizado"}
+
+
+@app.delete("/usuarios/{username}")
+async def desativar_usuario(
+    username: str,
+    usuario: User = Depends(exigir_papel("super_admin", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    if username == usuario.username:
+        raise HTTPException(status_code=400, detail="Voce nao pode desativar seu proprio usuario")
+
+    result = await db.execute(select(User).where(User.username == username))
+    alvo = result.scalar_one_or_none()
+    if not alvo:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    if not _pode_gerenciar(usuario, alvo.role):
+        raise HTTPException(status_code=403, detail="Voce nao tem permissao para desativar este usuario")
+
+    alvo.ativo = False
+    await db.commit()
+
+    await registrar_log(
+        db, usuario.username, "desativar_usuario", "sucesso",
+        detalhes=f"Usuario desativado: {username}",
+    )
+
+    return {"status": "desativado"}
