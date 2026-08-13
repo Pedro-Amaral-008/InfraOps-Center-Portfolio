@@ -195,6 +195,35 @@ async def registrar_backup(
     db.add(execucao)
     await db.commit()
 
+    from app.agent_alerts import obter_estado, definir_estado, enviar_telegram
+    falhou = dados.status not in ("Success", "Warning", "sucesso")
+    registro_alerta = await obter_estado(db, dados.instance, "Backup")
+    estava_falhando = registro_alerta.em_alerta if registro_alerta else False
+
+    if falhou and not estava_falhando:
+        msg = (
+            f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
+            f"<b>FALHA NO BACKUP</b> ❌:\n\n"
+            f"📦 <b>Job:</b> {dados.job_name}\n"
+            f"🌐 <b>Instância:</b> {dados.instance}\n"
+            f"🕐 <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+            f"⚠️ <b>Ação:</b> Verificar log do backup imediatamente"
+        )
+        await enviar_telegram(msg, parse_mode="HTML")
+        await definir_estado(db, dados.instance, "Backup", True, notificacao_enviada=True)
+    elif not falhou and estava_falhando:
+        notificacao_foi_enviada = registro_alerta.notificacao_enviada if registro_alerta else False
+        if notificacao_foi_enviada:
+            msg = (
+                f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
+                f"<b>BACKUP NORMALIZADO</b> ✅:\n\n"
+                f"📦 <b>Job:</b> {dados.job_name}\n"
+                f"🌐 <b>Instância:</b> {dados.instance}\n"
+                f"🕐 <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+            )
+            await enviar_telegram(msg, parse_mode="HTML")
+        await definir_estado(db, dados.instance, "Backup", False, notificacao_enviada=False)
+
     return {"status": "registrado com sucesso"}
 
 

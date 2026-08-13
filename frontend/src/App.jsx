@@ -280,7 +280,7 @@ function App() {
               </div>
               <div onClick={() => abrirDetalhe('backups')} style={{ cursor: 'pointer' }}>
                 <StatusCard
-                  title="Backups OK"
+                  title="Backups"
                   value={dados.backups_ok}
                   status={dados.backups_falharam > 0 ? 'offline' : 'online'}
                   subtitle={`${dados.backups_falharam} falharam · clique para detalhes`}
