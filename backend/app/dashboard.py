@@ -111,6 +111,7 @@ async def get_dashboard_summary(db=None):
         nomes_amigaveis_backup = {
             "servidor_arquivos": "Backup Servidor de Arquivos",
             "servidor_impressao": "Backup Servidor de Impressão",
+            "ecam": "Backup E-CAM",
         }
         for execucao in ultimas_execucoes:
             ok = execucao.status in ("Success", "Warning")
@@ -163,6 +164,7 @@ async def get_backups_detalhado(db=None):
     nomes_amigaveis = {
         "servidor_arquivos": "Backup Servidor de Arquivos",
         "servidor_impressao": "Backup Servidor de Impressão",
+            "ecam": "Backup E-CAM",
     }
 
     if db is None:
