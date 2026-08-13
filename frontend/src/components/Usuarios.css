@@ -1,0 +1,81 @@
+.usuarios-form {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #1e1e1e;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.usuarios-form input,
+.usuarios-form select {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #3a3a3a;
+  background: #2a2a2a;
+  color: #e0e0e0;
+  font-size: 14px;
+}
+
+.btn {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn:hover {
+  opacity: 0.85;
+}
+
+.btn-primary {
+  background: #3498db;
+  color: white;
+}
+
+.btn-secondary {
+  background: #444;
+  color: #e0e0e0;
+}
+
+.btn-warning {
+  background: #f39c12;
+  color: #1a1a1a;
+}
+
+.btn-danger {
+  background: #e74c3c;
+  color: white;
+}
+
+.usuarios-acoes {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.senha-gerada-box {
+  background: #1a3a1a;
+  border: 1px solid #2ecc71;
+  color: #2ecc71;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.senha-gerada-box code {
+  background: #0d1f0d;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 15px;
+}

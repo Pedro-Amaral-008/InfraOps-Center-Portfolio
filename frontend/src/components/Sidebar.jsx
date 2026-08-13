@@ -7,6 +7,7 @@ function Sidebar({ usuario, abaAtiva, onChangeAba }) {
     { id: 'dashboard', label: 'Visão Geral' },
     ...(podeVerAdmin ? [{ id: 'automacoes', label: 'Automações' }] : []),
     ...(podeVerAdmin ? [{ id: 'auditoria', label: 'Auditoria' }] : []),
+    ...(podeVerAdmin ? [{ id: 'usuarios', label: 'Usuários' }] : []),
   ];
 
   return (
