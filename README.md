@@ -183,8 +183,8 @@ security/         Certificados SSL
 - [x] Monitoramento de servidor de storage redundante
 - [x] Sistema de failover manual e automatico, com verificacao de seguranca
 - [x] CI/CD (GitHub Actions com self-hosted runner, deploy automatico a cada push)
-- [ ] Migracao do monitoramento do Fluig para o ambiente de producao
-- [ ] Monitoramento Protheus
+- [x] Failover manual testado em producao com sucesso
+- [x] Reversao manual do failover testada em producao com sucesso
 
 ---
 
