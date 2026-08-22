@@ -216,9 +216,9 @@ async def registrar_backup(
         notificacao_foi_enviada = registro_alerta.notificacao_enviada if registro_alerta else False
         if notificacao_foi_enviada:
             msg = (
-                f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
-                f"<b>BACKUP NORMALIZADO</b> ✅:\n\n"
-                f"📦 <b>Job:</b> {dados.job_name}\n"
+                f"🟢 <b>Monitoramento InfraOps Center</b>\n\n"
+                f"<b>Backup Realizado Com Sucesso</b> ✅:\n\n"
+                f"📦 <b>Job Executado:</b> {dados.job_name}\n"
                 f"🌐 <b>Instância:</b> {dados.instance}\n"
                 f"🕐 <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
             )
@@ -782,6 +782,35 @@ async def solicitar_failover_srv_arquivos(
         detalhes=f"Job ID {job.id}",
     )
 
+
+
+@app.post("/automations/desfazer-failover-srv-arquivos")
+async def desfazer_failover_srv_arquivos(
+    usuario: User = Depends(exigir_papel("super_admin", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(AutomationJob).where(
+            AutomationJob.alvo == "srvarqred",
+            AutomationJob.status.in_(["pendente", "executando"])
+        )
+    )
+    job_existente = result.scalar_one_or_none()
+    if job_existente:
+        raise HTTPException(status_code=400, detail="Ja existe uma operacao em andamento ou pendente")
+    job = AutomationJob(
+        tipo="desfazer_failover_srv_arquivos",
+        alvo="srvarqred",
+        status="pendente",
+        solicitado_por=usuario.username,
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    await registrar_log(
+        db, usuario.username, "desfazer_failover_srv_arquivos", "solicitado",
+        detalhes=f"Job ID {job.id}",
+    )
     return {"status": "solicitado", "job_id": job.id}
 
 
