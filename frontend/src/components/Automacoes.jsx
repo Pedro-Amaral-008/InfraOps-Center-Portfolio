@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://IP_INTERNO_AQUI:8000';
+const API_URL = 'IP_INTERNO_AQUI:8000';
 
 function Automacoes({ token }) {
   const [historico, setHistorico] = useState([]);
@@ -79,6 +79,23 @@ function Automacoes({ token }) {
       .finally(() => setFazendoFailover(false));
   };
 
+  const handleDesfazerFailover = () => {
+    if (!window.confirm('ATENCAO: isso vai trocar o IP de volta, sem checagem de seguranca. So use se tiver certeza que o servidor principal (SRV-ARQ) esta online. Confirma a reversao do failover?')) {
+      return;
+    }
+    setFazendoFailover(true);
+    axios.post(`${API_URL}/automations/desfazer-failover-srv-arquivos`, {}, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(() => {
+        alert('Comando enviado! A reversao deve iniciar em ate 1 minuto. Acompanhe pelo Telegram.');
+        buscarHistorico();
+      })
+      .catch((err) => {
+        alert('Erro ao solicitar reversao: ' + (err.response?.data?.detail || 'erro desconhecido'));
+      })
+      .finally(() => setFazendoFailover(false));
+  };
   const statusLabel = (status) => {
     if (status === 'concluido') return 'Concluído';
     if (status === 'erro') return 'Erro';
@@ -97,24 +114,6 @@ function Automacoes({ token }) {
       <div className="detail-table" style={{ marginBottom: '24px' }}>
         <h3 className="detail-table-title">Ações Disponíveis</h3>
         <button
-          onClick={handleRestartFluig}
-          disabled={restartando}
-          style={{
-            backgroundColor: 'var(--status-warning)',
-            color: '#0A1929',
-            border: 'none',
-            borderRadius: 'var(--radius-sm)',
-            padding: '10px 20px',
-            fontSize: '13px',
-            fontWeight: 600,
-            cursor: restartando ? 'not-allowed' : 'pointer',
-            opacity: restartando ? 0.6 : 1,
-          }}
-        >
-          {restartando ? 'Enviando...' : 'Reiniciar Fluig'}
-        </button>
-
-        <button
           onClick={handleFailover}
           disabled={fazendoFailover}
           style={{
@@ -127,10 +126,27 @@ function Automacoes({ token }) {
             fontWeight: 600,
             cursor: fazendoFailover ? 'not-allowed' : 'pointer',
             opacity: fazendoFailover ? 0.6 : 1,
-            marginLeft: '12px',
           }}
         >
           {fazendoFailover ? 'Enviando...' : 'Failover Srv Arquivos'}
+        </button>
+        <button
+          onClick={handleDesfazerFailover}
+          disabled={fazendoFailover}
+          style={{
+            backgroundColor: "#8A5A00",
+            color: "#FFFFFF",
+            border: "none",
+            borderRadius: "var(--radius-sm)",
+            padding: "10px 20px",
+            fontSize: "13px",
+            fontWeight: 600,
+            cursor: fazendoFailover ? "not-allowed" : "pointer",
+            opacity: fazendoFailover ? 0.6 : 1,
+            marginLeft: "12px",
+          }}
+        >
+          {fazendoFailover ? "Enviando..." : "Desfazer Failover Srv Arquivos"}
         </button>
 
         <button
