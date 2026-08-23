@@ -241,7 +241,7 @@ function App() {
             </>
           ) : (
           <>
-          <h2 className="page-title">Visão Geral</h2>
+          <h2 className="page-title">Dashboard</h2>
 
           {erro && (
             <div className="error-message">
