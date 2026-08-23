@@ -1,15 +1,125 @@
+/* ==========================================================================
+   Menu lateral suspenso e retratil
+
+   Solto das bordas, cantos arredondados e sombra funda, para ler como um
+   painel apoiado sobre a tela em vez de uma faixa colada na lateral. Mais
+   escuro que os cartoes do conteudo, para nao competir com eles.
+
+   RETRACAO: o CSS do menu fechado esta pronto abaixo, em .sidebar-fechada,
+   e o botao esta desenhado em .sidebar-toggle. Falta so o JSX que cria o
+   botao e alterna a classe - o trecho esta na conversa. Enquanto ele nao
+   existir, o menu simplesmente fica sempre aberto; nada quebra.
+   ========================================================================== */
+
 .sidebar {
   width: 220px;
-  background-color: var(--bg-secondary);
-  min-height: calc(100vh - 73px);
-  padding: 20px 12px;
-  border-right: 1px solid var(--border-subtle);
+  background-color: #1c1c1c;
+  min-height: calc(100vh - 73px - 36px);
+  margin: 18px 0 18px 18px;
+  padding: 18px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* O painel entra pela esquerda, logo atras do cabecalho. */
+@keyframes menu-entrando {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.sidebar {
+  animation: menu-entrando 0.5s 0.07s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { animation: none; }
+}
+
+/* A marca no topo do menu. Vem do CSS porque no HTML nao existe elemento
+   para ela - o ::before e o primeiro filho do painel. */
+
+
+/* --------------------------------------------------------------------------
+   Menu fechado: um trilho de icones, nao o menu aberto com o texto apagado.
+
+   A marca perde a ALTURA junto com a tinta. Zerar so a opacidade deixaria um
+   buraco de 54px no topo, com a mancha do item ativo boiando sozinha abaixo
+   dele - era esse o incomodo.
+
+   E cada item vira um quadrado de 40px centrado no trilho, em vez de
+   continuar sendo uma pilula larga com um icone perdido no meio.
+   -------------------------------------------------------------------------- */
+
+.sidebar.sidebar-fechada {
+  width: 60px;
+  padding: 18px 10px;
+}
+
+/* No trilho a marca nao some: encolhe para o simbolo. A caixa fica estreita
+   e a imagem, ancorada a esquerda, so mostra o "E" - o resto do letreiro
+   fica fora do recorte. Nao precisa de um segundo arquivo de logo. */
+
+.sidebar.sidebar-fechada .sidebar-label,
+.sidebar.sidebar-fechada .sidebar-badge {
+  display: none;
+}
+
+.sidebar.sidebar-fechada .sidebar-nav {
+  gap: 6px;
+  align-items: center;
+}
+
+.sidebar.sidebar-fechada .sidebar-item {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  gap: 0;
+  justify-content: center;
+}
+
+/* --------------------------------------------------------------------------
+   Botao de abrir e fechar. Estilo pronto, esperando o botao existir.
+   -------------------------------------------------------------------------- */
+
+.sidebar-toggle {
+  position: absolute;
+  top: 14px;
+  right: -14px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--accent);
+  color: var(--brand-white);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: background-color 0.15s ease, transform 0.15s ease;
+  z-index: 2;
+}
+
+.sidebar-toggle:hover {
+  background-color: var(--accent-raise);
+  transform: scale(1.06);
+}
+
+.sidebar-toggle:focus-visible {
+  outline: 2px solid var(--accent-on-dark);
+  outline-offset: 2px;
 }
 
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 
 .sidebar-item {
@@ -17,19 +127,21 @@
   align-items: center;
   gap: 10px;
   padding: 11px 14px;
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
   position: relative;
 }
 
 .sidebar-item:not(.disabled):not(.active):hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: rgba(255, 255, 255, 0.06);
 }
 
+/* O item ativo ganha um halo do proprio vermelho, e nao uma sombra cinza:
+   e ele que precisa saltar dentro do painel suspenso. */
 .sidebar-item.active {
   background-color: var(--accent-hover);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 4px 14px rgba(123, 30, 32, 0.45);
 }
 
 .sidebar-item.active .sidebar-label {
@@ -42,14 +154,50 @@
   cursor: not-allowed;
 }
 
+/* O icone acompanha o texto: acinzentado no item comum, branco no ativo.
+   O `color` tambem serve para icone em SVG desenhado com currentColor. */
 .sidebar-icon {
   font-size: 18px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.sidebar-item.active .sidebar-icon {
+  color: var(--brand-white);
+}
+
+.sidebar-item:not(.disabled):not(.active):hover .sidebar-icon {
+  color: var(--text-primary);
+}
+
+/* Se o icone for um <svg class="sidebar-icon">, o font-size nao o dimensiona. */
+svg.sidebar-icon {
+  width: 19px;
+  height: 19px;
 }
 
 .sidebar-label {
   font-size: 13.5px;
   font-weight: 500;
   color: var(--text-secondary);
+}
+
+/* --------------------------------------------------------------------------
+   Modo claro. O painel escuro do menu vira branco, e os realces - que sao
+   branco transparente e sumiriam - passam a ser preto transparente.
+   -------------------------------------------------------------------------- */
+
+:root[data-theme="light"] .sidebar {
+  background-color: #ffffff;
+}
+
+:root[data-theme="light"] .sidebar-item:not(.disabled):not(.active):hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+:root[data-theme="light"] .sidebar-badge {
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 .sidebar-badge {
