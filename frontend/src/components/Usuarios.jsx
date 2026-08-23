@@ -3,7 +3,7 @@ import axios from 'axios';
 import './Auditoria.css';
 import './Usuarios.css';
 
-const API_URL = 'IP_INTERNO_AQUI:8000';
+const API_URL = 'http://192.168.1.26:8000';
 
 function Usuarios({ token, meuUsername, meuRole }) {
   const [usuarios, setUsuarios] = useState([]);
@@ -162,7 +162,7 @@ function Usuarios({ token, meuUsername, meuRole }) {
                     </span>
                   </td>
                   <td>
-                    {u.username !== meuUsername && (
+                    {u.username !== meuUsername && (meuRole === 'super_admin' || u.role !== 'super_admin') && (
                       <div className="usuarios-acoes">
                         <button className="btn btn-secondary" onClick={() => resetarSenha(u.username)}>Resetar Senha</button>
                         <button className="btn btn-warning" onClick={() => alterarRole(u.username, u.role)}>Alterar Papel</button>
