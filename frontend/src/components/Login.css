@@ -1,147 +1,459 @@
+/* ==========================================================================
+   Tela de entrada - InfraOps Center / Elcop
+   Layout em duas colunas: marca a esquerda, cartao claro a direita.
+   Cores e tipografia conforme IN-MDM Rev. 01 (Manual da Marca).
+
+   ATENCAO: este arquivo serve DUAS telas, que compartilham as mesmas classes:
+     1. Login          -> titulo "InfraOps Center", subtitulo "Elcop"
+     2. Troca de senha -> titulo "Troca de Senha Obrigatoria",
+                          subtitulo "Primeiro acesso - defina uma nova senha"
+   Qualquer ajuste em .login-box, .login-title ou .login-subtitle afeta as
+   duas. A marca da esquerda vem de background-image, nao da marcacao, entao
+   ela aparece nas duas telas - inclusive na troca de senha, que no HTML nao
+   tem logo nenhuma.
+   ========================================================================== */
+
+:root {
+  --brand-white: #ffffff;
+  --brand-gray-dark: #3f3f3f;
+  --brand-gray-light: #96969a;
+  --brand-red: #7b1e20;
+
+  --font-sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+  --bg-primary: #141414;
+  --bg-secondary: #3f3f3f;
+  --bg-elevated: #4f4f4f;
+
+  --text-primary: #ffffff;
+  --text-secondary: #c9c9cc;
+  --text-tertiary: #adadb1;
+
+  --border-subtle: rgba(255, 255, 255, 0.14);
+  --border-default: rgba(255, 255, 255, 0.28);
+
+  --accent: #7b1e20;
+  --accent-hover: #7b1e20;
+  --accent-raise: #99282b;
+  --accent-press: #5e1618;
+  --accent-on-dark: #d4696e;
+
+  --status-online: #56C089;
+  --status-warning: #E5AE3F;
+  --status-offline: #E2635E;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* Modo claro - copia do bloco do Header.css, pelo mesmo motivo de sempre:
+   a tela de login nao carrega o cabecalho e precisa das variaveis por conta
+   propria. Vale so com data-theme="light" no <html>. */
+:root[data-theme="light"] {
+  --bg-primary: #ececed;
+  --bg-secondary: #ffffff;
+  --bg-elevated: #f4f4f5;
+
+  --text-primary: #23232b;
+  --text-secondary: #5f5f66;
+  --text-tertiary: #74747c;
+
+  --border-subtle: rgba(0, 0, 0, 0.10);
+  --border-default: rgba(0, 0, 0, 0.20);
+
+  --accent-on-dark: #7b1e20;
+
+  --status-online: #217A4C;
+  --status-warning: #8A5F0C;
+  --status-offline: #B5322B;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.07);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.09);
+  --shadow-lg: 0 10px 28px rgba(0, 0, 0, 0.13);
+}
+
+/* --------------------------------------------------------------------------
+   Palco: fundo escuro com um halo quente no alto, marca e cartao lado a lado
+   -------------------------------------------------------------------------- */
+
 .login-container {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: clamp(40px, 8vw, 120px);
   min-height: 100vh;
-  background: radial-gradient(circle at 30% 20%, #14304A 0%, #0B1E2D 55%, #071219 100%);
+  padding: 40px;
+  background-color: var(--bg-primary);
+  background-image:
+    radial-gradient(ellipse 60% 50% at 78% 8%, rgba(123, 30, 32, 0.22), transparent 70%),
+    radial-gradient(ellipse 55% 45% at 12% 15%, rgba(63, 63, 63, 0.55), transparent 70%);
+  font-family: var(--font-sans);
   position: relative;
   overflow: hidden;
 }
 
+/* Grade tecnica de fundo. Textura discreta, sem custo de GPU. */
 .login-container::before {
   content: '';
   position: absolute;
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, rgba(46, 134, 171, 0.15) 0%, transparent 70%);
-  top: -150px;
-  right: -150px;
-  border-radius: 50%;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(150, 150, 154, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(150, 150, 154, 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 70% at 30% 45%, #000 0%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 30% 45%, #000 0%, transparent 100%);
+  pointer-events: none;
 }
 
+/* A marca da coluna esquerda. E um pseudo-elemento, e nao a logo do HTML,
+   porque assim ela aparece tambem na tela de troca de senha, que nao tem
+   logo na marcacao.
+
+   O logo-eops.png foi gerado a partir da arte de fundo preto: cada pixel
+   recebeu como opacidade o seu canal mais forte, e a cor foi reescalada
+   pelo mesmo fator. E o equivalente exato de projetar a arte sobre o fundo,
+   entao as bordas suaves e o vermelho do "E" sobreviveram, em vez de virar
+   recorte serrilhado. Por isso a marca assenta direto no escuro, sem placa
+   nem moldura. */
 .login-container::after {
   content: '';
-  position: absolute;
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(27, 79, 114, 0.2) 0%, transparent 70%);
-  bottom: -120px;
-  left: -120px;
-  border-radius: 50%;
-}
-
-.login-box {
-  background: rgba(20, 48, 74, 0.55);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border-radius: 20px;
-  padding: 56px 44px 44px;
-  width: 100%;
-  max-width: 400px;
-  text-align: center;
-  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  order: -1;
+  width: min(42vw, 430px);
+  aspect-ratio: 381 / 115;
+  flex-shrink: 0;
+  background: url('/logo-eops.png') center / contain no-repeat;
   position: relative;
   z-index: 1;
 }
 
-.login-logo-wrapper {
-  width: 140px;
-  height: 140px;
-  background: #FFFFFF;
-  border-radius: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 28px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  padding: 20px;
+/* --------------------------------------------------------------------------
+   Cartao claro
+   -------------------------------------------------------------------------- */
+
+.login-box {
+  background-color: #f7f7f8;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 24px;
+  padding: 44px 40px 36px;
+  width: 100%;
+  max-width: 420px;
+  flex-shrink: 0;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  position: relative;
+  z-index: 1;
 }
 
+/* O filete de destaque do topo era um recurso de cartao escuro. Sobre a
+   superficie clara ele so sujaria a borda arredondada. */
+.login-box::before {
+  display: none;
+}
+
+/* A logo agora e a coluna da esquerda; dentro do cartao ela ficaria repetida.
+   A tela de troca de senha ja nao a exibia. */
+.login-logo-wrapper,
 .login-logo {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  display: none;
 }
 
 .login-title {
-  font-size: 26px;
+  font-size: 27px;
   font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 6px;
-  letter-spacing: 0.3px;
+  color: #1f1f1f;
+  margin: 0 0 8px;
+  letter-spacing: -0.3px;
+  line-height: 1.2;
+  text-wrap: balance;
 }
 
+/* --------------------------------------------------------------------------
+   Titulo do cartao exibido como "E-OPS".
+
+   ISTO E UM REMENDO. O texto vem do Login.jsx, que nao existe neste
+   repositorio. O certo e trocar a palavra la e apagar este bloco.
+
+   O :has(.login-logo-wrapper) e o que impede o estrago: das duas telas que
+   usam este arquivo, so a de login tem a logo na marcacao. A de troca de
+   senha nao tem, entao ela escapa da regra e continua exibindo "Troca de
+   Senha Obrigatoria" - que e uma instrucao, nao pode virar nome de produto.
+
+   Em navegador sem suporte a :has() a regra inteira e ignorada e o titulo
+   volta a ser o original. Degrada sem quebrar.
+
+   O leitor de tela continua anunciando o texto do HTML.
+   -------------------------------------------------------------------------- */
+
+.login-box:has(.login-logo-wrapper) .login-title {
+  font-size: 0;
+}
+
+.login-box:has(.login-logo-wrapper) .login-title::after {
+  content: 'E-OPS';
+  display: block;
+  font-family: "Outfit", -apple-system, "Segoe UI", Arial, sans-serif;
+  font-weight: 700;
+  font-size: 27px;
+  letter-spacing: 0.02em;
+}
+
+/* Recebe tanto "Elcop" quanto uma frase de 40 caracteres, entao entrelinha
+   folgada e largura contida. Sem caixa alta: no cartao claro ela virava uma
+   faixa dura, e o desenho pede uma linha de apoio discreta. */
 .login-subtitle {
-  font-size: 12px;
-  color: var(--accent-hover);
-  margin-bottom: 36px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  font-weight: 600;
+  font-size: 13.5px;
+  font-weight: 400;
+  color: #6b6b70;
+  margin: 0 auto 30px;
+  max-width: 34ch;
+  line-height: 1.5;
+  text-wrap: balance;
 }
 
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .login-input {
-  background-color: rgba(11, 30, 45, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-sm);
-  padding: 14px 18px;
-  color: var(--text-primary);
-  font-size: 14px;
+  background-color: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  padding: 15px 18px;
+  color: #1f1f1f;
+  font-family: inherit;
+  font-size: 14.5px;
   outline: none;
-  transition: all 0.25s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .login-input::placeholder {
-  color: var(--text-secondary);
+  color: #9a9aa0;
 }
 
 .login-input:focus {
-  border-color: var(--accent-hover);
-  background-color: rgba(11, 30, 45, 0.9);
-  box-shadow: 0 0 0 3px rgba(46, 134, 171, 0.15);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(123, 30, 32, 0.16);
 }
 
+/* Os rgba abaixo sao o proprio --status-offline com transparencia, ajustado
+   para fundo claro. Manter os tres na mesma cor: fundo, borda e barra. */
 .login-error {
-  background-color: rgba(231, 76, 60, 0.15);
-  border: 1px solid var(--status-offline);
-  color: var(--text-primary);
-  padding: 10px 14px;
-  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background-color: rgba(192, 54, 47, 0.08);
+  border: 1px solid rgba(192, 54, 47, 0.28);
+  border-left: 3px solid #C0362F;
+  color: #8f2a24;
+  padding: 12px 15px;
+  border-radius: 10px;
   font-size: 13px;
+  text-align: left;
+  line-height: 1.4;
 }
 
+/* O halo sob o botao e o vermelho da marca, nao uma sombra cinza: e ele que
+   puxa o olho para a unica acao da tela. */
 .login-button {
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
-  color: #FFFFFF;
+  background-color: var(--accent);
+  color: var(--brand-white);
   border: none;
-  border-radius: 10px;
-  padding: 14px;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  border-radius: 14px;
+  padding: 16px;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
   margin-top: 10px;
-  box-shadow: 0 4px 16px rgba(27, 79, 114, 0.4);
+  box-shadow: 0 8px 22px rgba(123, 30, 32, 0.32);
 }
 
 .login-button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(46, 134, 171, 0.5);
+  background-color: var(--accent-raise);
+  box-shadow: 0 10px 26px rgba(123, 30, 32, 0.42);
+}
+
+.login-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .login-button:active:not(:disabled) {
-  transform: translateY(0);
+  background-color: var(--accent-press);
+  box-shadow: 0 4px 12px rgba(123, 30, 32, 0.3);
 }
 
 .login-button:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* --------------------------------------------------------------------------
+   Telas estreitas: as duas colunas viram uma so, marca em cima do cartao
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .login-container {
+    flex-direction: column;
+    gap: 36px;
+    padding: 40px 20px;
+  }
+
+  .login-container::after {
+    width: min(84vw, 360px);
+  }
+}
+
+/* ==========================================================================
+   MODO CLARO NA TELA DE ENTRADA
+
+   Esta tela foi desenhada para o escuro: fundo profundo, halo vermelho,
+   cartao claro por cima. No modo claro a relacao se inverte - o fundo sobe
+   para um cinza suave e o cartao vira branco puro, destacando pela borda e
+   pela sombra em vez de pelo contraste de luz.
+   ========================================================================== */
+
+:root[data-theme="light"] .login-container {
+  background-color: var(--bg-primary);
+  background-image:
+    radial-gradient(ellipse 60% 50% at 78% 8%, rgba(123, 30, 32, 0.10), transparent 70%),
+    radial-gradient(ellipse 55% 45% at 12% 15%, rgba(63, 63, 63, 0.10), transparent 70%);
+}
+
+/* A grade tecnica precisa escurecer para continuar sendo textura visivel. */
+:root[data-theme="light"] .login-container::before {
+  background-image:
+    linear-gradient(rgba(63, 63, 63, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(63, 63, 63, 0.08) 1px, transparent 1px);
+}
+
+/* A marca tem letras claras: sobre o fundo claro, some. */
+:root[data-theme="light"] .login-container::after {
+  background-image: url('/logo-eops-claro.png');
+}
+
+:root[data-theme="light"] .login-box {
+  background-color: #ffffff;
+  border-color: rgba(0, 0, 0, 0.09);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.12);
+}
+
+/* ==========================================================================
+   EFEITOS
+
+   Tudo aqui e decoracao: se nada disso rodar, a tela continua funcionando
+   igual. Sao quatro coisas:
+
+     1. entrada em sequencia - a marca vem da esquerda, o cartao sobe, e os
+        campos aparecem um atras do outro
+     2. brilho de fundo flutuando devagar
+     3. grade tecnica deslizando, em 40 segundos por volta
+     4. um brilho que atravessa o botao quando o mouse passa
+
+   O bloco de "prefers-reduced-motion" no fim desliga tudo para quem pediu
+   menos animacao no sistema - inclusive quem tem enxaqueca ou labirintite.
+   ========================================================================== */
+
+@keyframes surgir-da-esquerda {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes surgir-de-baixo {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Deslocamento minusculo: a graca e a pessoa nao perceber que mexe, so
+   sentir que a tela nao esta morta. */
+@keyframes brilho-flutuando {
+  from { background-position: 0 0, 0 0; }
+  to   { background-position: 3% -2%, -3% 2%; }
+}
+
+/* Vai de zero ate um ladrilho inteiro, entao o ciclo emenda sem salto. */
+@keyframes grade-deslizando {
+  from { background-position: 0 0, 0 0; }
+  to   { background-position: 48px 48px, 48px 48px; }
+}
+
+.login-container {
+  animation: brilho-flutuando 26s ease-in-out infinite alternate;
+}
+
+.login-container::before {
+  animation: grade-deslizando 40s linear infinite;
+}
+
+.login-container::after {
+  animation: surgir-da-esquerda 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.login-box {
+  animation: surgir-de-baixo 0.7s 0.12s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.login-title {
+  animation: surgir-de-baixo 0.6s 0.2s ease-out backwards;
+}
+
+.login-subtitle {
+  animation: surgir-de-baixo 0.6s 0.26s ease-out backwards;
+}
+
+/* Cada filho do formulario entra 60ms depois do anterior. Se a mensagem de
+   erro estiver na tela ela entra na conta e empurra os seguintes - o atraso
+   muda um pouco, nada quebra. */
+.login-form > * {
+  animation: surgir-de-baixo 0.6s ease-out backwards;
+}
+
+.login-form > *:nth-child(1) { animation-delay: 0.32s; }
+.login-form > *:nth-child(2) { animation-delay: 0.38s; }
+.login-form > *:nth-child(3) { animation-delay: 0.44s; }
+.login-form > *:nth-child(4) { animation-delay: 0.50s; }
+
+/* O campo sobe um fio de cabelo ao receber o foco. */
+.login-input {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.login-input:focus {
+  transform: translateY(-1px);
+}
+
+/* Faixa de luz atravessando o botao. Fica parada fora da area e so cruza no
+   hover; sem animacao em repeticao, para nao ficar piscando na tela o dia
+   todo. */
+.login-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.login-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg,
+    transparent 32%,
+    rgba(255, 255, 255, 0.24) 50%,
+    transparent 68%);
+  transform: translateX(-120%);
+  transition: transform 0.6s ease;
+  pointer-events: none;
+}
+
+.login-button:hover:not(:disabled)::before {
+  transform: translateX(120%);
 }
