@@ -74,6 +74,27 @@
   letter-spacing: 0.7px;
 }
 
+/* ==========================================================================
+   O NUMERO TEM A COR DO ESTADO
+
+   Era branco. Num painel de operacao, o numero e a unica coisa que a pessoa
+   le de longe - e ele estava sendo a unica coisa da tela sem cor. O filete
+   da lateral e o ponto ja diziam o estado, mas em 3 e 8 pixels, na periferia
+   do cartao.
+
+   Passando a cor para o numero, o estado de cada cartao pode ser lido a
+   metros de distancia, sem precisar acertar o olho no filete. E o que o
+   painel de referencia faz.
+
+   O contraste sobre o cartao #141414 fica em 8,2:1 no verde, 9,2:1 no ambar
+   e 5,4:1 no vermelho - todos acima do minimo de 4,5:1, e o numero e texto
+   grande, que exigiria apenas 3:1.
+
+   O TITULO E O SUBTITULO CONTINUAM CINZA de proposito. Se tudo no cartao
+   fosse colorido, nada dentro dele se destacaria e a cor voltaria a ser
+   enfeite.
+   ========================================================================== */
+
 .status-card-value {
   font-size: 34px;
   font-weight: 700;
@@ -83,9 +104,84 @@
   font-variant-numeric: tabular-nums;
 }
 
+.status-online .status-card-value {
+  color: var(--status-online);
+}
+
+.status-warning .status-card-value {
+  color: var(--status-warning);
+}
+
+.status-offline .status-card-value {
+  color: var(--status-offline);
+}
+
 .status-card-subtitle {
   font-size: 12.5px;
   color: var(--text-tertiary);
   margin-top: 8px;
   line-height: 1.4;
+}
+
+/* ==========================================================================
+   EFEITOS
+
+   Duas coisas, e a segunda e a que importa.
+
+   1. Os cartoes entram em sequencia quando a tela carrega, um a cada 60ms.
+      O `backwards` no lugar de `both` e proposital: com `both` a animacao
+      continua mandando no transform depois de terminar, e o levantar do
+      hover parava de funcionar.
+
+   2. SO OS PONTOS COM PROBLEMA PULSAM. Alerta e queda ganham um anel que
+      se expande; "no ar" fica parado. Num painel de operacao, pulsar tudo
+      seria enfeite e viraria ruido de fundo - pulsando so o que precisa de
+      atencao, o movimento vira informacao: se algo esta piscando na tela,
+      tem coisa para olhar.
+   ========================================================================== */
+
+@keyframes cartao-surgindo {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.status-card {
+  animation: cartao-surgindo 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.status-card:nth-child(1) { animation-delay: 0.04s; }
+.status-card:nth-child(2) { animation-delay: 0.10s; }
+.status-card:nth-child(3) { animation-delay: 0.16s; }
+.status-card:nth-child(4) { animation-delay: 0.22s; }
+.status-card:nth-child(5) { animation-delay: 0.28s; }
+.status-card:nth-child(6) { animation-delay: 0.34s; }
+.status-card:nth-child(7) { animation-delay: 0.40s; }
+.status-card:nth-child(8) { animation-delay: 0.46s; }
+
+/* A borda puxa para o vermelho da marca quando o mouse passa. */
+.status-card:hover {
+  border-color: rgba(212, 105, 110, 0.42);
+}
+
+@keyframes anel-atencao {
+  0%   { box-shadow: 0 0 10px var(--status-warning), 0 0 0 0 rgba(229, 174, 63, 0.5); }
+  70%  { box-shadow: 0 0 10px var(--status-warning), 0 0 0 8px rgba(229, 174, 63, 0); }
+  100% { box-shadow: 0 0 10px var(--status-warning), 0 0 0 0 rgba(229, 174, 63, 0); }
+}
+
+@keyframes anel-queda {
+  0%   { box-shadow: 0 0 10px var(--status-offline), 0 0 0 0 rgba(226, 99, 94, 0.55); }
+  70%  { box-shadow: 0 0 10px var(--status-offline), 0 0 0 8px rgba(226, 99, 94, 0); }
+  100% { box-shadow: 0 0 10px var(--status-offline), 0 0 0 0 rgba(226, 99, 94, 0); }
+}
+
+.status-warning .status-dot { animation: anel-atencao 2.4s ease-out infinite; }
+.status-offline .status-dot { animation: anel-queda 1.9s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .status-card,
+  .status-warning .status-dot,
+  .status-offline .status-dot {
+    animation: none;
+  }
 }

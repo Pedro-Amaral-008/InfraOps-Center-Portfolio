@@ -1,3 +1,155 @@
+/* ==========================================================================
+   Cores e tipografia da marca Elcop - IN-MDM Rev. 01, 15/07/2026
+
+   Paleta oficial do manual (pagina 4):
+     Branco #ffffff | Cinza escuro #3f3f3f | Cinza claro #96969a | Vermelho #7b1e20
+   Tipografia oficial (pagina 5): Helvetica, Regular e Bold.
+
+   POR QUE ESTE BLOCO ESTA AQUI: para trocar a cor do painel bastar
+   substituir este arquivo, sem configurar nada em nenhum outro lugar.
+   Ele se repete no Login.css, porque a tela de login nao carrega o
+   cabecalho. Quando sobrar tempo, o lugar definitivo dele e o
+   src/index.css - e so mover para la e apagar daqui e do Login.css.
+
+   SO DEFINE COR E FONTE. Nao declara --radius-* nem --shadow-*, que
+   continuam vindo do index.css: nenhum tamanho da interface muda.
+   ========================================================================== */
+
+:root {
+  /* Cores da marca, valores exatos do manual */
+  --brand-white: #ffffff;
+  --brand-gray-dark: #3f3f3f;
+  --brand-gray-light: #96969a;
+  --brand-red: #7b1e20;
+
+  /* Helvetica nao existe no Windows; a Arial e metricamente identica e
+     assume o lugar sem alterar o desenho da tela. */
+  --font-sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+  /* ------------------------------------------------------------------------
+     SUPERFICIES
+
+     O cartao NAO usa mais o cinza #3f3f3f do manual. Esse tom foi desenhado
+     para papel e material impresso; numa tela de operacao que fica ligada o
+     dia inteiro ele vira uma mancha clara atras de cada numero, e a tela
+     inteira sobe de brilho.
+
+     Agora o painel e quase preto de ponta a ponta, e o cartao se separa do
+     fundo por MUITO POUCO - somado ao filete da borda. Quem destaca o cartao
+     passa a ser a borda, nao o preenchimento.
+
+     E NAO E PRETO NEUTRO: os tres tons tem azul dentro. O canal B fica ~10
+     pontos acima do R em cada um. Em preto puro (#0a0a0a) a tela fica com
+     aspecto de desligada; o azul de leve da profundidade sem virar cor.
+     E a mesma familia do fundo da tela de entrada, em --login-fundo - o
+     sistema inteiro passa a viver no mesmo azul-noite.
+
+     A PROPORCAO ENTRE OS TRES E O QUE IMPORTA. Para mudar o tom do painel,
+     deslocar os tres juntos; mexer em um so achata a hierarquia de
+     superficies.
+
+     O #3f3f3f nao sumiu: continua em --brand-gray-dark, que e o valor
+     oficial do manual, disponivel para qualquer peca que precise dele.
+     ------------------------------------------------------------------------ */
+  --bg-primary: #0d1117;
+  --bg-secondary: #151b24;
+  --bg-elevated: #1f2733;
+
+  /* Texto: estes tons foram escolhidos quando o cartao era o cinza #3f3f3f,
+     onde o #96969a do manual dava so 3,5:1 e ficava abaixo do minimo de
+     leitura. Sobre o cartao escuro de agora o proprio #96969a da 6,2:1 -
+     ou seja, da para voltar ao valor exato da marca em --text-tertiary se
+     um dia se quiser. Mantidos como estao para nao mexer no que ja funciona.
+     O valor exato da marca vive em --brand-gray-light. */
+  --text-primary: #ffffff;
+  --text-secondary: #c9c9cc;
+  --text-tertiary: #adadb1;
+
+  /* Com o cartao quase da cor do fundo, e a borda que desenha o cartao.
+     Baixar estes dois valores faz os cartoes se dissolverem na pagina. */
+  --border-subtle: rgba(255, 255, 255, 0.14);
+  --border-default: rgba(255, 255, 255, 0.28);
+
+  /* Destaque: branco sobre #7b1e20 da 10:1 de contraste, entao botao e
+     item ativo usam o vermelho solido do manual sem ressalva. */
+  --accent: #7b1e20;
+  --accent-hover: #7b1e20;
+  --accent-raise: #99282b;
+  --accent-press: #5e1618;
+  /* Tom claro do vermelho, para tracos finos e foco sobre fundo escuro,
+     onde o #7b1e20 puro praticamente desaparece. */
+  --accent-on-dark: #d4696e;
+
+  /* Status: fora da paleta da marca de proposito - sao codigo funcional
+     de operacao, nao identidade. O vermelho de falha e claro e vivo
+     justamente para nao ser confundido com o vinho institucional. */
+  --status-online: #56C089;
+  --status-warning: #E5AE3F;
+  --status-offline: #E2635E;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ==========================================================================
+   MODO CLARO
+
+   Vale so quando o <html> tem data-theme="light". Sem isso o painel continua
+   escuro, que segue sendo o padrao - e o certo para tela de operacao que
+   fica ligada o dia inteiro.
+
+   Quem liga e desliga esse atributo e o botao no menu do usuario. O trecho
+   de JSX esta na conversa. Enquanto ele nao existir, este bloco fica aqui
+   parado, sem efeito nenhum.
+
+   O vermelho #7b1e20 da marca nao muda entre os dois modos: da 10:1 de
+   contraste tanto com branco por cima quanto sobre branco. Muda so o que
+   esta em volta dele.
+   ========================================================================== */
+
+:root[data-theme="light"] {
+  --bg-primary: #ececed;
+  --bg-secondary: #ffffff;
+  --bg-elevated: #f4f4f5;
+
+  --text-primary: #23232b;
+  --text-secondary: #5f5f66;
+  --text-tertiary: #74747c;
+
+  --border-subtle: rgba(0, 0, 0, 0.10);
+  --border-default: rgba(0, 0, 0, 0.20);
+
+  /* No claro quem faz o papel de traco fino e foco e o proprio vermelho da
+     marca; no escuro ele sumia e precisava do tom clareado. */
+  --accent-on-dark: #7b1e20;
+
+  /* Status escurecidos: os tons vivos do modo escuro somem sobre branco. */
+  --status-online: #217A4C;
+  --status-warning: #8A5F0C;
+  --status-offline: #B5322B;
+
+  /* Sombra preta forte fica pesada e suja sobre fundo claro. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.07);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.09);
+  --shadow-lg: 0 10px 28px rgba(0, 0, 0, 0.13);
+}
+
+/* A marca do sistema tem letras claras e sumiria no fundo branco. A versao
+   clara tem as mesmas letras em grafite, com o "Z" no vermelho da marca. */
+:root[data-theme="light"] .logo-img {
+  content: url('/logo-sistema-claro.png');
+}
+
+/* Os realces do modo escuro sao branco transparente, invisiveis no claro. */
+:root[data-theme="light"] .header-user-role {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
 .header {
   position: relative;
   display: flex;
@@ -9,30 +161,67 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* A barra desce quando a tela carrega, abrindo a sequencia.
+   `backwards` e nao `both`: com `both` a animacao continuaria mandando no
+   transform depois de terminar, e atrapalharia qualquer hover. */
+@keyframes cabecalho-descendo {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.header {
+  animation: cabecalho-descendo 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header { animation: none; }
+}
+
 .header-brand {
   display: flex;
   align-items: center;
   gap: 16px;
 }
 
+/* Logo para fundos escuros: letras claras com o "Z" vermelho, assentando
+   direto no fundo. A placa branca que existia aqui saiu junto com a troca
+   do arquivo - ela so era necessaria porque a logo anterior era a versao
+   escura, que sumiria sobre o fundo do painel. */
 .header-logo-wrapper {
-  background: #FFFFFF;
-  border-radius: var(--radius-sm);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 8px 12px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
   flex-shrink: 0;
 }
 
+/* Troca pela marca do sistema a imagem que o src do JSX apontar. O
+   `content: url()` substitui o conteudo de um <img> sem tocar no src -
+   funciona em Chrome, Edge, Firefox e Safari atuais.
+
+   REMENDO: o certo e apontar o src para /logo-sistema.png no componente do
+   cabecalho e apagar esta linha. Enquanto isso, o arquivo do src continua
+   sendo baixado pelo navegador mesmo sem aparecer - e se ele nao existir
+   mais na pasta, o navegador ainda registra um 404 no console.
+
+   Proporcao do arquivo: 2172x724, ou 3 para 1 exatos. Nos 46px de altura,
+   da 138px de largura. */
 .logo-img {
-  height: 90px;
+  content: url('/logo-sistema.png');
+  height: 46px;
   width: auto;
   display: block;
 }
 
+/* Titulo central escondido: quem nomeia o sistema agora e a propria marca,
+   a esquerda. Deixar as duas coisas seria dizer a mesma palavra duas vezes
+   na mesma barra.
+   Para trazer o titulo de volta, apagar o display: none. As outras
+   propriedades continuam aqui prontas, so dormindo. */
 .header-title {
+  display: none;
   position: absolute;
   left: 50%;
   top: 50%;
@@ -83,7 +272,225 @@
 }
 
 .header-logout-btn:hover {
-  background-color: rgba(248, 113, 113, 0.1);
+  background-color: rgba(226, 99, 94, 0.12);
   border-color: var(--status-offline);
   color: var(--text-primary);
+}
+
+/* ==========================================================================
+   MENU SUSPENSO DO USUARIO
+
+   Substitui o nome, o selo e o botao Sair soltos na barra por um avatar que
+   abre um painel. Libera espaco no cabecalho e da lugar para o botao de
+   trocar o tema.
+
+   PRECISA DE JSX: o avatar, o painel e o estado de aberto/fechado sao
+   marcacao, nao estilo. O trecho esta na conversa. Este bloco e so o
+   figurino esperando os atores.
+
+   Estrutura que o CSS espera:
+     .header-menu            > envolve tudo, ancora o painel
+       .header-avatar        > o botao redondo
+       .header-dropdown      > o painel que abre
+         .header-dropdown-nome
+         .header-user-role   > o mesmo selo de perfil de sempre
+         .header-dropdown-sep
+         .header-dropdown-item  > cada linha clicavel
+   ========================================================================== */
+
+.header-menu {
+  position: relative;
+  z-index: 20;
+}
+
+.header-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--accent-on-dark);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.header-avatar:hover {
+  border-color: var(--accent-on-dark);
+  background-color: rgba(212, 105, 110, 0.12);
+}
+
+.header-avatar:focus-visible {
+  outline: 2px solid var(--accent-on-dark);
+  outline-offset: 2px;
+}
+
+.header-avatar svg {
+  width: 18px;
+  height: 18px;
+}
+
+@keyframes menu-usuario-abrindo {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+.header-dropdown {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  min-width: 246px;
+  padding: 18px 0 8px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  transform-origin: top right;
+  animation: menu-usuario-abrindo 0.16s ease-out;
+}
+
+.header-dropdown-nome {
+  padding: 0 18px 12px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+/* O selo de perfil ganha um ponto vermelho quando esta dentro do painel. */
+.header-dropdown .header-user-role {
+  margin: 0 18px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  color: var(--accent-on-dark);
+  border-color: var(--accent-on-dark);
+  background-color: transparent;
+}
+
+.header-dropdown .header-user-role::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.header-dropdown-sep {
+  height: 1px;
+  margin: 10px 0 6px;
+  background-color: var(--border-subtle);
+}
+
+.header-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 18px;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.header-dropdown-item:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+:root[data-theme="light"] .header-dropdown-item:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.header-dropdown-item:focus-visible {
+  outline: 2px solid var(--accent-on-dark);
+  outline-offset: -2px;
+}
+
+.header-dropdown-item svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   O MESMO MENU, SOLTO NO ALTO DO CONTEUDO
+
+   Com a marca dentro do menu lateral, a barra do topo virou uma faixa vazia
+   atravessando a tela para carregar um botao - e saiu. O bloco do usuario
+   nao foi junto: ele subiu para o canto superior direito da area de
+   conteudo, sem faixa nenhuma atras.
+
+   NAO E UMA BARRA. E o primeiro elemento do conteudo, alinhado a direita, e
+   por isso ele rola junto com a pagina. Se um dia precisar ficar fixo, o
+   caminho e position: sticky com top: 0 aqui - mas ai ele passa por cima
+   dos cartoes, e vai precisar de um fundo proprio.
+
+   Tudo que e aparencia - o avatar, o selo e o painel suspenso - continua
+   vindo das regras acima. Aqui so ha posicionamento.
+
+   Estrutura que o CSS espera:
+     .usuario-topo
+       .header-menu            > ancora o painel suspenso
+         .header-avatar
+         .usuario-topo-info
+           .usuario-topo-nome
+           .header-user-role
+         .header-dropdown      > o mesmo painel de sempre
+   ========================================================================== */
+
+.usuario-topo {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 18px;
+}
+
+.usuario-topo .header-menu {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.usuario-topo-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.usuario-topo-nome {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Em tela estreita sobra so o avatar: o nome ja aparece dentro do painel
+   quando ele abre, entao repeti-lo aqui gasta largura sem informar nada. */
+@media (max-width: 640px) {
+  .usuario-topo-info {
+    display: none;
+  }
+}
+
+/* Desce junto com o resto da tela, um pouco depois do cabecalho antigo. */
+.usuario-topo {
+  animation: cabecalho-descendo 0.45s 0.05s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usuario-topo { animation: none; }
 }

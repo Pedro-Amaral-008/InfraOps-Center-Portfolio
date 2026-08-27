@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import Header from './components/Header';
+import UsuarioTopo from './components/UsuarioTopo';
+import Novidades from './components/Novidades';
 import Sidebar from './components/Sidebar';
 import StatusCard from './components/StatusCard';
 import Login from './components/Login';
@@ -42,6 +43,10 @@ function calcularJanelaMinutos(intervaloMs) {
 }
 
 function App() {
+  useEffect(() => {
+    const temaSalvo = localStorage.getItem('infraops_tema') === 'light' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', temaSalvo);
+  }, []);
   const [usuario, setUsuario] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('infraops_token'));
   const [deveTrocarSenha, setDeveTrocarSenha] = useState(false);
@@ -213,6 +218,13 @@ function App() {
     setDeveTrocarSenha(false);
   };
 
+  const [novidadesAbertas, setNovidadesAbertas] = useState(false);
+  const alternarTema = () => {
+    const atual = localStorage.getItem('infraops_tema') === 'light';
+    const novoTema = atual ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', novoTema);
+    localStorage.setItem('infraops_tema', novoTema);
+  };
   const abrirDetalhe = (chave) => {
     setDetalheAberto(detalheAberto === chave ? null : chave);
   };
@@ -229,10 +241,20 @@ function App() {
 
   return (
     <div className="app">
-      <Header usuario={usuario} onLogout={handleLogout} />
       <div className="app-body">
-        <Sidebar usuario={usuario} abaAtiva={navPrincipal} onChangeAba={setNavPrincipal} />
+        <Sidebar
+          usuario={usuario}
+          abaAtiva={navPrincipal}
+          onChangeAba={setNavPrincipal}
+          onAbrirNovidades={() => setNovidadesAbertas(true)}
+        />
         <main className="app-content">
+          <UsuarioTopo
+            usuario={{ nome: usuario?.nome_completo, perfil: usuario?.role }}
+            aoSair={handleLogout}
+            aoAlternarTema={alternarTema}
+          />
+          {novidadesAbertas && <Novidades onFechar={() => setNovidadesAbertas(false)} />}
           {navPrincipal === 'auditoria' ? (
             <>
               <h2 className="page-title">Auditoria</h2>

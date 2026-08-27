@@ -63,12 +63,24 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Trilho CLAREADO. Era o contrario ate o cartao virar #141414: sobre o cinza
+   #3f3f3f do manual um trilho branco transparente quase nao aparecia, entao
+   ele era preto a 30%. Com o cartao escuro esse preto sumiria dentro dele -
+   um sulco invisivel, e as barras pareceriam flutuar no nada.
+   Se o cartao um dia voltar a ser claro, este valor volta a ser preto. */
 .resource-bar-track {
   height: 7px;
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: rgba(255, 255, 255, 0.07);
   border-radius: 4px;
   overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* No modo claro a inversao acontece de novo: sobre o cartao branco um trilho
+   branco transparente e invisivel, entao ele volta a ser preto - de leve. */
+:root[data-theme="light"] .resource-bar-track {
+  background-color: rgba(0, 0, 0, 0.09);
+  box-shadow: none;
 }
 
 .resource-bar-fill {
@@ -76,4 +88,52 @@
   border-radius: 4px;
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 0 8px currentColor;
+}
+
+/* ==========================================================================
+   EFEITOS
+
+   A barra cresce do zero quando a tela abre. Uso scaleX em vez de animar a
+   largura porque a largura vem por style inline do componente, com o valor
+   real da metrica - o scale multiplica seja qual for esse valor, sem eu
+   precisar conhece-lo. A ancora e a esquerda, entao ela cresce para o lado
+   como uma barra de verdade, e nao inflando do meio.
+
+   O `backwards` deixa a transicao de largura livre depois: quando a metrica
+   atualiza sozinha no painel, a barra continua deslizando normalmente.
+   ========================================================================== */
+
+@keyframes cartao-recurso-surgindo {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes barra-crescendo {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+.server-resource-card {
+  animation: cartao-recurso-surgindo 0.5s 0.3s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.server-resource-card:hover {
+  border-color: rgba(212, 105, 110, 0.42);
+}
+
+.resource-bar-fill {
+  transform-origin: left center;
+  animation: barra-crescendo 0.85s 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.resource-bar-group:nth-child(2) .resource-bar-fill { animation-delay: 0.52s; }
+.resource-bar-group:nth-child(3) .resource-bar-fill { animation-delay: 0.59s; }
+.resource-bar-group:nth-child(4) .resource-bar-fill { animation-delay: 0.66s; }
+.resource-bar-group:nth-child(5) .resource-bar-fill { animation-delay: 0.73s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .server-resource-card,
+  .resource-bar-fill {
+    animation: none;
+  }
 }

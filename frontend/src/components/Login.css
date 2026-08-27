@@ -1,16 +1,22 @@
 /* ==========================================================================
-   Tela de entrada - InfraOps Center / Elcop
-   Layout em duas colunas: marca a esquerda, cartao claro a direita.
-   Cores e tipografia conforme IN-MDM Rev. 01 (Manual da Marca).
+   Tela de entrada - Z-OPS / Elcop
+   Layout em duas colunas: marca e apoio a esquerda, cartao branco a direita.
+   Cores e tipografia conforme IN-MDM Rev. 01 (Manual da Marca), com uma
+   excecao declarada mais abaixo: o fundo azul-noite.
 
    ATENCAO: este arquivo serve DUAS telas, que compartilham as mesmas classes:
-     1. Login          -> titulo "InfraOps Center", subtitulo "Elcop"
+     1. Login          -> titulo "Bem-vindo", subtitulo "Faca login para
+                          acessar o sistema."
      2. Troca de senha -> titulo "Troca de Senha Obrigatoria",
                           subtitulo "Primeiro acesso - defina uma nova senha"
    Qualquer ajuste em .login-box, .login-title ou .login-subtitle afeta as
    duas. A marca da esquerda vem de background-image, nao da marcacao, entao
    ela aparece nas duas telas - inclusive na troca de senha, que no HTML nao
    tem logo nenhuma.
+
+   A coluna de apoio (.login-marca) e so da tela de login. Na troca de senha
+   ela nao e renderizada e a linha do grid fecha sozinha - ver o bloco do
+   palco.
    ========================================================================== */
 
 :root {
@@ -21,9 +27,13 @@
 
   --font-sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 
-  --bg-primary: #141414;
-  --bg-secondary: #3f3f3f;
-  --bg-elevated: #4f4f4f;
+  /* Copia exata do bloco do Header.css - ver la o porque de o cartao ter
+     deixado de ser o cinza #3f3f3f do manual e de o preto ter azul dentro.
+     Os dois arquivos TEM de andar juntos: se um mudar sem o outro, o login
+     e o painel divergem. */
+  --bg-primary: #0d1117;
+  --bg-secondary: #151b24;
+  --bg-elevated: #1f2733;
 
   --text-primary: #ffffff;
   --text-secondary: #c9c9cc;
@@ -41,6 +51,22 @@
   --status-online: #56C089;
   --status-warning: #E5AE3F;
   --status-offline: #E2635E;
+
+  /* ------------------------------------------------------------------------
+     FUNDO DA TELA DE ENTRADA - fora da paleta do manual, de proposito.
+
+     O manual so prescreve branco, cinza e vermelho. Este azul-noite existe
+     porque a tela de entrada e a unica peca que a pessoa ve antes de entrar
+     no sistema: ela nao precisa parecer o painel, precisa parecer a porta.
+     O vermelho institucional continua sendo a unica cor de acao.
+
+     Estao isolados nestes quatro tokens justamente para serem faceis de
+     reverter: trocar os tres primeiros por #141414 e a tela volta ao neutro.
+     ------------------------------------------------------------------------ */
+  --login-fundo: #090f1a;
+  --login-fundo-meio: #111b2e;
+  --login-fundo-alto: #18253d;
+  --login-traco: #b8332f;
 }
 
 body {
@@ -78,36 +104,68 @@ body {
 }
 
 /* --------------------------------------------------------------------------
-   Palco: fundo escuro com um halo quente no alto, marca e cartao lado a lado
+   PALCO
+
+   Grid de duas colunas e duas linhas:
+
+       marca  |  cartao        <- a logo, que e o ::after do container
+       apoio  |  cartao        <- frase e os tres recursos (.login-marca)
+
+   E grid, e nao flex, por causa da logo: ela e um pseudo-elemento do
+   container, entao nao pode ser irma da frase dentro de um wrapper. Com
+   areas nomeadas as duas ocupam a mesma coluna sem precisar de wrapper
+   nenhum, e o cartao atravessa as duas linhas.
+
+   Na tela de troca de senha o .login-marca nao existe; a linha "apoio"
+   fecha com altura zero e a logo fica centrada sozinha. Nada quebra.
    -------------------------------------------------------------------------- */
 
 .login-container {
-  display: flex;
-  align-items: center;
+  display: grid;
+  /* A coluna do cartao e minmax(0, 520px), e nao auto. Com `auto` ela
+     dimensiona pelo CONTEUDO - parava em ~445px e o max-width do .login-box
+     nunca era alcancado. O minmax deixa a trilha crescer ate 520px quando ha
+     espaco e encolher abaixo disso quando nao ha, sem estourar a tela nas
+     larguras intermediarias. */
+  grid-template-columns: auto minmax(0, 610px);
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    "marca cartao"
+    "apoio cartao";
+  align-content: center;
   justify-content: center;
-  gap: clamp(40px, 8vw, 120px);
+  /* Folga e respiro apertados de proposito. Numa tela de 1213px eles, a
+     marca e o cartao disputam a mesma largura: cada pixel aqui sai de la.
+     Com estes valores o cartao chega aos 610px cheios sem a marca encolher. */
+  column-gap: clamp(28px, 5vw, 96px);
   min-height: 100vh;
-  padding: 40px;
-  background-color: var(--bg-primary);
+  padding: 36px;
+  background-color: var(--login-fundo);
   background-image:
-    radial-gradient(ellipse 60% 50% at 78% 8%, rgba(123, 30, 32, 0.22), transparent 70%),
-    radial-gradient(ellipse 55% 45% at 12% 15%, rgba(63, 63, 63, 0.55), transparent 70%);
+    radial-gradient(ellipse 72% 62% at 70% 40%, rgba(41, 62, 102, 0.55), transparent 72%),
+    radial-gradient(ellipse 62% 58% at 16% 80%, rgba(26, 38, 66, 0.65), transparent 70%),
+    linear-gradient(152deg, var(--login-fundo) 0%, var(--login-fundo-meio) 48%, var(--login-fundo-alto) 100%);
   font-family: var(--font-sans);
   position: relative;
   overflow: hidden;
 }
 
-/* Grade tecnica de fundo. Textura discreta, sem custo de GPU. */
+/* Os tracos vermelhos do fundo.
+
+   Sao um SVG embutido em data URI, e nao marcacao, pelo mesmo motivo da
+   logo: assim aparecem tambem na troca de senha, que nao tem elemento
+   nenhum para pendurar. Peso: menos de 700 bytes, nenhuma requisicao.
+
+   As curvas passam por tras do cartao e da marca de proposito - o corte
+   que elas sofrem ao entrar embaixo do cartao branco e o que da a
+   sensacao de profundidade. */
 .login-container::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(150, 150, 154, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(150, 150, 154, 0.06) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse 80% 70% at 30% 45%, #000 0%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 30% 45%, #000 0%, transparent 100%);
+  inset: -2%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 900' preserveAspectRatio='xMidYMid slice'%3E%3Cg fill='none' stroke='%23b8332f' stroke-width='1.7' stroke-linecap='round'%3E%3Cpath d='M-60 250 C 240 120 470 365 760 318 S 1180 70 1520 185' opacity='.52'/%3E%3Cpath d='M-60 705 C 265 790 520 515 785 572 S 1205 830 1520 700' opacity='.32'/%3E%3Cpath d='M296 -60 C 430 195 205 435 320 665 S 665 975 805 905' opacity='.24'/%3E%3Cpath d='M975 -60 C 1058 225 1325 300 1520 258' opacity='.3'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: cover;
+  background-position: center;
   pointer-events: none;
 }
 
@@ -115,37 +173,129 @@ body {
    porque assim ela aparece tambem na tela de troca de senha, que nao tem
    logo na marcacao.
 
-   O logo-eops.png foi gerado a partir da arte de fundo preto: cada pixel
-   recebeu como opacidade o seu canal mais forte, e a cor foi reescalada
-   pelo mesmo fator. E o equivalente exato de projetar a arte sobre o fundo,
-   entao as bordas suaves e o vermelho do "E" sobreviveram, em vez de virar
-   recorte serrilhado. Por isso a marca assenta direto no escuro, sem placa
-   nem moldura. */
+   O logo-sistema.png ja vem com canal alfa de verdade - as bordas suaves e
+   o vermelho do "Z" assentam direto no escuro, sem placa nem moldura.
+
+   O logo-sistema-claro.png, para o modo claro, foi derivado dele: os pixels
+   NEUTROS (o branco do "-OPS" e o cinza da diagonal do "Z") tiveram a
+   luminancia invertida para grafite, e os pixels VERMELHOS ficaram intactos.
+   Por isso as duas versoes tem exatamente o mesmo desenho e o mesmo recorte
+   - se um dia a arte mudar, a versao clara precisa ser gerada de novo pelo
+   mesmo caminho, e nao redesenhada a mao.
+
+   Proporcao dos dois arquivos: 2172x724, ou 3 para 1 exatos - e o que o
+   aspect-ratio abaixo repete. A arte anterior era 3,31 para 1; trocar a
+   logo sem trocar esse numero deforma a marca. */
 .login-container::after {
   content: '';
-  order: -1;
-  width: min(42vw, 430px);
-  aspect-ratio: 381 / 115;
-  flex-shrink: 0;
-  background: url('/logo-eops.png') center / contain no-repeat;
+  grid-area: marca;
+  align-self: end;
+  justify-self: center;
+  width: min(40vw, 470px);
+  aspect-ratio: 3 / 1;
+  background: url('/logo-sistema.png') center / contain no-repeat;
   position: relative;
   z-index: 1;
 }
 
 /* --------------------------------------------------------------------------
-   Cartao claro
+   COLUNA DE APOIO - frase e os tres recursos
+
+   So existe na tela de login. Puro conteudo de vitrine: se o JSX nao
+   renderizar, a tela continua funcionando com a logo sozinha.
+   -------------------------------------------------------------------------- */
+
+.login-marca {
+  grid-area: apoio;
+  align-self: start;
+  justify-self: center;
+  max-width: 470px;
+  margin-top: 26px;
+  text-align: center;
+  position: relative;
+  z-index: 1;
+}
+
+.login-marca-texto {
+  font-size: 14.5px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: #c2cbdb;
+  margin: 0 auto 34px;
+  max-width: 34ch;
+  text-wrap: balance;
+}
+
+.login-recursos {
+  display: flex;
+  justify-content: center;
+  gap: clamp(20px, 4vw, 44px);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.login-recurso {
+  width: 118px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.login-recurso-icone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border: 1.5px solid rgba(184, 51, 47, 0.85);
+  border-radius: 50%;
+  color: var(--brand-white);
+  background-color: rgba(184, 51, 47, 0.07);
+  flex-shrink: 0;
+}
+
+.login-recurso-icone svg {
+  width: 23px;
+  height: 23px;
+}
+
+/* O tracinho vermelho entre o circulo e o rotulo. Fica no ::before do
+   rotulo porque ele precisa cair ENTRE os dois, e o circulo ja e um
+   elemento fechado. */
+.login-recurso-label::before {
+  content: '';
+  display: block;
+  width: 26px;
+  height: 2px;
+  margin: 13px auto 11px;
+  background-color: var(--login-traco);
+  border-radius: 1px;
+}
+
+.login-recurso-label {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #e4e9f2;
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   CARTAO BRANCO
    -------------------------------------------------------------------------- */
 
 .login-box {
-  background-color: #f7f7f8;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 24px;
-  padding: 44px 40px 36px;
+  grid-area: cartao;
+  align-self: center;
+  background-color: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 28px;
+  padding: 46px 60px 42px;
   width: 100%;
-  max-width: 420px;
-  flex-shrink: 0;
+  max-width: 610px;
   text-align: center;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.42);
   position: relative;
   z-index: 1;
 }
@@ -164,83 +314,198 @@ body {
 }
 
 .login-title {
-  font-size: 27px;
+  font-size: 33px;
   font-weight: 700;
-  color: #1f1f1f;
+  color: #101a2d;
   margin: 0 0 8px;
-  letter-spacing: -0.3px;
+  letter-spacing: -0.4px;
   line-height: 1.2;
   text-wrap: balance;
 }
 
-/* --------------------------------------------------------------------------
-   Titulo do cartao exibido como "E-OPS".
-
-   ISTO E UM REMENDO. O texto vem do Login.jsx, que nao existe neste
-   repositorio. O certo e trocar a palavra la e apagar este bloco.
-
-   O :has(.login-logo-wrapper) e o que impede o estrago: das duas telas que
-   usam este arquivo, so a de login tem a logo na marcacao. A de troca de
-   senha nao tem, entao ela escapa da regra e continua exibindo "Troca de
-   Senha Obrigatoria" - que e uma instrucao, nao pode virar nome de produto.
-
-   Em navegador sem suporte a :has() a regra inteira e ignorada e o titulo
-   volta a ser o original. Degrada sem quebrar.
-
-   O leitor de tela continua anunciando o texto do HTML.
-   -------------------------------------------------------------------------- */
-
-.login-box:has(.login-logo-wrapper) .login-title {
-  font-size: 0;
-}
-
-.login-box:has(.login-logo-wrapper) .login-title::after {
-  content: 'E-OPS';
-  display: block;
-  font-family: "Outfit", -apple-system, "Segoe UI", Arial, sans-serif;
-  font-weight: 700;
-  font-size: 27px;
-  letter-spacing: 0.02em;
-}
-
-/* Recebe tanto "Elcop" quanto uma frase de 40 caracteres, entao entrelinha
-   folgada e largura contida. Sem caixa alta: no cartao claro ela virava uma
-   faixa dura, e o desenho pede uma linha de apoio discreta. */
+/* Recebe tanto "Faca login para acessar o sistema." quanto a frase mais
+   longa da troca de senha, entao entrelinha folgada e largura contida. */
 .login-subtitle {
-  font-size: 13.5px;
+  font-size: 14.5px;
   font-weight: 400;
-  color: #6b6b70;
+  color: #4b5a70;
   margin: 0 auto 30px;
   max-width: 34ch;
   line-height: 1.5;
   text-wrap: balance;
 }
 
+/* --------------------------------------------------------------------------
+   FORMULARIO
+
+   O cartao e centrado, mas os rotulos dos campos sao alinhados a esquerda -
+   por isso o text-align volta aqui.
+   -------------------------------------------------------------------------- */
+
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+  text-align: left;
 }
 
+.login-campo {
+  display: flex;
+  flex-direction: column;
+}
+
+.login-label {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #1c2739;
+  margin-bottom: 8px;
+  letter-spacing: 0.1px;
+}
+
+/* Envolve o campo para ancorar o botao do olho. Se o JSX nao tiver esta
+   caixa e o input for filho direto do .login-campo, o campo continua
+   funcionando - so perde o olho. */
+.login-campo-caixa {
+  position: relative;
+  display: flex;
+}
+
+/* O flex-grow so vale DENTRO da caixa, que e uma linha. Se ficasse no
+   .login-input solto, os campos da tela de troca de senha - que sao filhos
+   diretos do formulario, uma coluna - cresceriam na ALTURA para preencher
+   o cartao. Escopo estreito de proposito. */
+.login-campo-caixa .login-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Os icones sao background-image, e nao elementos, para o campo nao
+   depender de marcacao extra. O seletor e por type: o de e-mail ganha o
+   envelope, os de senha ganham o cadeado - inclusive os DOIS campos da
+   tela de troca de senha, sem regra adicional. */
 .login-input {
   background-color: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid #dbe1ea;
   border-radius: 12px;
-  padding: 15px 18px;
-  color: #1f1f1f;
+  padding: 15px 16px 15px 48px;
+  color: #101a2d;
   font-family: inherit;
-  font-size: 14.5px;
+  font-size: 15.5px;
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  background-repeat: no-repeat;
+  background-position: left 15px center;
+  background-size: 18px 18px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.login-input[type="email"],
+.login-input[type="text"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='4' width='20' height='16' rx='2.5'/%3E%3Cpath d='m22 7-10 6.2L2 7'/%3E%3C/svg%3E");
+}
+
+.login-input[type="password"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='10.5' width='18' height='11' rx='2.5'/%3E%3Cpath d='M7.5 10.5V7a4.5 4.5 0 0 1 9 0v3.5'/%3E%3C/svg%3E");
+  padding-right: 46px;
+}
+
+/* --------------------------------------------------------------------------
+   O ICONE NAO PODE DEPENDER SO DO type.
+
+   O olho de mostrar a senha troca o type de "password" para "text". Se o
+   cadeado viesse so do seletor de type, ele sumiria no clique - e pior, o
+   campo herdaria o ENVELOPE da regra de cima. O icone piscaria de cadeado
+   para envelope toda vez que a pessoa espiasse a propria senha.
+
+   O data-campo e um rotulo do que o campo E, e nao do que ele aceita, entao
+   nao muda quando o type muda. Vem DEPOIS das regras de type, e com a mesma
+   especificidade - e a ordem que faz ele vencer.
+
+   As regras de type ficam como reserva: a tela de troca de senha usa inputs
+   soltos, sem data-campo, e continua ganhando o cadeado.
+   -------------------------------------------------------------------------- */
+
+.login-input[data-campo="email"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='4' width='20' height='16' rx='2.5'/%3E%3Cpath d='m22 7-10 6.2L2 7'/%3E%3C/svg%3E");
+}
+
+/* O campo de identificacao da tela de login aceita e-mail OU nome de
+   usuario, entao o icone e uma PESSOA e nao um envelope: um envelope ao
+   lado de "elcop.admin" prometeria um formato que o campo nao exige.
+
+   E ele e type="text", o que faria a regra de type la em cima entregar o
+   envelope. Este data-campo e o que impede isso. */
+.login-input[data-campo="usuario"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-1.6a5 5 0 0 0-5-5H9a5 5 0 0 0-5 5V21'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E");
+}
+
+.login-input[data-campo="senha"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='10.5' width='18' height='11' rx='2.5'/%3E%3Cpath d='M7.5 10.5V7a4.5 4.5 0 0 1 9 0v3.5'/%3E%3C/svg%3E");
+  padding-right: 46px;
 }
 
 .login-input::placeholder {
-  color: #9a9aa0;
+  color: #8b97ab;
 }
 
 .login-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(123, 30, 32, 0.16);
+  box-shadow: 0 0 0 3px rgba(123, 30, 32, 0.14);
+}
+
+/* Botao de mostrar a senha. */
+.login-olho {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.login-olho:hover {
+  color: #475569;
+  background-color: rgba(15, 23, 42, 0.05);
+}
+
+.login-olho:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.login-olho svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Sobe colado no campo de senha, nao a 16px dele: e um apendice do campo,
+   nao um item da pilha do formulario. */
+.login-esqueci {
+  align-self: flex-end;
+  margin-top: -8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-raise);
+  text-decoration: none;
+}
+
+.login-esqueci:hover {
+  text-decoration: underline;
+}
+
+.login-esqueci:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
 
 /* Os rgba abaixo sao o proprio --status-offline com transparencia, ajustado
@@ -250,37 +515,67 @@ body {
   align-items: center;
   gap: 9px;
   background-color: rgba(192, 54, 47, 0.08);
-  border: 1px solid rgba(192, 54, 47, 0.28);
+  border: 1px solid rgba(192, 54, 47, 0.26);
   border-left: 3px solid #C0362F;
   color: #8f2a24;
-  padding: 12px 15px;
-  border-radius: 10px;
-  font-size: 13px;
-  text-align: left;
+  padding: 13px 15px;
+  border-radius: 12px;
+  font-size: 13.5px;
   line-height: 1.4;
 }
 
-/* O halo sob o botao e o vermelho da marca, nao uma sombra cinza: e ele que
-   puxa o olho para a unica acao da tela. */
+/* --------------------------------------------------------------------------
+   ACAO PRINCIPAL
+
+   Degrade do vermelho claro para o institucional, da esquerda para a
+   direita, e a seta encostada na borda. O halo embaixo e o proprio
+   vermelho, nao uma sombra cinza: e ele que puxa o olho para a acao.
+   -------------------------------------------------------------------------- */
+
 .login-button {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-image: linear-gradient(100deg, #b03036 0%, #7b1e20 60%);
   background-color: var(--accent);
   color: var(--brand-white);
   border: none;
-  border-radius: 14px;
-  padding: 16px;
+  border-radius: 13px;
+  padding: 18px 48px;
   font-family: inherit;
-  font-size: 14.5px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.2px;
   cursor: pointer;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
-  margin-top: 10px;
-  box-shadow: 0 8px 22px rgba(123, 30, 32, 0.32);
+  transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+  margin-top: 6px;
+  box-shadow: 0 10px 24px rgba(123, 30, 32, 0.34);
+}
+
+/* A seta. Nao entra na marcacao para o texto do botao continuar sendo so
+   texto - o leitor de tela anuncia "Entrar no sistema", sem "seta". */
+.login-button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 22px;
+  transform: translateY(-50%);
+  width: 19px;
+  height: 19px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: transform 0.18s ease;
+  pointer-events: none;
 }
 
 .login-button:hover:not(:disabled) {
-  background-color: var(--accent-raise);
-  box-shadow: 0 10px 26px rgba(123, 30, 32, 0.42);
+  filter: brightness(1.1);
+  box-shadow: 0 12px 28px rgba(123, 30, 32, 0.44);
+}
+
+.login-button:hover:not(:disabled)::after {
+  transform: translateY(-50%) translateX(3px);
 }
 
 .login-button:focus-visible {
@@ -289,8 +584,8 @@ body {
 }
 
 .login-button:active:not(:disabled) {
-  background-color: var(--accent-press);
-  box-shadow: 0 4px 12px rgba(123, 30, 32, 0.3);
+  transform: translateY(1px);
+  box-shadow: 0 5px 14px rgba(123, 30, 32, 0.3);
 }
 
 .login-button:disabled {
@@ -300,53 +595,168 @@ body {
 }
 
 /* --------------------------------------------------------------------------
+   DIVISOR "ou" E ACAO SECUNDARIA
+   -------------------------------------------------------------------------- */
+
+.login-ou {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 8px 0 2px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.login-ou::before,
+.login-ou::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: #dfe4ec;
+}
+
+.login-button-secundario {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background-color: #ffffff;
+  color: #1c2739;
+  border: 1px solid #dbe1ea;
+  border-radius: 13px;
+  padding: 17px;
+  font-family: inherit;
+  font-size: 15.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.login-button-secundario::before {
+  content: '';
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322314f' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 20v-1.6a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20'/%3E%3Ccircle cx='8.5' cy='7' r='3.6'/%3E%3Cpath d='M19 8v6M22 11h-6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.login-button-secundario:hover {
+  background-color: #f7f9fc;
+  border-color: #cbd5e1;
+}
+
+.login-button-secundario:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   SELO DE SEGURANCA
+
+   Fica FORA do .login-form de proposito: nao e um passo do formulario, e um
+   recado sobre ele. Dentro, entraria na conta do nth-child que escalona a
+   entrada dos campos e empurraria os atrasos.
+   -------------------------------------------------------------------------- */
+
+.login-seguranca {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 22px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.login-seguranca::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* --------------------------------------------------------------------------
    Telas estreitas: as duas colunas viram uma so, marca em cima do cartao
    -------------------------------------------------------------------------- */
 
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   .login-container {
-    flex-direction: column;
-    gap: 36px;
-    padding: 40px 20px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "marca"
+      "apoio"
+      "cartao";
+    row-gap: 30px;
+    padding: 44px 20px;
   }
 
   .login-container::after {
-    width: min(84vw, 360px);
+    width: min(76vw, 380px);
+  }
+
+  .login-box {
+    justify-self: center;
+    max-width: 610px;
+  }
+}
+
+/* Abaixo disso os tres recursos nao cabem lado a lado sem espremer o rotulo
+   em quatro linhas. Some so eles; a frase de apoio fica. */
+@media (max-width: 560px) {
+  .login-recursos {
+    display: none;
+  }
+
+  .login-box {
+    padding: 34px 24px 30px;
+    border-radius: 20px;
   }
 }
 
 /* ==========================================================================
    MODO CLARO NA TELA DE ENTRADA
 
-   Esta tela foi desenhada para o escuro: fundo profundo, halo vermelho,
-   cartao claro por cima. No modo claro a relacao se inverte - o fundo sobe
-   para um cinza suave e o cartao vira branco puro, destacando pela borda e
-   pela sombra em vez de pelo contraste de luz.
+   Esta tela foi desenhada para o escuro: fundo azul-noite, tracos vermelhos,
+   cartao branco por cima. No modo claro a relacao se inverte - o fundo sobe
+   para um cinza-azulado suave e o cartao destaca pela borda e pela sombra em
+   vez de pelo contraste de luz.
    ========================================================================== */
 
 :root[data-theme="light"] .login-container {
-  background-color: var(--bg-primary);
+  background-color: #eef1f6;
   background-image:
-    radial-gradient(ellipse 60% 50% at 78% 8%, rgba(123, 30, 32, 0.10), transparent 70%),
-    radial-gradient(ellipse 55% 45% at 12% 15%, rgba(63, 63, 63, 0.10), transparent 70%);
+    radial-gradient(ellipse 72% 62% at 70% 40%, rgba(123, 30, 32, 0.07), transparent 72%),
+    radial-gradient(ellipse 62% 58% at 16% 80%, rgba(41, 62, 102, 0.08), transparent 70%),
+    linear-gradient(152deg, #f2f4f8 0%, #e8ecf3 48%, #dfe5ef 100%);
 }
 
-/* A grade tecnica precisa escurecer para continuar sendo textura visivel. */
+/* Os tracos vermelhos ficam pesados sobre fundo claro. */
 :root[data-theme="light"] .login-container::before {
-  background-image:
-    linear-gradient(rgba(63, 63, 63, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(63, 63, 63, 0.08) 1px, transparent 1px);
+  opacity: 0.4;
 }
 
 /* A marca tem letras claras: sobre o fundo claro, some. */
 :root[data-theme="light"] .login-container::after {
-  background-image: url('/logo-eops-claro.png');
+  background-image: url('/logo-sistema-claro.png');
+}
+
+:root[data-theme="light"] .login-marca-texto {
+  color: #4a5568;
+}
+
+:root[data-theme="light"] .login-recurso-icone {
+  color: var(--brand-red);
+  background-color: rgba(184, 51, 47, 0.06);
+}
+
+:root[data-theme="light"] .login-recurso-label {
+  color: #2d3748;
 }
 
 :root[data-theme="light"] .login-box {
-  background-color: #ffffff;
-  border-color: rgba(0, 0, 0, 0.09);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.12);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.14);
 }
 
 /* ==========================================================================
@@ -358,7 +768,7 @@ body {
      1. entrada em sequencia - a marca vem da esquerda, o cartao sobe, e os
         campos aparecem um atras do outro
      2. brilho de fundo flutuando devagar
-     3. grade tecnica deslizando, em 40 segundos por volta
+     3. os tracos vermelhos derivando, quase parados
      4. um brilho que atravessa o botao quando o mouse passa
 
    O bloco de "prefers-reduced-motion" no fim desliga tudo para quem pediu
@@ -378,14 +788,15 @@ body {
 /* Deslocamento minusculo: a graca e a pessoa nao perceber que mexe, so
    sentir que a tela nao esta morta. */
 @keyframes brilho-flutuando {
-  from { background-position: 0 0, 0 0; }
-  to   { background-position: 3% -2%, -3% 2%; }
+  from { background-position: 0 0, 0 0, 0 0; }
+  to   { background-position: 3% -2%, -3% 2%, 0 0; }
 }
 
-/* Vai de zero ate um ladrilho inteiro, entao o ciclo emenda sem salto. */
-@keyframes grade-deslizando {
-  from { background-position: 0 0, 0 0; }
-  to   { background-position: 48px 48px, 48px 48px; }
+/* Os tracos sao curvas longas; um deslocamento de 2% ja e o suficiente para
+   a tela nao parecer uma foto. */
+@keyframes tracos-derivando {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(-1.6%, 1%, 0) scale(1.04); }
 }
 
 .login-container {
@@ -393,11 +804,15 @@ body {
 }
 
 .login-container::before {
-  animation: grade-deslizando 40s linear infinite;
+  animation: tracos-derivando 34s ease-in-out infinite alternate;
 }
 
 .login-container::after {
   animation: surgir-da-esquerda 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.login-marca {
+  animation: surgir-da-esquerda 0.7s 0.1s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .login-box {
@@ -412,9 +827,22 @@ body {
   animation: surgir-de-baixo 0.6s 0.26s ease-out backwards;
 }
 
+/* Entra depois do ultimo botao do formulario, fechando a sequencia. O atraso
+   tem de ficar acima do ultimo degrau do nth-child ali embaixo - hoje 0,68s.
+   Ao acrescentar um campo, empurrar este numero junto. */
+.login-seguranca {
+  animation: surgir-de-baixo 0.6s 0.74s ease-out backwards;
+}
+
 /* Cada filho do formulario entra 60ms depois do anterior. Se a mensagem de
    erro estiver na tela ela entra na conta e empurra os seguintes - o atraso
-   muda um pouco, nada quebra. */
+   muda um pouco, nada quebra. Sao sete degraus porque o formulario da tela
+   de login tem, no maximo: erro, identificacao, senha, esqueci, entrar, ou,
+   solicitar acesso.
+
+   Quem passar do setimo entra com o atraso base, junto com o primeiro, e a
+   cascata quebra no fim. Ao acrescentar um campo, acrescentar um degrau -
+   e empurrar o atraso do .login-seguranca, que vem depois de todos. */
 .login-form > * {
   animation: surgir-de-baixo 0.6s ease-out backwards;
 }
@@ -423,12 +851,11 @@ body {
 .login-form > *:nth-child(2) { animation-delay: 0.38s; }
 .login-form > *:nth-child(3) { animation-delay: 0.44s; }
 .login-form > *:nth-child(4) { animation-delay: 0.50s; }
+.login-form > *:nth-child(5) { animation-delay: 0.56s; }
+.login-form > *:nth-child(6) { animation-delay: 0.62s; }
+.login-form > *:nth-child(7) { animation-delay: 0.68s; }
 
 /* O campo sobe um fio de cabelo ao receber o foco. */
-.login-input {
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-}
-
 .login-input:focus {
   transform: translateY(-1px);
 }
@@ -436,11 +863,6 @@ body {
 /* Faixa de luz atravessando o botao. Fica parada fora da area e so cruza no
    hover; sem animacao em repeticao, para nao ficar piscando na tela o dia
    todo. */
-.login-button {
-  position: relative;
-  overflow: hidden;
-}
-
 .login-button::before {
   content: '';
   position: absolute;
@@ -456,4 +878,23 @@ body {
 
 .login-button:hover:not(:disabled)::before {
   transform: translateX(120%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-container,
+  .login-container::before,
+  .login-container::after,
+  .login-marca,
+  .login-box,
+  .login-title,
+  .login-subtitle,
+  .login-seguranca,
+  .login-form > * {
+    animation: none;
+  }
+
+  .login-button::after,
+  .login-button::before {
+    transition: none;
+  }
 }
