@@ -9,6 +9,7 @@ function Sidebar({ usuario, abaAtiva, onChangeAba }) {
     ...(podeVerAdmin ? [{ id: 'automacoes', label: 'Automações' }] : []),
     ...(podeVerAdmin ? [{ id: 'auditoria', label: 'Auditoria' }] : []),
     ...(podeVerAdmin ? [{ id: 'usuarios', label: 'Usuários' }] : []),
+    ...(podeVerAdmin ? [{ id: 'solicitacoes', label: 'Solicitações' }] : []),
   ];
   return (
     <aside className={`sidebar ${fechada ? 'sidebar-fechada' : ''}`}>

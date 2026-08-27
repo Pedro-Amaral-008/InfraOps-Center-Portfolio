@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     unifi_controller_url: str
     pfsense_host: str
     pfsense_snmp_community: str
+    smtp_host: str = "smtp.office365.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    frontend_url: str = "http://localhost:3001"
 
     @property
     def database_url(self) -> str:
