@@ -168,6 +168,20 @@ async def dashboard_metrics_latencia(
     return await get_latencia_por_categoria(job, minutos)
 
 
+@app.get("/dashboard/servidores/uptime")
+async def dashboard_servidores_uptime(
+    dias: int = 30,
+    usuario: User = Depends(get_current_user),
+):
+    from app.dashboard import get_uptime_por_job
+    return await get_uptime_por_job("blackbox-servidores-tcp|blackbox-servidor-backup-principal", dias)
+@app.get("/dashboard/access-points/uptime")
+async def dashboard_access_points_uptime(
+    dias: int = 30,
+    usuario: User = Depends(get_current_user),
+):
+    from app.dashboard import get_uptime_por_job
+    return await get_uptime_por_job("blackbox-access-points", dias)
 @app.get("/dashboard/backups")
 async def dashboard_backups(usuario: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     from app.dashboard import get_backups_detalhado
@@ -344,6 +358,7 @@ async def dashboard_agents_latest(
         )
     )
     metricas = result.scalars().all()
+    INSTANCIAS_REMOVIDAS = ["srv-bkp2"]
 
     return [
         {
@@ -360,6 +375,7 @@ async def dashboard_agents_latest(
             "coletado_em": m.coletado_em.isoformat(),
         }
         for m in metricas
+        if m.instance not in INSTANCIAS_REMOVIDAS
     ]
 
 
