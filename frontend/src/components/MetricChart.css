@@ -12,12 +12,38 @@
   border-color: var(--border-default);
 }
 
+/* Titulo de painel, e nao rotulo de apoio: vai em branco, como o nome do
+   servidor no cartao de recursos. Era cinza porque o cartao antigo, no
+   #3f3f3f, ja era claro o bastante para o branco pesar. */
 .metric-chart-title {
   font-size: 13.5px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   letter-spacing: 0.1px;
   margin-bottom: 18px;
+}
+
+/* Os graficos entram depois dos cartoes, fechando a sequencia da tela. */
+@keyframes grafico-surgindo {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.metric-chart-box {
+  animation: grafico-surgindo 0.55s 0.42s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.metric-chart-box:nth-child(2) { animation-delay: 0.49s; }
+.metric-chart-box:nth-child(3) { animation-delay: 0.56s; }
+.metric-chart-box:nth-child(4) { animation-delay: 0.63s; }
+.metric-chart-box:nth-child(5) { animation-delay: 0.70s; }
+
+.metric-chart-box:hover {
+  border-color: rgba(212, 105, 110, 0.42);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .metric-chart-box { animation: none; }
 }
 
 .metric-chart-empty {

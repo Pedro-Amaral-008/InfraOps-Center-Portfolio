@@ -1,0 +1,47 @@
+const CHANGELOG = [
+  {
+    versao: 'v0.3',
+    itens: [
+      'Novo: solicitação de acesso — quem ainda não tem conta pode se cadastrar com nome, e-mail corporativo e senha, e aguardar aprovação de um administrador.',
+      'Novo: recuperação de senha por e-mail, caso o usuário esqueça a senha.',
+      'Novo: login pode ser feito com o nome de usuário ou o e-mail corporativo.',
+      'Novo: histórico de disponibilidade dos últimos 30 dias também para Servidores e Access Points (já existia para Links de Internet).',
+      'Menu lateral reorganizado: Automações, Auditoria, Usuários e Solicitações agora ficam agrupados em "Administração".',
+      'Nova marca aplicada em todas as telas: entrada, menu lateral e cabeçalho.',
+      'Criada uma versão da marca para o tema claro, com as letras em grafite e o "E" no vermelho institucional.',
+      'Tela de entrada com layout novo em duas colunas: a marca, a descrição do sistema e os três recursos principais à esquerda; o formulário à direita.',
+      'Fundo azul-noite com traços em curva na tela de entrada, no lugar do fundo preto anterior.',
+      'Campo de identificação único na tela de entrada: aceita e-mail ou nome de usuário.',
+      'Campos de login com rótulo e ícone, e botão para mostrar a senha.',
+      'Cartão de login mais largo, com tipografia maior e mais contraste.',
+      'Menu lateral deixou de ser um painel flutuante e virou uma coluna fixa, encostada na borda e da altura inteira da tela.',
+      'A marca subiu para o topo do menu lateral.',
+      'Novo indicador "Sistema online" no menu, que muda de cor quando há alertas ou falhas.',
+      'Menu recolhível: vira um trilho de ícones, e a marca encolhe para o símbolo do logo.',
+      'Barra superior removida do painel. O acesso ao usuário passou para o canto superior direito do conteúdo.',
+      'Novo tema escuro: fundo azul-noite e cartões escuros, no lugar dos cartões cinza-claro. A tela ficou mais confortável para uso prolongado.',
+      'Os números dos cartões agora têm a cor do estado — verde para normal, âmbar para alerta, vermelho para falha — em vez de todos brancos, facilitando ler a situação do painel de longe.',
+      'Títulos dos gráficos com mais destaque.',
+      'Corrigido: o ícone de cadeado do campo de senha que desaparecia ao clicar em "mostrar senha".',
+      'Corrigido: o cartão de login que não atingia a largura configurada.',
+      'Corrigido: os campos da tela de troca de senha que esticavam verticalmente.',
+      'Melhorado o contraste de textos de apoio que estavam abaixo do mínimo de leitura.',
+      'Corrigido: as barras de uso de recurso que ficavam invisíveis no tema escuro.',
+      'Acessibilidade: todos os textos revisados para atender ao mínimo de contraste de leitura; animações continuam desativadas automaticamente para quem configurou "reduzir movimento" no sistema operacional; botões e campos com rótulos para leitores de tela.',
+      'Corrigido: status dos links de internet e histórico de disponibilidade, que haviam parado de aparecer no painel.',
+      'Removido do monitoramento um servidor de backup que não existe mais na infraestrutura.',
+    ],
+  },
+  {
+    versao: 'v0.2',
+    itens: [
+      'Nome do sistema atualizado de "InfraOps Center" para "Dashboard".',
+      'Nova identidade visual: tema claro/escuro, menu lateral retrátil, e animações de entrada na tela de login.',
+      'Ajustes visuais: menu lateral mais compacto, espaçamento entre itens, logo duplicada removida.',
+      'Nova fonte no título da tela de login.',
+      'Corrigida uma instabilidade de rede que afetava o acesso ao painel de forma intermitente.',
+    ],
+  },
+];
+
+export default CHANGELOG;
