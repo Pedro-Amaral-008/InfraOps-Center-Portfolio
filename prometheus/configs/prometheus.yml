@@ -26,19 +26,17 @@ scrape_configs:
     params:
       module: [tcp_connect]
     static_configs:
-      - targets: ['IP_INTERNO_AQUI:445']
+      - targets: ['IP_SRV_ARQUIVOS:445']
         labels: { nome: "Srv Arquivos", servico: "Armazenamento de Arquivos" }
-      - targets: ['IP_INTERNO_AQUI:445']
+      - targets: ['IP_SRV_IMPRESSAO:445']
         labels: { nome: "Srv Impressao", servico: "Digitalizacao de Documentos" }
-      - targets: ['IP_INTERNO_AQUI:445']
+      - targets: ['IP_SRV_PROXY:445']
         labels: { nome: "Srv Proxy Veeam", servico: "Processamento Backup" }
-      - targets: ['IP_INTERNO_AQUI:4445']
+      - targets: ['IP_SRV_SYSADMIN:4445']
         labels: { nome: "Srv SysAdmin", servico: "Gerenciamento InControl e Robo SharePoint" }
-      - targets: ['IP_INTERNO_AQUI:445']
-        labels: { nome: "Srv Backup 2", servico: "Redundancia Backups" }
-      - targets: ['IP_INTERNO_AQUI:445']
+      - targets: ['IP_SRV_ARQUIVOS_ESPELHO:445']
         labels: { nome: "Srv Arquivos Espelho", servico: "Redundancia Srv Arquivos" }
-      - targets: ['IP_INTERNO_AQUI:22']
+      - targets: ['IP_SRV_MONITORAMENTO:22']
         labels: { nome: "Srv Monitoramento", servico: "E-CAM e Sistemas de Monitoramento" }
     relabel_configs:
       - source_labels: [__address__]
@@ -53,7 +51,7 @@ scrape_configs:
     params:
       module: [icmp_ping]
     static_configs:
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_SRV_BACKUP_PRINCIPAL']
         labels: { nome: "Srv Backup Principal", servico: "Armazenamento de Backup e Sentinela Principal" }
     relabel_configs:
       - source_labels: [__address__]
@@ -68,31 +66,31 @@ scrape_configs:
     params:
       module: [icmp_ping]
     static_configs:
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_COMPRAS']
         labels: { nome: "COMPRAS/FROTAS" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_ADMINISTRATIVO']
         labels: { nome: "ADMINISTRATIVO GERAL" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_USW24POE']
         labels: { nome: "USW-24-PoE" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_TI']
         labels: { nome: "TI" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_RH']
         labels: { nome: "RECURSOS HUMANOS" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_JURIDICO']
         labels: { nome: "JURIDICO/COMPLIANCE" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_ALMOXARIFADO']
         labels: { nome: "ALMOXARIFADO/PLANEJAMENTO" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_RECEPCAO']
         labels: { nome: "RECEPCAO" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_DIRETORIA']
         labels: { nome: "DIRETORIA" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_DP']
         labels: { nome: "DEPARTAMENTO PESSOAL" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_SESMT']
         labels: { nome: "SESMT" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_GERENCIA']
         labels: { nome: "GERENCIA" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_AP_AUDITORIO']
         labels: { nome: "AUDITORIO" }
     relabel_configs:
       - source_labels: [__address__]
@@ -107,7 +105,7 @@ scrape_configs:
     params:
       module: [http_2xx_insecure]
     static_configs:
-      - targets: ['https://IP_INTERNO_AQUI']
+      - targets: ['https://IP_UNIFI_CONTROLLER']
         labels:
           nome: "Gen2-ELCOP-SEDE (Controladora UniFi)"
     relabel_configs:
@@ -128,17 +126,17 @@ scrape_configs:
     params:
       module: [icmp_ping]
     static_configs:
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_IMPR_FINANCEIRO']
         labels: { nome: "Impressora Financeiro/Fiscal" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_IMPR_HALL']
         labels: { nome: "Impressora Hall" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_IMPR_FROTAS']
         labels: { nome: "Impressora Frotas" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_IMPR_DP']
         labels: { nome: "Impressora DP" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_IMPR_SESMT']
         labels: { nome: "Impressora SESMT" }
-      - targets: ['IP_INTERNO_AQUI']
+      - targets: ['IP_IMPR_RH']
         labels: { nome: "Impressora RH" }
     relabel_configs:
       - source_labels: [__address__]
