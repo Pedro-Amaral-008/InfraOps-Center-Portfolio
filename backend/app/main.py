@@ -12,8 +12,8 @@ from slowapi.errors import RateLimitExceeded
 from app.database import get_db
 from app.dashboard import get_dashboard_summary
 from app.metrics import get_metricas_host
-from app.models import User, BackupExecution, AuditLog
-from app.schemas import LoginRequest, LoginResponse, TrocarSenhaRequest, BackupExecutionCreate, UsuarioCreate, UsuarioResponse, UsuarioRoleUpdate, SenhaResetResponse
+from app.models import User, BackupExecution, AuditLog, SolicitacaoAcesso, PasswordResetToken
+from app.schemas import LoginRequest, LoginResponse, TrocarSenhaRequest, BackupExecutionCreate, UsuarioCreate, UsuarioResponse, UsuarioRoleUpdate, SenhaResetResponse, SolicitacaoAcessoCreate, SolicitacaoAcessoResponse, SolicitacaoAcessoAprovar, EsqueciSenhaRequest, RedefinirSenhaRequest
 from app.auth import verificar_senha, criar_token, hash_senha
 from app.deps import get_current_user, exigir_papel
 from app.audit import registrar_log
@@ -62,7 +62,11 @@ async def health_check(db: AsyncSession = Depends(get_db)):
 async def login(request: Request, dados: LoginRequest, db: AsyncSession = Depends(get_db)):
     ip_cliente = request.client.host if request.client else None
 
-    result = await db.execute(select(User).where(User.username == dados.username))
+    result = await db.execute(
+        select(User).where(
+            (User.username == dados.username) | (User.email == dados.username)
+        )
+    )
     usuario = result.scalar_one_or_none()
 
     if usuario is None or not usuario.ativo or not verificar_senha(dados.password, usuario.password_hash):
@@ -86,6 +90,154 @@ async def login(request: Request, dados: LoginRequest, db: AsyncSession = Depend
         role=usuario.role,
         deve_trocar_senha=usuario.deve_trocar_senha,
     )
+
+
+DOMINIO_EMAIL_PERMITIDO = "@elcop.eng.br"
+
+
+@app.post("/auth/solicitar-acesso")
+@limiter.limit("3/hour")
+async def solicitar_acesso(request: Request, dados: SolicitacaoAcessoCreate, db: AsyncSession = Depends(get_db)):
+    from app.email_service import enviar_email_confirmacao_solicitacao
+
+    if not dados.email.lower().endswith(DOMINIO_EMAIL_PERMITIDO):
+        raise HTTPException(status_code=400, detail=f"Use um e-mail corporativo ({DOMINIO_EMAIL_PERMITIDO})")
+
+    result = await db.execute(select(User).where((User.username == dados.username) | (User.email == dados.email)))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Usuario ou e-mail ja cadastrado")
+
+    result = await db.execute(
+        select(SolicitacaoAcesso).where(
+            ((SolicitacaoAcesso.username == dados.username) | (SolicitacaoAcesso.email == dados.email))
+            & (SolicitacaoAcesso.status == "pendente")
+        )
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Ja existe uma solicitacao pendente para esse usuario ou e-mail")
+
+    solicitacao = SolicitacaoAcesso(
+        nome_completo=dados.nome_completo,
+        email=dados.email,
+        username=dados.username,
+        password_hash=hash_senha(dados.password),
+    )
+    db.add(solicitacao)
+    await db.commit()
+    enviar_email_confirmacao_solicitacao(dados.email, dados.nome_completo)
+    return {"status": "solicitacao enviada, aguardando aprovacao"}
+
+
+@app.get("/auth/solicitacoes", response_model=list[SolicitacaoAcessoResponse])
+async def listar_solicitacoes(
+    usuario: User = Depends(exigir_papel("admin", "super_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(SolicitacaoAcesso).where(SolicitacaoAcesso.status == "pendente").order_by(SolicitacaoAcesso.solicitado_em)
+    )
+    solicitacoes = result.scalars().all()
+    return [
+        SolicitacaoAcessoResponse(
+            id=s.id, nome_completo=s.nome_completo, email=s.email,
+            username=s.username, status=s.status,
+            solicitado_em=s.solicitado_em.isoformat(),
+        )
+        for s in solicitacoes
+    ]
+
+
+@app.post("/auth/solicitacoes/{solicitacao_id}/aprovar")
+async def aprovar_solicitacao(
+    solicitacao_id: int,
+    dados: SolicitacaoAcessoAprovar,
+    usuario: User = Depends(exigir_papel("admin", "super_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.email_service import enviar_email_acesso_aprovado
+
+    if dados.role not in ("operador", "admin"):
+        raise HTTPException(status_code=400, detail="Role invalido, use operador ou admin")
+
+    result = await db.execute(select(SolicitacaoAcesso).where(SolicitacaoAcesso.id == solicitacao_id))
+    solicitacao = result.scalar_one_or_none()
+    if not solicitacao or solicitacao.status != "pendente":
+        raise HTTPException(status_code=404, detail="Solicitacao nao encontrada ou ja processada")
+
+    novo_usuario = User(
+        username=solicitacao.username,
+        email=solicitacao.email,
+        nome_completo=solicitacao.nome_completo,
+        password_hash=solicitacao.password_hash,
+        role=dados.role,
+        deve_trocar_senha=False,
+    )
+    db.add(novo_usuario)
+    solicitacao.status = "aprovada"
+    solicitacao.revisado_em = datetime.now(timezone.utc)
+    solicitacao.revisado_por = usuario.username
+    await db.commit()
+    enviar_email_acesso_aprovado(solicitacao.email, solicitacao.nome_completo, solicitacao.username)
+    return {"status": "aprovado"}
+
+
+@app.post("/auth/solicitacoes/{solicitacao_id}/rejeitar")
+async def rejeitar_solicitacao(
+    solicitacao_id: int,
+    usuario: User = Depends(exigir_papel("admin", "super_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(SolicitacaoAcesso).where(SolicitacaoAcesso.id == solicitacao_id))
+    solicitacao = result.scalar_one_or_none()
+    if not solicitacao or solicitacao.status != "pendente":
+        raise HTTPException(status_code=404, detail="Solicitacao nao encontrada ou ja processada")
+    solicitacao.status = "rejeitada"
+    solicitacao.revisado_em = datetime.now(timezone.utc)
+    solicitacao.revisado_por = usuario.username
+    await db.commit()
+    return {"status": "rejeitado"}
+
+
+@app.post("/auth/esqueci-senha")
+@limiter.limit("3/hour")
+async def esqueci_senha(request: Request, dados: EsqueciSenhaRequest, db: AsyncSession = Depends(get_db)):
+    from app.email_service import enviar_email_recuperacao_senha
+
+    result = await db.execute(select(User).where(User.email == dados.email))
+    usuario = result.scalar_one_or_none()
+
+    if usuario and usuario.ativo:
+        token = secrets.token_urlsafe(32)
+        reset = PasswordResetToken(
+            username=usuario.username,
+            token=token,
+            expira_em=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        db.add(reset)
+        await db.commit()
+        enviar_email_recuperacao_senha(usuario.email, usuario.nome_completo, token)
+
+    return {"status": "se o e-mail existir, um link de redefinicao foi enviado"}
+
+
+@app.post("/auth/redefinir-senha")
+async def redefinir_senha(dados: RedefinirSenhaRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(PasswordResetToken).where(PasswordResetToken.token == dados.token))
+    reset = result.scalar_one_or_none()
+
+    if not reset or reset.usado or reset.expira_em < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Token invalido ou expirado")
+
+    result = await db.execute(select(User).where(User.username == reset.username))
+    usuario = result.scalar_one_or_none()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    usuario.password_hash = hash_senha(dados.nova_senha)
+    usuario.deve_trocar_senha = False
+    reset.usado = True
+    await db.commit()
+    return {"status": "senha redefinida com sucesso"}
 
 
 @app.post("/auth/trocar-senha")

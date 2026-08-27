@@ -18,6 +18,25 @@ class LoginResponse(BaseModel):
 class TrocarSenhaRequest(BaseModel):
     senha_atual: str
     nova_senha: str
+class SolicitacaoAcessoCreate(BaseModel):
+    nome_completo: str
+    email: str
+    username: str
+    password: str
+class SolicitacaoAcessoResponse(BaseModel):
+    id: int
+    nome_completo: str
+    email: str
+    username: str
+    status: str
+    solicitado_em: str
+class SolicitacaoAcessoAprovar(BaseModel):
+    role: str
+class EsqueciSenhaRequest(BaseModel):
+    email: str
+class RedefinirSenhaRequest(BaseModel):
+    token: str
+    nova_senha: str
 
 
 class BackupExecutionCreate(BaseModel):

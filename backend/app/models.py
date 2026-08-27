@@ -8,11 +8,37 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=True)
     nome_completo = Column(String, nullable=False)
     password_hash = Column(String, nullable=False)
     role = Column(String, nullable=False, default="operador")
     deve_trocar_senha = Column(Boolean, default=True)
     ativo = Column(Boolean, default=True)
+    criado_em = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SolicitacaoAcesso(Base):
+    __tablename__ = "solicitacoes_acesso"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome_completo = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    username = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pendente")
+    solicitado_em = Column(DateTime(timezone=True), server_default=func.now())
+    revisado_em = Column(DateTime(timezone=True), nullable=True)
+    revisado_por = Column(String, nullable=True)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, nullable=False, index=True)
+    token = Column(String, unique=True, index=True, nullable=False)
+    expira_em = Column(DateTime(timezone=True), nullable=False)
+    usado = Column(Boolean, default=False)
     criado_em = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -67,6 +93,7 @@ class AgentAlertState(Base):
     id = Column(Integer, primary_key=True, index=True)
     instance = Column(String, nullable=False, index=True)
     recurso = Column(String, nullable=False)
+    notificacao_enviada = Column(Boolean, default=False)
     em_alerta = Column(Boolean, default=False)
     atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

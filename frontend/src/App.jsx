@@ -12,6 +12,7 @@ import ServerResourceCard from './components/ServerResourceCard';
 import Auditoria from './components/Auditoria';
 import Automacoes from './components/Automacoes';
 import Usuarios from './components/Usuarios';
+import Solicitacoes from './components/Solicitacoes';
 import './App.css';
 
 const API_URL = 'IP_INTERNO_AQUI:8000';
@@ -246,6 +247,11 @@ function App() {
             <>
               <h2 className="page-title">Usuários</h2>
               <Usuarios token={token} meuUsername={usuario?.username} meuRole={usuario?.role} />
+            </>
+          ) : navPrincipal === 'solicitacoes' ? (
+            <>
+              <h2 className="page-title">Solicitações</h2>
+              <Solicitacoes token={token} />
             </>
           ) : (
           <>
