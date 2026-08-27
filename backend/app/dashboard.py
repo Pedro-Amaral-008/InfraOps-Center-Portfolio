@@ -18,6 +18,24 @@ async def query_prometheus(query: str):
             return []
 
 
+INSTANCIAS_REMOVIDAS = ["IP_REMOVIDO:445", "IP_REMOVIDO"]
+async def get_uptime_por_job(job: str, dias: int = 30):
+    """Calcula o uptime percentual de cada instance de um job, usando o
+    historico armazenado pelo proprio Prometheus (avg_over_time)."""
+    query = f'avg_over_time(probe_success{{job=~"{job}"}}[{dias}d]) * 100'
+    resultados = await query_prometheus(query)
+    uptime = []
+    for r in resultados:
+        metric = r.get("metric", {})
+        if metric.get("instance", "") in INSTANCIAS_REMOVIDAS:
+            continue
+        valor = r.get("value", [None, None])[1]
+        uptime.append({
+            "nome": metric.get("nome", metric.get("instance", "")),
+            "instance": metric.get("instance", ""),
+            "uptime_percent": round(float(valor), 2) if valor is not None else None,
+        })
+    return uptime
 def count_by_value(results, target_value="1"):
     online = 0
     offline = 0

@@ -52,6 +52,8 @@ function App() {
   const [unifiAps, setUnifiAps] = useState([]);
   const [pfsenseLinks, setPfsenseLinks] = useState([]);
   const [pfsenseUptime, setPfsenseUptime] = useState([]);
+  const [servidoresUptime, setServidoresUptime] = useState([]);
+  const [apsUptime, setApsUptime] = useState([]);
   const [pfsenseTrafego, setPfsenseTrafego] = useState({});
   const [restartandoFluig, setRestartandoFluig] = useState(false);
   const [backups, setBackups] = useState([]);
@@ -128,11 +130,17 @@ function App() {
       axios.get(`${API_URL}/dashboard/agents`, {
         headers: { Authorization: `Bearer ${token}` },
       }).then((response) => setAgentes(response.data)).catch(() => {});
+      axios.get(`${API_URL}/dashboard/servidores/uptime?dias=30`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((response) => setServidoresUptime(response.data)).catch(() => {});
     }
     if (abaAtiva === "access_points") {
       axios.get(`${API_URL}/dashboard/unifi/aps`, {
         headers: { Authorization: `Bearer ${token}` },
       }).then((response) => setUnifiAps(response.data)).catch(() => {});
+      axios.get(`${API_URL}/dashboard/access-points/uptime?dias=30`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((response) => setApsUptime(response.data)).catch(() => {});
     }
     if (abaAtiva === "links_internet") {
       axios.get(`${API_URL}/dashboard/pfsense/links`, {
@@ -368,6 +376,30 @@ function App() {
                   <ServerResourceCard key={agente.instance} agente={agente} />
                 ))}
               </div>
+              {servidoresUptime.length > 0 && (
+                <div className="detail-table" style={{ marginBottom: '32px' }}>
+                  <h3 className="detail-table-title">Disponibilidade dos Servidores</h3>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Servidor</th>
+                        <th>Uptime (30 dias)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {servidoresUptime
+                        .filter((s) => s.uptime_percent > 0)
+                        .sort((a, b) => a.nome.localeCompare(b.nome))
+                        .map((s) => (
+                          <tr key={s.instance}>
+                            <td>{s.nome}</td>
+                            <td>{s.uptime_percent}%</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               <h3 className="detail-table-title" style={{ marginBottom: '16px' }}>Latência</h3>
             </>
           )}
@@ -384,13 +416,16 @@ function App() {
                       <th>IP</th>
                       <th>Clientes Conectados</th>
                       <th>Status</th>
+                      <th>Uptime (30 dias)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {unifiAps
                       .filter((ap) => ap.modelo !== 'USW 24 PoE')
                       .sort((a, b) => b.clientes_conectados - a.clientes_conectados)
-                      .map((ap) => (
+                      .map((ap) => {
+                        const uptimeInfo = apsUptime.find((u) => u.instance === ap.ip);
+                        return (
                         <tr key={ap.mac}>
                           <td>{ap.nome}</td>
                           <td>{ap.modelo}</td>
@@ -401,8 +436,10 @@ function App() {
                               {ap.status === 'ONLINE' ? 'Online' : 'Offline'}
                             </span>
                           </td>
+                          <td>{uptimeInfo ? `${uptimeInfo.uptime_percent}%` : '—'}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>

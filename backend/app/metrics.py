@@ -95,9 +95,13 @@ async def get_latencia_por_categoria(job: str, minutos: int = 60):
         minutos, step
     )
 
+    INSTANCIAS_REMOVIDAS = ["IP_REMOVIDO:445", "IP_REMOVIDO"]
+
     series = []
     for r in resultado:
         metric = r.get("metric", {})
+        if metric.get("instance", "") in INSTANCIAS_REMOVIDAS:
+            continue
         valores = r.get("values", [])
         series.append({
             "nome": metric.get("nome", metric.get("instance", "desconhecido")),
