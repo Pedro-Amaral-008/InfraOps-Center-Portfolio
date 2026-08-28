@@ -2,9 +2,19 @@ import asyncio
 from app.config import settings
 
 INTERFACES = {
-    2: "WAN_G8",
     3: "WAN_Vivo",
+    2: "WAN_G8",
     4: "WAN_Nio",
+}
+
+VPNS = {
+    12: "Elcop-Principal",
+    11: "Elcop-Matriz",
+    13: "VPN_MATRIZ_SP",
+}
+
+VLANS = {
+    10: "VLAN_CELULARES",
 }
 
 
@@ -36,10 +46,10 @@ NOMES_AMIGAVEIS = {
 async def get_status_links():
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ssh", "-i", "/root/.ssh/pfsense_readonly",
+            "ssh", "-i", "/home/appuser/.ssh/pfsense_readonly",
             "-o", "StrictHostKeyChecking=no",
             "-o", "ConnectTimeout=5",
-            f"USUARIO_SSH_AQUI@{settings.pfsense_host}",
+            f"infraops-readonly@{settings.pfsense_host}",
             "pfSsh.php playback gatewaystatus",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -58,9 +68,20 @@ async def get_status_links():
                 "nome": nome_amigavel,
                 "status": "online" if status == "online" else "offline",
             })
+        ordem = list(INTERFACES.values())
+        resultado.sort(key=lambda x: ordem.index(x["nome"]) if x["nome"] in ordem else 99)
         return resultado
     except Exception:
         return [{"nome": nome, "status": "desconhecido"} for nome in INTERFACES.values()]
+
+
+async def get_status_operstatus(indice: int):
+    """Status via SNMP ifOperStatus (1=up, 2=down). Usado para VPNs e VLANs,
+    que nao tem monitoramento de gateway como os links WAN."""
+    valor = await consultar_oid(f"1.3.6.1.2.1.2.2.1.8.{indice}")
+    if valor is None:
+        return "desconhecido"
+    return "online" if "1" in valor else "offline"
 
 
 async def registrar_status_links(db):
@@ -80,28 +101,29 @@ async def registrar_status_links(db):
 async def registrar_trafego(db):
     from app.models import PfsenseTrafego
     trafego = await get_trafego_links()
-    for t in trafego:
+    vpns = await get_vpns_status_trafego()
+    vlans = await get_vlans_status_trafego()
+    for t in trafego + vpns + vlans:
         registro = PfsenseTrafego(
             nome_link=t["nome"],
-            download_mbps=int(t["download_mbps"]),
-            upload_mbps=int(t["upload_mbps"]),
+            download_mbps=t["download_mbps"],
+            upload_mbps=t["upload_mbps"],
         )
         db.add(registro)
     await db.commit()
 
 
-
 _ultima_leitura_trafego = {}
 
 
-async def get_trafego_links():
+async def get_trafego_por_indices(indices_nomes: dict):
     import time
     global _ultima_leitura_trafego
 
     resultado = []
     agora = time.time()
 
-    for indice, nome in INTERFACES.items():
+    for indice, nome in indices_nomes.items():
         in_octets = await consultar_oid(f"1.3.6.1.2.1.2.2.1.10.{indice}")
         out_octets = await consultar_oid(f"1.3.6.1.2.1.2.2.1.16.{indice}")
         in_atual = int(in_octets) if in_octets is not None else 0
@@ -126,6 +148,7 @@ async def get_trafego_links():
         _ultima_leitura_trafego[indice] = {"in": in_atual, "out": out_atual, "tempo": agora}
 
         resultado.append({
+            "indice": indice,
             "nome": nome,
             "download_mbps": download_mbps,
             "upload_mbps": upload_mbps,
@@ -134,6 +157,39 @@ async def get_trafego_links():
     return resultado
 
 
+async def get_trafego_links():
+    resultado = await get_trafego_por_indices(INTERFACES)
+    for r in resultado:
+        del r["indice"]
+    return resultado
+
+
+async def get_vpns_status_trafego():
+    trafego = await get_trafego_por_indices(VPNS)
+    resultado = []
+    for t in trafego:
+        status = await get_status_operstatus(t["indice"])
+        resultado.append({
+            "nome": t["nome"],
+            "status": status,
+            "download_mbps": t["download_mbps"],
+            "upload_mbps": t["upload_mbps"],
+        })
+    return resultado
+
+
+async def get_vlans_status_trafego():
+    trafego = await get_trafego_por_indices(VLANS)
+    resultado = []
+    for t in trafego:
+        status = await get_status_operstatus(t["indice"])
+        resultado.append({
+            "nome": t["nome"],
+            "status": status,
+            "download_mbps": t["download_mbps"],
+            "upload_mbps": t["upload_mbps"],
+        })
+    return resultado
 
 
 async def verificar_alertas_links(db):
@@ -169,3 +225,64 @@ async def verificar_alertas_links(db):
                 )
                 await enviar_telegram(msg, parse_mode="HTML")
             await definir_estado(db, "pfsense", nome, False, notificacao_enviada=False)
+
+
+async def verificar_alertas_vpns_vlans(db):
+    from datetime import datetime
+    from app.agent_alerts import obter_estado, definir_estado, enviar_telegram
+
+    categorias = [
+        ("VPN", await get_vpns_status_trafego()),
+        ("VLAN", await get_vlans_status_trafego()),
+    ]
+
+    for tipo, itens in categorias:
+        for item in itens:
+            nome = item["nome"]
+            status = item["status"]
+            if status == "desconhecido":
+                continue
+            offline = status == "offline"
+
+            registro = await obter_estado(db, f"pfsense-{tipo.lower()}", nome)
+            estava_offline = registro.em_alerta if registro else False
+
+            if offline and not estava_offline:
+                msg = (
+                    f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
+                    f"<b>{tipo} OFFLINE</b> ❌:\n\n"
+                    f"🌐 <b>Nome:</b> {nome}\n"
+                    f"🕐 <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+                    f"⚠️ <b>Ação:</b> Verificar conectividade imediatamente"
+                )
+                await enviar_telegram(msg, parse_mode="HTML")
+                await definir_estado(db, f"pfsense-{tipo.lower()}", nome, True, notificacao_enviada=True)
+            elif not offline and estava_offline:
+                notificacao_foi_enviada = registro.notificacao_enviada if registro else False
+                if notificacao_foi_enviada:
+                    msg = (
+                        f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
+                        f"<b>{tipo} NORMALIZADA</b> ✅:\n\n"
+                        f"🌐 <b>Nome:</b> {nome}\n"
+                        f"🕐 <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                    )
+                    await enviar_telegram(msg, parse_mode="HTML")
+                await definir_estado(db, f"pfsense-{tipo.lower()}", nome, False, notificacao_enviada=False)
+
+
+async def registrar_status_vpns_vlans(db):
+    from app.models import PfsenseVpnVlanStatus
+
+    vpns = await get_vpns_status_trafego()
+    for v in vpns:
+        if v["status"] == "desconhecido":
+            continue
+        db.add(PfsenseVpnVlanStatus(tipo="vpn", nome=v["nome"], online=(v["status"] == "online")))
+
+    vlans = await get_vlans_status_trafego()
+    for v in vlans:
+        if v["status"] == "desconhecido":
+            continue
+        db.add(PfsenseVpnVlanStatus(tipo="vlan", nome=v["nome"], online=(v["status"] == "online")))
+
+    await db.commit()

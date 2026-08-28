@@ -566,7 +566,7 @@ async def dashboard_agent_history(
 import asyncio
 from app.agent_alerts import verificar_limites_agentes, verificar_disponibilidade_agentes, verificar_failover_srv_arquivos
 from app.controller_alerts import verificar_limites_controller
-from app.pfsense import registrar_status_links, registrar_trafego, verificar_alertas_links
+from app.pfsense import registrar_status_links, registrar_trafego, verificar_alertas_links, verificar_alertas_vpns_vlans, registrar_status_vpns_vlans
 from app.database import AsyncSessionLocal
 
 
@@ -597,11 +597,19 @@ async def loop_verificacao_agentes():
                 await verificar_alertas_links(db)
             except Exception as e:
                 print(f"ERRO em verificar_alertas_links: {e}")
+            try:
+                await verificar_alertas_vpns_vlans(db)
+            except Exception as e:
+                print(f"ERRO em verificar_alertas_vpns_vlans: {e}")
 
             try:
                 await registrar_status_links(db)
             except Exception as e:
                 print(f"ERRO em registrar_status_links: {e}")
+            try:
+                await registrar_status_vpns_vlans(db)
+            except Exception as e:
+                print(f"ERRO em registrar_status_vpns_vlans: {e}")
 
         await asyncio.sleep(120)
 
@@ -669,6 +677,34 @@ async def dashboard_pfsense_links(
 ):
     from app.pfsense import get_status_links
     return await get_status_links()
+@app.get("/dashboard/pfsense/vpns")
+async def dashboard_pfsense_vpns(
+    usuario: User = Depends(get_current_user),
+):
+    from app.pfsense import get_vpns_status_trafego
+    return await get_vpns_status_trafego()
+@app.get("/dashboard/pfsense/vlans")
+async def dashboard_pfsense_vlans(
+    usuario: User = Depends(get_current_user),
+):
+    from app.pfsense import get_vlans_status_trafego
+    return await get_vlans_status_trafego()
+@app.get("/dashboard/pfsense/vpns/uptime")
+async def dashboard_pfsense_vpns_uptime(
+    dias: int = 30,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_vpn_vlan_uptime
+    return await get_vpn_vlan_uptime(db, "vpn", dias)
+@app.get("/dashboard/pfsense/vlans/uptime")
+async def dashboard_pfsense_vlans_uptime(
+    dias: int = 30,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_vpn_vlan_uptime
+    return await get_vpn_vlan_uptime(db, "vlan", dias)
 
 
 @app.get("/dashboard/pfsense/links/uptime")

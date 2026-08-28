@@ -257,3 +257,31 @@ async def get_backups_detalhado(db=None):
             "ultima_execucao": execucao.executado_em.isoformat() if execucao.executado_em else None,
         })
     return backups
+
+
+async def get_vpn_vlan_uptime(db, tipo: str, dias: int = 30):
+    from sqlalchemy import select
+    from datetime import datetime, timedelta, timezone
+    from app.models import PfsenseVpnVlanStatus
+
+    limite = datetime.now(timezone.utc) - timedelta(days=dias)
+    result = await db.execute(
+        select(PfsenseVpnVlanStatus).where(
+            (PfsenseVpnVlanStatus.tipo == tipo) & (PfsenseVpnVlanStatus.verificado_em >= limite)
+        )
+    )
+    registros = result.scalars().all()
+
+    por_nome = {}
+    for r in registros:
+        if r.nome not in por_nome:
+            por_nome[r.nome] = {"total": 0, "online": 0}
+        por_nome[r.nome]["total"] += 1
+        if r.online:
+            por_nome[r.nome]["online"] += 1
+
+    resultado = []
+    for nome, dados in por_nome.items():
+        uptime = round((dados["online"] / dados["total"]) * 100, 2) if dados["total"] > 0 else None
+        resultado.append({"nome": nome, "uptime_percent": uptime})
+    return resultado
