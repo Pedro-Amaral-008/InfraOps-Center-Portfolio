@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, JSON
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, JSON, Numeric
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -112,8 +112,8 @@ class PfsenseTrafego(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     nome_link = Column(String, nullable=False, index=True)
-    download_mbps = Column(Integer, nullable=True)
-    upload_mbps = Column(Integer, nullable=True)
+    download_mbps = Column(Numeric(10, 3), nullable=True)
+    upload_mbps = Column(Numeric(10, 3), nullable=True)
     registrado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
@@ -137,3 +137,13 @@ class ConfiguracaoSistema(Base):
     chave = Column(String, nullable=False, unique=True, index=True)
     valor = Column(String, nullable=False)
     atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class PfsenseVpnVlanStatus(Base):
+    __tablename__ = "pfsense_vpn_vlan_status"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tipo = Column(String, nullable=False)
+    nome = Column(String, nullable=False, index=True)
+    online = Column(Boolean, nullable=False)
+    verificado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
