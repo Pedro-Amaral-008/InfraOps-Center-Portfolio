@@ -64,6 +64,7 @@ function App() {
   const [restartandoFluig, setRestartandoFluig] = useState(false);
   const [backups, setBackups] = useState([]);
   const [backupsHistorico, setBackupsHistorico] = useState([]);
+  const [backupsUptime, setBackupsUptime] = useState([]);
   const [erro, setErro] = useState(false);
   const [detalheAberto, setDetalheAberto] = useState(null);
   const [intervaloAtualizacao, setIntervaloAtualizacao] = useState(30000);
@@ -166,6 +167,9 @@ function App() {
       axios.get(`${API_URL}/dashboard/backups/history?dias=30`, {
         headers: { Authorization: `Bearer ${token}` },
       }).then((response) => setBackupsHistorico(response.data)).catch(() => {});
+      axios.get(`${API_URL}/dashboard/backups/uptime?dias=30`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((response) => setBackupsUptime(response.data)).catch(() => {});
     }
   }, [abaAtiva, token, deveTrocarSenha, buscarLatencia, intervaloAtualizacao]);
 
@@ -557,10 +561,13 @@ function App() {
                     <th>Tamanho</th>
                     <th>Última Execução</th>
                     <th>Status</th>
+                    <th>Uptime (30 dias)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {backups.map((b) => (
+                  {backups.map((b) => {
+                    const uptimeInfo = backupsUptime.find((u) => u.instance === b.instance);
+                    return (
                     <tr key={b.instance}>
                       <td>{b.nome}</td>
                       <td>{b.tamanho_gb > 0 ? `${b.tamanho_gb} GB` : '—'}</td>
@@ -570,10 +577,12 @@ function App() {
                           {b.sucesso ? 'Sucesso' : 'Falhou'}
                         </span>
                       </td>
+                      <td>{uptimeInfo ? `${uptimeInfo.uptime_percent}% (${uptimeInfo.execucoes_com_sucesso}/${uptimeInfo.total_execucoes})` : '—'}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {backups.length === 0 && (
-                    <tr><td colSpan="4">Carregando...</td></tr>
+                    <tr><td colSpan="5">Carregando...</td></tr>
                   )}
                 </tbody>
               </table>

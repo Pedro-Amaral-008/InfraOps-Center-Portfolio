@@ -18,7 +18,7 @@ async def query_prometheus(query: str):
             return []
 
 
-INSTANCIAS_REMOVIDAS = ["IP_REMOVIDO:445", "IP_REMOVIDO"]
+INSTANCIAS_REMOVIDAS = ["192.168.1.71:445", "192.168.1.71"]
 async def get_uptime_por_job(job: str, dias: int = 30):
     """Calcula o uptime percentual de cada instance de um job, usando o
     historico armazenado pelo proprio Prometheus (avg_over_time)."""
@@ -173,6 +173,45 @@ async def get_dashboard_summary(db=None):
     }
 
 
+
+
+async def get_backups_uptime(db, dias: int = 30):
+    from sqlalchemy import select, func as sqlfunc
+    from datetime import datetime, timedelta, timezone
+    from app.models import BackupExecution
+
+    nomes_amigaveis = {
+        "servidor_arquivos": "Backup Servidor de Arquivos",
+        "servidor_impressao": "Backup Servidor de Impressão",
+        "ecam": "Backup E-CAM",
+    }
+
+    limite = datetime.now(timezone.utc) - timedelta(days=dias)
+    result = await db.execute(
+        select(BackupExecution).where(BackupExecution.executado_em >= limite)
+    )
+    execucoes = result.scalars().all()
+
+    por_instancia = {}
+    for e in execucoes:
+        if e.instance not in por_instancia:
+            por_instancia[e.instance] = {"total": 0, "sucesso": 0}
+        por_instancia[e.instance]["total"] += 1
+        if e.status in ("Success", "Warning", "sucesso"):
+            por_instancia[e.instance]["sucesso"] += 1
+
+    resultado = []
+    for instance, dados in por_instancia.items():
+        uptime = round((dados["sucesso"] / dados["total"]) * 100, 1) if dados["total"] > 0 else None
+        resultado.append({
+            "nome": nomes_amigaveis.get(instance, instance),
+            "instance": instance,
+            "total_execucoes": dados["total"],
+            "execucoes_com_sucesso": dados["sucesso"],
+            "uptime_percent": uptime,
+        })
+    resultado.sort(key=lambda x: x["nome"])
+    return resultado
 
 
 async def get_backups_detalhado(db=None):

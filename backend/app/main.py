@@ -338,6 +338,14 @@ async def dashboard_access_points_uptime(
 async def dashboard_backups(usuario: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     from app.dashboard import get_backups_detalhado
     return await get_backups_detalhado(db)
+@app.get("/dashboard/backups/uptime")
+async def dashboard_backups_uptime(
+    dias: int = 30,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_backups_uptime
+    return await get_backups_uptime(db, dias)
 
 
 @app.post("/backups/registrar")
