@@ -715,13 +715,10 @@ function App() {
                     <th>Tamanho</th>
                     <th>Última Execução</th>
                     <th>Status</th>
-                    <th>Uptime (30 dias)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {backups.map((b) => {
-                    const uptimeInfo = backupsUptime.find((u) => u.instance === b.instance);
-                    return (
+                  {backups.map((b) => (
                     <tr key={b.instance}>
                       <td>{b.nome}</td>
                       <td>{b.tamanho_gb > 0 ? `${b.tamanho_gb} GB` : '—'}</td>
@@ -731,12 +728,32 @@ function App() {
                           {b.sucesso ? 'Sucesso' : 'Falhou'}
                         </span>
                       </td>
-                      <td>{uptimeInfo ? `${uptimeInfo.uptime_percent}% (${uptimeInfo.execucoes_com_sucesso}/${uptimeInfo.total_execucoes})` : '—'}</td>
                     </tr>
-                    );
-                  })}
+                  ))}
                   {backups.length === 0 && (
-                    <tr><td colSpan="5">Carregando...</td></tr>
+                    <tr><td colSpan="4">Carregando...</td></tr>
+                  )}
+                </tbody>
+              </table>
+              <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Disponibilidade — Últimos 30 dias</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Backup</th>
+                    <th>Uptime</th>
+                    <th>Execuções</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backupsUptime.map((u) => (
+                    <tr key={`${u.instance}-${u.backup_type}`}>
+                      <td>{u.nome}</td>
+                      <td>{u.uptime_percent !== null ? `${u.uptime_percent}%` : '—'}</td>
+                      <td>{u.execucoes_com_sucesso} de {u.total_execucoes} execuções bem-sucedidas</td>
+                    </tr>
+                  ))}
+                  {backupsUptime.length === 0 && (
+                    <tr><td colSpan="3">Carregando...</td></tr>
                   )}
                 </tbody>
               </table>

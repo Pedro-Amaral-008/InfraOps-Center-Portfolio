@@ -184,6 +184,7 @@ async def get_backups_uptime(db, dias: int = 30):
         "servidor_arquivos": "Backup Servidor de Arquivos",
         "servidor_impressao": "Backup Servidor de Impressão",
         "ecam": "Backup E-CAM",
+        "eops": "Backup E-Ops",
     }
 
     limite = datetime.now(timezone.utc) - timedelta(days=dias)
@@ -192,20 +193,33 @@ async def get_backups_uptime(db, dias: int = 30):
     )
     execucoes = result.scalars().all()
 
-    por_instancia = {}
+    # Agrupa por (instance, backup_type). Quando so existe um tipo de backup
+    # para a instancia (ex: E-CAM, que so faz Dump PostgreSQL), o resultado
+    # continua sendo uma linha unica - o agrupamento nao cria divisao artificial.
+    por_grupo = {}
     for e in execucoes:
-        if e.instance not in por_instancia:
-            por_instancia[e.instance] = {"total": 0, "sucesso": 0}
-        por_instancia[e.instance]["total"] += 1
+        chave = (e.instance, e.backup_type or "")
+        if chave not in por_grupo:
+            por_grupo[chave] = {"total": 0, "sucesso": 0}
+        por_grupo[chave]["total"] += 1
         if e.status in ("Success", "Warning", "sucesso"):
-            por_instancia[e.instance]["sucesso"] += 1
+            por_grupo[chave]["sucesso"] += 1
 
     resultado = []
-    for instance, dados in por_instancia.items():
+    for (instance, backup_type), dados in por_grupo.items():
         uptime = round((dados["sucesso"] / dados["total"]) * 100, 1) if dados["total"] > 0 else None
+        nome_base = nomes_amigaveis.get(instance, instance)
+        # So adiciona o sufixo do tipo se essa instancia tiver mais de um tipo distinto.
+        tipos_da_instancia = {t for (i, t) in por_grupo.keys() if i == instance}
+        if len(tipos_da_instancia) > 1 and backup_type:
+            tipo_curto = "Full" if "Full" in backup_type else ("Incremental" if "Incremental" in backup_type else backup_type)
+            nome_exibido = f"{nome_base} — {tipo_curto}"
+        else:
+            nome_exibido = nome_base
         resultado.append({
-            "nome": nomes_amigaveis.get(instance, instance),
+            "nome": nome_exibido,
             "instance": instance,
+            "backup_type": backup_type,
             "total_execucoes": dados["total"],
             "execucoes_com_sucesso": dados["sucesso"],
             "uptime_percent": uptime,
