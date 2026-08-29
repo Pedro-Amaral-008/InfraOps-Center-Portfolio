@@ -9,15 +9,15 @@ route:
 receivers:
   - name: telegram-infraops
     telegram_configs:
-      - bot_token: 'SEU_TELEGRAM_BOT_TOKEN_AQUI'
-        chat_id: SEU_TELEGRAM_CHAT_ID_AQUI
+      - bot_token: 'SEU_BOT_TOKEN_AQUI'
+        chat_id: SEU_CHAT_ID_AQUI
         parse_mode: 'Markdown'
         message: |
           {{ range .Alerts }}🔔 *Monitoramento InfraOps Center*
 
           {{ if eq .Status "firing" }}*CONEXÃO PERDIDA* ❌:{{ else }}*CONEXÃO RESTAURADA* ✅:{{ end }}
 
-          {{ if eq .Status "firing" }}🔴{{ else }}🟢{{ end }} *{{ if eq .Labels.alertname "AccessPointOffline" }}Access Point{{ else if eq .Labels.alertname "ServidorOffline" }}Servidor{{ else if eq .Labels.alertname "ImpressoraOffline" }}Impressora{{ else if eq .Labels.alertname "PainelWebOffline" }}Painel Web{{ else }}Equipamento{{ end }}: {{ if .Labels.nome }}{{ .Labels.nome }}{{ else }}{{ .Labels.instance }}{{ end }}*
+          {{ if eq .Status "firing" }}🔴{{ else }}🟢{{ end }} *{{ if eq .Labels.alertname "AccessPointOffline" }}Access Point{{ else if eq .Labels.alertname "ServidorOffline" }}Servidor{{ else if eq .Labels.alertname "ServidorArquivosOffline" }}Servidor{{ else if eq .Labels.alertname "ImpressoraOffline" }}Impressora{{ else if eq .Labels.alertname "PainelWebOffline" }}Painel Web{{ else }}Equipamento{{ end }}: {{ if .Labels.nome }}{{ .Labels.nome }}{{ else }}{{ .Labels.instance }}{{ end }}*
           {{ if .Labels.servico }}🗂️ Serviço: {{ .Labels.servico }}
           {{ end }}🌐 IP: {{ .Labels.instance }}
           📶 Status: {{ if eq .Status "firing" }}Off-line{{ else }}On-line{{ end }}

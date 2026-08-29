@@ -2,8 +2,15 @@ groups:
   - name: infraops_blackbox_alerts
     rules:
       - alert: ServidorOffline
-        expr: probe_success{job=~"blackbox-servidores-tcp|blackbox-servidor-backup-principal"} == 0
+        expr: probe_success{job=~"blackbox-servidores-tcp|blackbox-servidor-backup-principal", instance!="IP_SRV_ARQUIVOS:445"} == 0
         for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Servidor offline"
+      - alert: ServidorArquivosOffline
+        expr: probe_success{instance="IP_SRV_ARQUIVOS:445"} == 0
+        for: 5m
         labels:
           severity: critical
         annotations:
