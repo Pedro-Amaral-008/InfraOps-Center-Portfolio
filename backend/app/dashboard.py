@@ -349,7 +349,6 @@ async def get_estabilidade_semanal(db):
     categorias_prometheus = {
         "servidores": "blackbox-servidores-tcp|blackbox-servidor-backup-principal",
         "access_points": "blackbox-access-points",
-        "impressoras": "blackbox-impressoras",
     }
 
     resultado = {}
@@ -379,6 +378,44 @@ async def get_estabilidade_semanal(db):
             except Exception:
                 valores = []
         resultado[chave] = valores
+
+    # Impressoras: uptime considerando SO o horario comercial (seg-sex, 8h-18h local),
+    # ja que muitas entram em modo standby fora desse horario e isso nao deve contar como "queda".
+    query_impressoras = 'avg(probe_success{job="blackbox-impressoras"}) * 100'
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            response = await client.get(
+                f"{PROMETHEUS_URL}/api/v1/query_range",
+                params={
+                    "query": query_impressoras,
+                    "start": (datetime.now() - timedelta(days=7)).timestamp(),
+                    "end": datetime.now().timestamp(),
+                    "step": "15m",
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            resultados_imp = data.get("data", {}).get("result", [])
+            pontos_imp = resultados_imp[0].get("values", []) if resultados_imp else []
+        except Exception:
+            pontos_imp = []
+
+    from datetime import timezone as tz_utc, timedelta as td
+    fuso_local = tz_utc(td(hours=-3))
+    por_dia_imp = {}
+    for ts_str, valor_str in pontos_imp:
+        momento_utc = datetime.fromtimestamp(float(ts_str), tz=tz_utc.utc)
+        momento_local = momento_utc.astimezone(fuso_local)
+        # so conta segunda(0) a sexta(4), das 8h as 18h
+        if momento_local.weekday() <= 4 and 8 <= momento_local.hour < 18:
+            dia = momento_local.date().isoformat()
+            por_dia_imp.setdefault(dia, []).append(float(valor_str))
+
+    dias_imp_ordenados = sorted(por_dia_imp.keys())
+    resultado["impressoras"] = [
+        round(sum(por_dia_imp[d]) / len(por_dia_imp[d]), 1) if por_dia_imp[d] else None
+        for d in dias_imp_ordenados
+    ]
 
     # Links de Internet: calcula uptime diario a partir do historico salvo (pfsense_link_status)
     from sqlalchemy import select
