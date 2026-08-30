@@ -1,5 +1,21 @@
 const CHANGELOG = [
   {
+    versao: 'v0.4',
+    itens: [
+      'Nova seção "Visão Geral" no Dashboard: indicador de saúde geral (semáforo + frase + itens com problema), números resumidos (equipamentos monitorados, uptime médio hoje, eventos nas últimas 24h), gráfico de tendência das últimas 24h, estabilidade por categoria nos últimos 7 dias, e feed de alertas com histórico real classificado em 3 níveis de cor.',
+      'Nova aba "Métricas Detalhadas" na barra lateral, expansível, reunindo Controller, Servidores, Impressoras, Backups e Redes em tela cheia, sem os cards de resumo do topo.',
+      'Nova aba "Redes", unificando Links de Internet, VPNs, VLANs e Access Points numa única seção com sub-abas.',
+      'VPNs e VLANs agora com status (online/offline), tráfego em tempo real e histórico de disponibilidade.',
+      'Alertas automáticos no Telegram quando uma VPN ou VLAN cai ou volta a funcionar.',
+      'Uptime de 30 dias para Backups, com separação automática por tipo (Full/Incremental) e texto mais claro sobre execuções.',
+      'Backup do próprio sistema E-Ops agora monitorado.',
+      'Corrigido nome do backup do E-Ops e formato de tamanho dos backups (MB/GB/TB automático).',
+      'Corrigido nome e tempo de atividade exibidos do Controller.',
+      'Novo favicon e nome da aba do navegador atualizados.',
+      'Cards de resumo do Dashboard reduzidos de tamanho para ficarem mais compactos.',
+    ],
+  },
+  {
     versao: 'v0.3',
     itens: [
       'Novo: solicitação de acesso — quem ainda não tem conta pode se cadastrar com nome, e-mail corporativo e senha, e aguardar aprovação de um administrador.',
