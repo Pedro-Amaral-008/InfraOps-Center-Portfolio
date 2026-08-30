@@ -29,7 +29,10 @@ const ABAS = [
 
 function formatarTamanho(gb) {
   if (gb >= 1024) {
-    return `${(gb / 1024).toFixed(1)} TB`;
+    return `${(gb / 1024).toFixed(2)} TB`;
+  }
+  if (gb < 1 && gb > 0) {
+    return `${(gb * 1024).toFixed(1)} MB`;
   }
   return `${gb} GB`;
 }
@@ -721,7 +724,7 @@ function App() {
                   {backups.map((b) => (
                     <tr key={b.instance}>
                       <td>{b.nome}</td>
-                      <td>{b.tamanho_gb > 0 ? `${b.tamanho_gb} GB` : '—'}</td>
+                      <td>{b.tamanho_gb > 0 ? formatarTamanho(b.tamanho_gb) : '—'}</td>
                       <td>{b.ultima_execucao ? new Date(b.ultima_execucao).toLocaleString('pt-BR') : '—'}</td>
                       <td>
                         <span className={`status-tag status-tag-${b.sucesso ? 'online' : 'offline'}`}>
