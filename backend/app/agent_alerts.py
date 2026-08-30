@@ -24,6 +24,69 @@ async def enviar_telegram(mensagem: str, parse_mode: str = "Markdown"):
         except Exception:
             pass
 
+    try:
+        from app.database import AsyncSessionLocal
+        from app.models import EventoSistema
+        import re
+
+        msg_upper = mensagem.upper()
+
+        # Classificacao em 3 niveis: bom (resolvido), atencao (aviso, sem estar totalmente fora do ar),
+        # critico (offline/falha real). Palavras de "resolvido" tem prioridade sobre as demais.
+        palavras_bom = ["NORMALIZADO", "RESOLVID", "SUCESSO", "VOLTOU", "✅", "🟢"]
+        palavras_critico = ["OFFLINE", "FALHOU", "FALHA", "❌", "CRÍTICO", "CRITICO"]
+        palavras_atencao = ["ELEVADO", "ATENÇÃO", "ATENCAO", "⚠️", "POUCO ARMAZENAMENTO", "AVISO"]
+
+        if any(p in msg_upper or p in mensagem for p in palavras_bom):
+            tipo = "bom"
+        elif any(p in msg_upper or p in mensagem for p in palavras_critico):
+            tipo = "critico"
+        elif any(p in msg_upper or p in mensagem for p in palavras_atencao):
+            tipo = "atencao"
+        else:
+            tipo = "critico"
+
+        # Separa a mensagem em linhas, remove cabecalho generico e linhas vazias,
+        # limpa marcacoes de markdown/emoji de rotulo, e monta uma linha principal
+        # curta + uma linha de detalhes (instancia, valor, horario etc).
+        linhas_brutas = [l.strip() for l in mensagem.split("\n") if l.strip()]
+        linhas_uteis = [
+            l for l in linhas_brutas
+            if "monitoramento" not in l.lower() and "próximo alerta" not in l.lower()
+        ]
+
+        def limpar(texto):
+            texto = re.sub(r'[*_`\[\]#]', '', texto)
+            texto = re.sub(r'^[^\w]+', '', texto)  # remove emojis/simbolos no inicio
+            texto = re.sub(r'\s+', ' ', texto).strip()
+            return texto
+
+        linha_principal = ""
+        linhas_detalhe = []
+        for l in linhas_uteis:
+            limpa = limpar(l)
+            if not limpa:
+                continue
+            if not linha_principal and (":" not in limpa.split(" ")[0] or len(limpa) < 60):
+                linha_principal = limpa.rstrip(":").strip()
+            else:
+                linhas_detalhe.append(limpa)
+
+        if not linha_principal and linhas_uteis:
+            linha_principal = limpar(linhas_uteis[0])
+
+        detalhes_texto = " · ".join(linhas_detalhe)[:300] if linhas_detalhe else None
+
+        async with AsyncSessionLocal() as db:
+            db.add(EventoSistema(
+                tipo=tipo,
+                mensagem=linha_principal[:300] or mensagem[:300],
+                detalhes=detalhes_texto,
+            ))
+            await db.commit()
+    except Exception:
+        pass
+
 
 async def obter_estado(db: AsyncSession, instance: str, recurso: str):
     result = await db.execute(

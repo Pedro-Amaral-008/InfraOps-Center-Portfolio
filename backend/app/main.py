@@ -289,6 +289,53 @@ async def dashboard_summary(
     db: AsyncSession = Depends(get_db),
 ):
     return await get_dashboard_summary(db)
+@app.get("/dashboard/eventos/recentes")
+async def dashboard_eventos_recentes(
+    limite: int = 8,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models import EventoSistema
+    result = await db.execute(
+        select(EventoSistema).order_by(desc(EventoSistema.criado_em)).limit(limite)
+    )
+    eventos = result.scalars().all()
+    return [
+        {
+            "id": e.id,
+            "tipo": e.tipo,
+            "mensagem": e.mensagem,
+            "detalhes": e.detalhes,
+            "criado_em": e.criado_em.isoformat(),
+        }
+        for e in eventos
+    ]
+@app.get("/dashboard/eventos/contagem-24h")
+async def dashboard_eventos_contagem_24h(
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models import EventoSistema
+    from datetime import timezone
+    limite = datetime.now(timezone.utc) - timedelta(hours=24)
+    result = await db.execute(
+        select(func.count()).select_from(EventoSistema).where(EventoSistema.criado_em >= limite)
+    )
+    total = result.scalar_one()
+    return {"total_24h": total}
+@app.get("/dashboard/tendencia-24h")
+async def dashboard_tendencia_24h(
+    usuario: User = Depends(get_current_user),
+):
+    from app.dashboard import get_tendencia_saude_24h
+    return await get_tendencia_saude_24h()
+@app.get("/dashboard/estabilidade-semanal")
+async def dashboard_estabilidade_semanal(
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_estabilidade_semanal
+    return await get_estabilidade_semanal(db)
 
 
 @app.get("/dashboard/metrics/host")

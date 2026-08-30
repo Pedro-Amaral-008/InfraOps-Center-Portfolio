@@ -1,5 +1,5 @@
 import httpx
-from datetime import datetime
+from datetime import datetime, timedelta
 
 PROMETHEUS_URL = "http://prometheus:9090"
 
@@ -177,7 +177,7 @@ async def get_dashboard_summary(db=None):
 
 async def get_backups_uptime(db, dias: int = 30):
     from sqlalchemy import select, func as sqlfunc
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta, timedelta, timezone
     from app.models import BackupExecution
 
     nomes_amigaveis = {
@@ -276,7 +276,7 @@ async def get_backups_detalhado(db=None):
 
 async def get_vpn_vlan_uptime(db, tipo: str, dias: int = 30):
     from sqlalchemy import select
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta, timedelta, timezone
     from app.models import PfsenseVpnVlanStatus
 
     limite = datetime.now(timezone.utc) - timedelta(days=dias)
@@ -300,3 +300,132 @@ async def get_vpn_vlan_uptime(db, tipo: str, dias: int = 30):
         uptime = round((dados["online"] / dados["total"]) * 100, 2) if dados["total"] > 0 else None
         resultado.append({"nome": nome, "uptime_percent": uptime})
     return resultado
+
+
+async def get_tendencia_saude_24h():
+    """Retorna a % de equipamentos saudaveis (online) a cada hora, nas ultimas 24h,
+    combinando servidores, access points, links, e impressoras (via Prometheus)."""
+    query = (
+        '('
+        'sum(probe_success{job=~"blackbox-servidores-tcp|blackbox-servidor-backup-principal|'
+        'blackbox-access-points|blackbox-impressoras"}) '
+        'or vector(0)'
+        ') / ('
+        'count(probe_success{job=~"blackbox-servidores-tcp|blackbox-servidor-backup-principal|'
+        'blackbox-access-points|blackbox-impressoras"}) '
+        'or vector(1)'
+        ') * 100'
+    )
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(
+                f"{PROMETHEUS_URL}/api/v1/query_range",
+                params={
+                    "query": query,
+                    "start": (datetime.now() - timedelta(hours=24)).timestamp(),
+                    "end": datetime.now().timestamp(),
+                    "step": "1h",
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            resultados = data.get("data", {}).get("result", [])
+            if not resultados:
+                return []
+            pontos = resultados[0].get("values", [])
+            return [
+                {"timestamp": int(float(p[0]) * 1000), "valor": round(float(p[1]), 1)}
+                for p in pontos
+            ]
+        except Exception:
+            return []
+
+
+async def get_estabilidade_semanal(db):
+    """Retorna o uptime medio diario (ultimos 7 dias) de cada categoria monitorada
+    via Prometheus (servidores, access_points, links) e do banco (backups)."""
+    from datetime import timezone
+
+    categorias_prometheus = {
+        "servidores": "blackbox-servidores-tcp|blackbox-servidor-backup-principal",
+        "access_points": "blackbox-access-points",
+        "impressoras": "blackbox-impressoras",
+    }
+
+    resultado = {}
+
+    for chave, job in categorias_prometheus.items():
+        # avg() agrega todas as instancias da categoria numa unica serie de media,
+        # em vez de pegar so a primeira instancia retornada (bug anterior).
+        query = f'avg(avg_over_time(probe_success{{job=~"{job}"}}[1d])) * 100'
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.get(
+                    f"{PROMETHEUS_URL}/api/v1/query_range",
+                    params={
+                        "query": query,
+                        "start": (datetime.now() - timedelta(days=7)).timestamp(),
+                        "end": datetime.now().timestamp(),
+                        "step": "1d",
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()
+                resultados = data.get("data", {}).get("result", [])
+                if resultados:
+                    valores = [round(float(v[1]), 1) for v in resultados[0].get("values", [])]
+                else:
+                    valores = []
+            except Exception:
+                valores = []
+        resultado[chave] = valores
+
+    # Links de Internet: calcula uptime diario a partir do historico salvo (pfsense_link_status)
+    from sqlalchemy import select
+    from app.models import PfsenseLinkStatus
+    limite_links = datetime.now(timezone.utc) - timedelta(days=7)
+    result_links = await db.execute(
+        select(PfsenseLinkStatus).where(PfsenseLinkStatus.verificado_em >= limite_links)
+    )
+    registros_links = result_links.scalars().all()
+    por_dia_links = {}
+    for r in registros_links:
+        dia = r.verificado_em.date().isoformat()
+        if dia not in por_dia_links:
+            por_dia_links[dia] = {"total": 0, "online": 0}
+        por_dia_links[dia]["total"] += 1
+        if r.online:
+            por_dia_links[dia]["online"] += 1
+    dias_links_ordenados = sorted(por_dia_links.keys())
+    resultado["links"] = [
+        round((por_dia_links[d]["online"] / por_dia_links[d]["total"]) * 100, 1) if por_dia_links[d]["total"] > 0 else None
+        for d in dias_links_ordenados
+    ]
+
+    # Backups: calcula uptime diario dos ultimos 7 dias a partir do historico salvo
+    from sqlalchemy import select
+    from app.models import BackupExecution
+    limite = datetime.now(timezone.utc) - timedelta(days=7)
+    result = await db.execute(
+        select(BackupExecution).where(BackupExecution.executado_em >= limite)
+    )
+    execucoes = result.scalars().all()
+    por_dia = {}
+    for e in execucoes:
+        dia = e.executado_em.date().isoformat()
+        if dia not in por_dia:
+            por_dia[dia] = {"total": 0, "sucesso": 0}
+        por_dia[dia]["total"] += 1
+        if e.status in ("Success", "Warning", "sucesso"):
+            por_dia[dia]["sucesso"] += 1
+
+    dias_ordenados = sorted(por_dia.keys())
+    resultado["backups"] = [
+        round((por_dia[d]["sucesso"] / por_dia[d]["total"]) * 100, 1) if por_dia[d]["total"] > 0 else None
+        for d in dias_ordenados
+    ]
+
+    # Reordena na ordem oficial das categorias (mesma ordem dos cards do topo)
+    ordem = ["servidores", "access_points", "links", "backups", "impressoras"]
+    resultado_ordenado = {chave: resultado[chave] for chave in ordem if chave in resultado}
+    return resultado_ordenado
