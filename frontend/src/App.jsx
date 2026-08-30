@@ -8,6 +8,8 @@ import Login from './components/Login';
 import TrocarSenha from './components/TrocarSenha';
 import MetricChart from './components/MetricChart';
 import RefreshSelector from './components/RefreshSelector';
+import VisaoGeral from './components/VisaoGeral';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import Tabs from './components/Tabs';
 import ServerResourceCard from './components/ServerResourceCard';
 import Auditoria from './components/Auditoria';
@@ -53,6 +55,8 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem('infraops_token'));
   const [deveTrocarSenha, setDeveTrocarSenha] = useState(false);
   const [dados, setDados] = useState(null);
+  const [eventosRecentes, setEventosRecentes] = useState([]);
+  const [saudeExpandida, setSaudeExpandida] = useState(false);
   const [metricas, setMetricas] = useState(null);
   const [latencias, setLatencias] = useState({});
   const [agentes, setAgentes] = useState([]);
@@ -94,6 +98,10 @@ function App() {
 
   const buscarDados = useCallback(() => {
     if (!token) return;
+
+    axios.get(`${API_URL}/dashboard/eventos/recentes`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((response) => setEventosRecentes(response.data)).catch(() => {});
 
     axios.get(`${API_URL}/dashboard/controller/current`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -272,6 +280,8 @@ function App() {
           usuario={usuario}
           abaAtiva={navPrincipal}
           onChangeAba={setNavPrincipal}
+          abaInterna={abaAtiva}
+          onChangeAbaInterna={setAbaAtiva}
           onAbrirNovidades={() => setNovidadesAbertas(true)}
         />
         <main className="app-content">
@@ -301,103 +311,12 @@ function App() {
               <h2 className="page-title">Solicitações</h2>
               <Solicitacoes token={token} />
             </>
-          ) : (
+          ) : navPrincipal === 'metricas' ? (
           <>
-          <h2 className="page-title">Dashboard</h2>
+          <h2 className="page-title">
+            {abaAtiva === 'controller' ? 'Controller' : abaAtiva === 'servidores' ? 'Servidores' : abaAtiva === 'impressoras' ? 'Impressoras' : abaAtiva === 'backups' ? 'Backups' : 'Redes'}
+          </h2>
 
-          {erro && (
-            <div className="error-message">
-              Não foi possível conectar à API. Verifique a conexão.
-            </div>
-          )}
-
-          {!dados && !erro && (
-            <div className="loading-message">Carregando dados...</div>
-          )}
-
-          {dados && (
-            <div className="cards-grid">
-              <StatusCard
-                title="Painel UniFi"
-                value={dados.painel_unifi === 'online' ? 'Online' : 'Offline'}
-                status={dados.painel_unifi === 'online' ? 'online' : 'offline'}
-              />
-              <div onClick={() => abrirDetalhe('servidores')} style={{ cursor: 'pointer' }}>
-                <StatusCard
-                  title="Servidores Online"
-                  value={dados.servidores_online}
-                  status="online"
-                  subtitle={`${dados.servidores_offline} offline · clique para detalhes`}
-                />
-              </div>
-              <div onClick={() => abrirDetalhe('access_points')} style={{ cursor: 'pointer' }}>
-                <StatusCard
-                  title="Access Points Online"
-                  value={dados.access_points_online}
-                  status={dados.access_points_offline > 0 ? 'warning' : 'online'}
-                  subtitle={`${dados.access_points_offline} offline · clique para detalhes`}
-                />
-              </div>
-              <div onClick={() => abrirDetalhe('links')} style={{ cursor: 'pointer' }}>
-                <StatusCard
-                  title="Links de Rede"
-                  value={dados.links_online}
-                  status={dados.links_offline > 0 ? 'offline' : 'online'}
-                  subtitle={`${dados.links_offline} offline · clique para detalhes`}
-                />
-              </div>
-              <div onClick={() => abrirDetalhe('backups')} style={{ cursor: 'pointer' }}>
-                <StatusCard
-                  title="Backups"
-                  value={dados.backups_ok}
-                  status={dados.backups_falharam > 0 ? 'offline' : 'online'}
-                  subtitle={`${dados.backups_falharam} falharam · clique para detalhes`}
-                />
-              </div>
-              <div onClick={() => abrirDetalhe('impressoras')} style={{ cursor: 'pointer' }}>
-                <StatusCard
-                  title="Impressoras Online"
-                  value={dados.impressoras_online}
-                  status={dados.impressoras_offline > 0 ? 'warning' : 'online'}
-                  subtitle={`${dados.impressoras_offline} offline · clique para detalhes`}
-                />
-              </div>
-            </div>
-          )}
-
-          {detalheAberto && dados[`${detalheAberto}_detalhe`] && (
-            <div className="detail-table">
-              <h3 className="detail-table-title">
-                Detalhes — {detalheAberto === 'access_points' ? 'Access Points' : detalheAberto === 'servidores' ? 'Servidores' : detalheAberto === 'links' ? 'Links de Rede' : detalheAberto === 'backups' ? 'Backups' : 'Impressoras'}
-              </h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Nome</th>
-                    <th>Endereço</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dados[`${detalheAberto}_detalhe`].map((item) => (
-                    <tr key={`${detalheAberto}-${item.nome}`}>
-                      <td>{item.nome}</td>
-                      <td>{item.instance}</td>
-                      <td>
-                        <span className={`status-tag status-tag-${item.status}`}>
-                          {item.status === 'online' ? 'Online' : 'Offline'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <h2 className="page-title" style={{ marginTop: '32px' }}>Métricas Detalhadas</h2>
-
-          <Tabs abas={ABAS} abaAtiva={abaAtiva} onChange={setAbaAtiva} />
 
           {abaAtiva !== 'backups' && (
             <RefreshSelector
@@ -458,6 +377,33 @@ function App() {
             </>
           )}
 
+          {abaAtiva === 'impressoras' && dados && dados.impressoras_detalhe && (
+            <div className="detail-table" style={{ marginBottom: '32px' }}>
+              <h3 className="detail-table-title">Impressoras</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Endereço</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dados.impressoras_detalhe.map((item) => (
+                    <tr key={item.nome}>
+                      <td>{item.nome}</td>
+                      <td>{item.instance}</td>
+                      <td>
+                        <span className={`status-tag status-tag-${item.status}`}>
+                          {item.status === 'online' ? 'Online' : 'Offline'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           {(abaAtiva === 'servidores' || abaAtiva === 'impressoras') && (
             <div className="metrics-grid">
               {(latencias[abaAtiva] || []).map((item, idx) => (
@@ -819,6 +765,104 @@ function App() {
               Última atualização: {new Date(dados.atualizado_em).toLocaleString('pt-BR')}
             </div>
           )}
+          </>
+          ) : (
+          <>
+          <h2 className="page-title">Dashboard</h2>
+
+          {erro && (
+            <div className="error-message">
+              Não foi possível conectar à API. Verifique a conexão.
+            </div>
+          )}
+
+          {!dados && !erro && (
+            <div className="loading-message">Carregando dados...</div>
+          )}
+          <VisaoGeral token={token} dados={dados} parte="hero" />
+
+
+          {dados && (
+            <div className="cards-grid">
+              <StatusCard
+                title="Painel UniFi"
+                value={dados.painel_unifi === 'online' ? 'Online' : 'Offline'}
+                status={dados.painel_unifi === 'online' ? 'online' : 'offline'}
+              />
+              <div onClick={() => abrirDetalhe('servidores')} style={{ cursor: 'pointer' }}>
+                <StatusCard
+                  title="Servidores Online"
+                  value={dados.servidores_online}
+                  status="online"
+                  subtitle={`${dados.servidores_offline} offline · clique para detalhes`}
+                />
+              </div>
+              <div onClick={() => abrirDetalhe('access_points')} style={{ cursor: 'pointer' }}>
+                <StatusCard
+                  title="Access Points Online"
+                  value={dados.access_points_online}
+                  status={dados.access_points_offline > 0 ? 'warning' : 'online'}
+                  subtitle={`${dados.access_points_offline} offline · clique para detalhes`}
+                />
+              </div>
+              <div onClick={() => abrirDetalhe('links')} style={{ cursor: 'pointer' }}>
+                <StatusCard
+                  title="Links de Rede"
+                  value={dados.links_online}
+                  status={dados.links_offline > 0 ? 'offline' : 'online'}
+                  subtitle={`${dados.links_offline} offline · clique para detalhes`}
+                />
+              </div>
+              <div onClick={() => abrirDetalhe('backups')} style={{ cursor: 'pointer' }}>
+                <StatusCard
+                  title="Backups"
+                  value={dados.backups_ok}
+                  status={dados.backups_falharam > 0 ? 'offline' : 'online'}
+                  subtitle={`${dados.backups_falharam} falharam · clique para detalhes`}
+                />
+              </div>
+              <div onClick={() => abrirDetalhe('impressoras')} style={{ cursor: 'pointer' }}>
+                <StatusCard
+                  title="Impressoras Online"
+                  value={dados.impressoras_online}
+                  status={dados.impressoras_offline > 0 ? 'warning' : 'online'}
+                  subtitle={`${dados.impressoras_offline} offline · clique para detalhes`}
+                />
+              </div>
+            </div>
+          )}
+          <VisaoGeral token={token} dados={dados} parte="bottom" />
+
+          {detalheAberto && dados[`${detalheAberto}_detalhe`] && (
+            <div className="detail-table">
+              <h3 className="detail-table-title">
+                Detalhes — {detalheAberto === 'access_points' ? 'Access Points' : detalheAberto === 'servidores' ? 'Servidores' : detalheAberto === 'links' ? 'Links de Rede' : detalheAberto === 'backups' ? 'Backups' : 'Impressoras'}
+              </h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Endereço</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dados[`${detalheAberto}_detalhe`].map((item) => (
+                    <tr key={`${detalheAberto}-${item.nome}`}>
+                      <td>{item.nome}</td>
+                      <td>{item.instance}</td>
+                      <td>
+                        <span className={`status-tag status-tag-${item.status}`}>
+                          {item.status === 'online' ? 'Online' : 'Offline'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           </>
           )}
         </main>

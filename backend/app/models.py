@@ -147,3 +147,13 @@ class PfsenseVpnVlanStatus(Base):
     nome = Column(String, nullable=False, index=True)
     online = Column(Boolean, nullable=False)
     verificado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class EventoSistema(Base):
+    __tablename__ = "eventos_sistema"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tipo = Column(String, nullable=False)
+    mensagem = Column(String, nullable=False)
+    detalhes = Column(String, nullable=True)
+    criado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)

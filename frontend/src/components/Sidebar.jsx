@@ -37,6 +37,47 @@ const ICONES = {
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
     </svg>
   ),
+  controller: (
+    <svg className="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <rect x="9" y="9" width="6" height="6" />
+      <path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3" />
+    </svg>
+  ),
+  servidores_metricas: (
+    <svg className="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="6" rx="1" />
+      <rect x="2" y="15" width="20" height="6" rx="1" />
+      <circle cx="6" cy="6" r="0.5" fill="currentColor" />
+      <circle cx="6" cy="18" r="0.5" fill="currentColor" />
+    </svg>
+  ),
+  impressoras_metricas: (
+    <svg className="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 6 2 18 2 18 9" />
+      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+      <rect x="6" y="14" width="12" height="8" />
+    </svg>
+  ),
+  backups_metricas: (
+    <svg className="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19.5 17.5a4.5 4.5 0 0 0-1.4-8.8 6 6 0 0 0-11.8 1.9A4 4 0 0 0 5 18.5" />
+      <polyline points="12 12 12 21" />
+      <polyline points="9 18 12 21 15 18" />
+    </svg>
+  ),
+  redes_metricas: (
+    <svg className="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </svg>
+  ),
   solicitacoes: (
     <svg className="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -52,6 +93,14 @@ const ITENS_ADMINISTRACAO = [
   { id: 'solicitacoes', label: 'Solicitações', icone: 'solicitacoes' },
 ];
 
+const ITENS_METRICAS = [
+  { id: 'controller', label: 'Controller', icone: 'controller' },
+  { id: 'servidores', label: 'Servidores', icone: 'servidores_metricas' },
+  { id: 'impressoras', label: 'Impressoras', icone: 'impressoras_metricas' },
+  { id: 'backups', label: 'Backups', icone: 'backups_metricas' },
+  { id: 'links_internet', label: 'Redes', icone: 'redes_metricas' },
+];
+
 const ROTULO_ESTADO = {
   online: 'Sistema online',
   alerta: 'Sistema com alertas',
@@ -64,11 +113,13 @@ const CLASSE_ESTADO = {
   queda: ' status-queda',
 };
 
-function Sidebar({ usuario, abaAtiva, onChangeAba, estadoSistema = 'online', onAbrirNovidades }) {
+function Sidebar({ usuario, abaAtiva, onChangeAba, onChangeAbaInterna, abaInterna, estadoSistema = 'online', onAbrirNovidades }) {
   const [fechada, setFechada] = useState(false);
   const podeVerAdmin = usuario && ['super_admin', 'admin'].includes(usuario.role);
   const administracaoAtiva = ITENS_ADMINISTRACAO.some((item) => item.id === abaAtiva);
   const [adminAberto, setAdminAberto] = useState(administracaoAtiva);
+  const metricasAtivas = abaAtiva === 'metricas';
+  const [metricasAberto, setMetricasAberto] = useState(metricasAtivas);
   const versaoAtual = (CHANGELOG[0]?.versao || '').replace('v', '');
 
   return (
@@ -98,6 +149,43 @@ function Sidebar({ usuario, abaAtiva, onChangeAba, estadoSistema = 'online', onA
           {ICONES.painel}
           <span className="sidebar-label">Dashboard</span>
         </div>
+
+        <div
+          className={`sidebar-item ${metricasAtivas && !metricasAberto ? 'active' : ''}`}
+          onClick={() => setMetricasAberto(!metricasAberto)}
+          role="button"
+          tabIndex={0}
+          title={fechada ? 'Métricas Detalhadas' : undefined}
+        >
+          {ICONES.automacoes}
+          <span className="sidebar-label">Métricas Detalhadas</span>
+          {!fechada && (
+            <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.7 }}>
+              {metricasAberto ? '▾' : '▸'}
+            </span>
+          )}
+        </div>
+        {metricasAberto && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+            {ITENS_METRICAS.map((item) => (
+              <div
+                key={item.id}
+                className={`sidebar-item ${abaAtiva === 'metricas' && abaInterna === item.id ? 'active' : ''}`}
+                onClick={() => {
+                  onChangeAba && onChangeAba('metricas');
+                  onChangeAbaInterna && onChangeAbaInterna(item.id);
+                }}
+                role="button"
+                tabIndex={0}
+                style={{ marginLeft: fechada ? 0 : '12px', fontSize: '13px' }}
+                title={fechada ? item.label : undefined}
+              >
+                {ICONES[item.icone]}
+                <span className="sidebar-label">{item.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {podeVerAdmin && (
           <>
