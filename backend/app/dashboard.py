@@ -235,7 +235,8 @@ async def get_backups_detalhado(db=None):
     nomes_amigaveis = {
         "servidor_arquivos": "Backup Servidor de Arquivos",
         "servidor_impressao": "Backup Servidor de Impressão",
-            "ecam": "Backup E-CAM",
+        "ecam": "Backup E-CAM",
+        "eops": "Backup E-Ops",
     }
 
     if db is None:
