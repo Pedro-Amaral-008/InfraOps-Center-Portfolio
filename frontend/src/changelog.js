@@ -13,6 +13,7 @@ const CHANGELOG = [
       'Corrigido nome e tempo de atividade exibidos do Controller.',
       'Novo favicon e nome da aba do navegador atualizados.',
       'Cards de resumo do Dashboard reduzidos de tamanho para ficarem mais compactos.',
+      'Uptime semanal das impressoras agora considera só o horário comercial (seg-sex, 8h-18h), evitando que o modo de economia de energia fora do expediente seja contado como falha.',
     ],
   },
   {
