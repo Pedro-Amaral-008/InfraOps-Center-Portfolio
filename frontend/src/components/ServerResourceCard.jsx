@@ -34,7 +34,7 @@ function corTemperatura(temp) {
 
 function ServerResourceCard({ agente }) {
   const uptimeDias = Math.floor(agente.uptime_horas / 24);
-  const uptimeHorasResto = agente.uptime_horas % 24;
+  const uptimeHorasResto = Math.round(agente.uptime_horas % 24);
 
   const temMultiplosDiscos = agente.discos && agente.discos.length > 0;
   const temTemperatura = agente.temperatura_celsius !== undefined && agente.temperatura_celsius !== null;

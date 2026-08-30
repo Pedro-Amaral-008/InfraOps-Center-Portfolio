@@ -21,7 +21,6 @@ const API_URL = 'IP_INTERNO_AQUI:8000';
 const ABAS = [
   { id: 'controller', label: 'Controller' },
   { id: 'servidores', label: 'Servidores' },
-  { id: 'access_points', label: 'Access Points' },
   { id: 'impressoras', label: 'Impressoras' },
   { id: 'backups', label: 'Backups' },
   { id: 'links_internet', label: 'Redes' },
@@ -138,8 +137,11 @@ function App() {
   const buscarDadosDaAbaAtiva = useCallback(() => {
     if (!token || deveTrocarSenha) return;
 
-    if (["servidores", "access_points", "impressoras"].includes(abaAtiva)) {
+    if (["servidores", "impressoras"].includes(abaAtiva)) {
       buscarLatencia(abaAtiva);
+    }
+    if (abaAtiva === "links_internet" && subAbaRede === "access_points") {
+      buscarLatencia("access_points");
     }
     if (abaAtiva === "servidores") {
       axios.get(`${API_URL}/dashboard/agents`, {
@@ -149,7 +151,7 @@ function App() {
         headers: { Authorization: `Bearer ${token}` },
       }).then((response) => setServidoresUptime(response.data)).catch(() => {});
     }
-    if (abaAtiva === "access_points") {
+    if (abaAtiva === "links_internet") {
       axios.get(`${API_URL}/dashboard/unifi/aps`, {
         headers: { Authorization: `Bearer ${token}` },
       }).then((response) => setUnifiAps(response.data)).catch(() => {});
@@ -191,7 +193,7 @@ function App() {
         headers: { Authorization: `Bearer ${token}` },
       }).then((response) => setBackupsUptime(response.data)).catch(() => {});
     }
-  }, [abaAtiva, token, deveTrocarSenha, buscarLatencia, intervaloAtualizacao]);
+  }, [abaAtiva, token, deveTrocarSenha, buscarLatencia, intervaloAtualizacao, subAbaRede]);
 
   useEffect(() => {
     if (!token || deveTrocarSenha) return;
@@ -406,7 +408,7 @@ function App() {
 
           {abaAtiva === 'controller' && controllerAtual && (
             <div className="metrics-grid" style={{ marginBottom: '24px', maxWidth: '380px' }}>
-              <ServerResourceCard agente={{ ...controllerAtual, uptime_horas: 0 }} />
+              <ServerResourceCard agente={controllerAtual} />
             </div>
           )}
 
@@ -456,50 +458,7 @@ function App() {
             </>
           )}
 
-          {abaAtiva === 'access_points' && unifiAps.length > 0 && (
-            <>
-              <h3 className="detail-table-title" style={{ marginBottom: '16px' }}>Access Points — Clientes Conectados</h3>
-              <div className="detail-table" style={{ marginBottom: '32px' }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Nome</th>
-                      <th>Modelo</th>
-                      <th>IP</th>
-                      <th>Clientes Conectados</th>
-                      <th>Status</th>
-                      <th>Uptime (30 dias)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {unifiAps
-                      .filter((ap) => ap.modelo !== 'USW 24 PoE')
-                      .sort((a, b) => b.clientes_conectados - a.clientes_conectados)
-                      .map((ap) => {
-                        const uptimeInfo = apsUptime.find((u) => u.instance === ap.ip);
-                        return (
-                        <tr key={ap.mac}>
-                          <td>{ap.nome}</td>
-                          <td>{ap.modelo}</td>
-                          <td>{ap.ip}</td>
-                          <td style={{ fontWeight: 700 }}>{ap.clientes_conectados}</td>
-                          <td>
-                            <span className={`status-tag status-tag-${ap.status === 'ONLINE' ? 'online' : 'offline'}`}>
-                              {ap.status === 'ONLINE' ? 'Online' : 'Offline'}
-                            </span>
-                          </td>
-                          <td>{uptimeInfo ? `${uptimeInfo.uptime_percent}%` : '—'}</td>
-                        </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              </div>
-              <h3 className="detail-table-title" style={{ marginBottom: '16px' }}>Latência</h3>
-            </>
-          )}
-
-          {(abaAtiva === 'servidores' || abaAtiva === 'access_points' || abaAtiva === 'impressoras') && (
+          {(abaAtiva === 'servidores' || abaAtiva === 'impressoras') && (
             <div className="metrics-grid">
               {(latencias[abaAtiva] || []).map((item, idx) => (
                 <MetricChart
@@ -536,6 +495,12 @@ function App() {
                   onClick={() => setSubAbaRede('vlans')}
                 >
                   VLANs
+                </button>
+                <button
+                  className={`btn ${subAbaRede === 'access_points' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setSubAbaRede('access_points')}
+                >
+                  Access Points
                 </button>
               </div>
 
@@ -703,6 +668,61 @@ function App() {
                         </div>
                       </>
                     ) : null))}
+                  </div>
+                </>
+              )}
+
+              {subAbaRede === 'access_points' && unifiAps.length > 0 && (
+                <>
+                  <h3 className="detail-table-title">Access Points — Clientes Conectados</h3>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Nome</th>
+                        <th>Modelo</th>
+                        <th>IP</th>
+                        <th>Clientes Conectados</th>
+                        <th>Status</th>
+                        <th>Uptime (30 dias)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unifiAps
+                        .filter((ap) => ap.modelo !== 'USW 24 PoE')
+                        .sort((a, b) => b.clientes_conectados - a.clientes_conectados)
+                        .map((ap) => {
+                          const uptimeInfo = apsUptime.find((u) => u.instance === ap.ip);
+                          return (
+                          <tr key={ap.mac}>
+                            <td>{ap.nome}</td>
+                            <td>{ap.modelo}</td>
+                            <td>{ap.ip}</td>
+                            <td style={{ fontWeight: 700 }}>{ap.clientes_conectados}</td>
+                            <td>
+                              <span className={`status-tag status-tag-${ap.status === 'ONLINE' ? 'online' : 'offline'}`}>
+                                {ap.status === 'ONLINE' ? 'Online' : 'Offline'}
+                              </span>
+                            </td>
+                            <td>{uptimeInfo ? `${uptimeInfo.uptime_percent}%` : '—'}</td>
+                          </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                  <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Latência</h3>
+                  <div className="metrics-grid">
+                    {(latencias['access_points'] || []).map((item, idx) => (
+                      <MetricChart
+                        key={item.instance}
+                        titulo={`${item.nome} — Latência (ms)`}
+                        dados={item.pontos}
+                        cor={CORES[idx % CORES.length]}
+                        unidade="ms"
+                      />
+                    ))}
+                    {(!latencias['access_points'] || latencias['access_points'].length === 0) && (
+                      <div className="loading-message">Carregando métricas...</div>
+                    )}
                   </div>
                 </>
               )}
