@@ -1,5 +1,4 @@
 import CHANGELOG from '../changelog';
-
 function Novidades({ onFechar }) {
   return (
     <div
@@ -22,28 +21,28 @@ function Novidades({ onFechar }) {
         style={{
           background: 'var(--bg-secondary, #1c1c1c)',
           borderRadius: '16px',
-          padding: '24px',
-          maxWidth: '480px',
+          padding: '32px',
+          maxWidth: '680px',
           width: '90%',
-          maxHeight: '70vh',
+          maxHeight: '75vh',
           overflowY: 'auto',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, fontSize: '18px' }}>Novidades</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ margin: 0, fontSize: '22px' }}>Novidades</h2>
           <button
             onClick={onFechar}
-            style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'inherit' }}
+            style={{ background: 'none', border: 'none', fontSize: '26px', cursor: 'pointer', color: 'inherit' }}
           >
             ×
           </button>
         </div>
         {CHANGELOG.map((entrada) => (
-          <div key={entrada.versao} style={{ marginBottom: '20px' }}>
-            <h3 style={{ fontSize: '14px', marginBottom: '8px' }}>{entrada.versao}</h3>
-            <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', lineHeight: '1.6' }}>
+          <div key={entrada.versao} style={{ marginBottom: '24px' }}>
+            <h3 style={{ fontSize: '16px', marginBottom: '10px' }}>{entrada.versao}</h3>
+            <ul style={{ margin: 0, paddingLeft: '22px', fontSize: '14.5px', lineHeight: '1.7' }}>
               {entrada.itens.map((item, idx) => (
-                <li key={idx}>{item}</li>
+                <li key={idx} style={{ marginBottom: '4px' }}>{item}</li>
               ))}
             </ul>
           </div>
@@ -52,5 +51,4 @@ function Novidades({ onFechar }) {
     </div>
   );
 }
-
 export default Novidades;
