@@ -14,6 +14,8 @@ const CHANGELOG = [
       'Novo favicon e nome da aba do navegador atualizados.',
       'Cards de resumo do Dashboard reduzidos de tamanho para ficarem mais compactos.',
       'Uptime semanal das impressoras agora considera só o horário comercial (seg-sex, 8h-18h), evitando que o modo de economia de energia fora do expediente seja contado como falha.',
+      'Dashboard totalmente redesenhado: painel de status geral com alertas ativos e há quanto tempo cada um está no ar, comparativo de "melhor/pior desempenho da semana" entre as categorias, cards de cada categoria (Servidores, Access Points, Links de Rede, Backups, Impressoras) com contagem online/offline, mapa de calor mostrando a estabilidade dos últimos 7 dias, e feed de alertas com filtros (Todos, Críticos, Avisos, Resolvidos).',
+      'Todos os alertas de infraestrutura (Access Points, Servidores, Impressoras, Painel Web, uso de disco/memória, falhas de backup do Veeam) agora ficam registrados no Feed do painel, não só no Telegram.',
     ],
   },
   {

@@ -1,11 +1,16 @@
 #eops-dashboard{
   width: 100%;
-  --bg: #0a0e15; --panel: #0d121a; --card: #131a26; --card-border: #212b3b;
-  --ink: #eef1f6; --ink-soft: #98a3b5; --ink-faint: #57647a;
+  --bg: var(--bg-primary, #0a0e15);
+  --panel: var(--bg-secondary, #0d121a);
+  --card: var(--bg-elevated, #131a26);
+  --card-border: var(--border-subtle, #212b3b);
+  --ink: var(--text-primary, #eef1f6);
+  --ink-soft: var(--text-secondary, #98a3b5);
+  --ink-faint: var(--text-tertiary, #57647a);
   --good: #22c55e; --good-dim: rgba(34,197,94,0.14);
   --bad: #ef4444; --bad-dim: rgba(239,68,68,0.14);
   --warn: #f5a524; --warn-dim: rgba(245,165,36,0.14);
-  --divider: #1c2634; --accent: #5b8cff; --accent-dim: rgba(91,140,255,0.14);
+  --divider: var(--border-subtle, #1c2634); --accent: #5b8cff; --accent-dim: rgba(91,140,255,0.14);
   font-family: inherit;
 }
 #eops-dashboard .stage{ background: var(--panel); border: 1px solid var(--card-border); border-radius: 16px; padding: 28px; }
