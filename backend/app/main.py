@@ -289,6 +289,64 @@ async def dashboard_summary(
     db: AsyncSession = Depends(get_db),
 ):
     return await get_dashboard_summary(db)
+@app.post("/webhooks/alertmanager")
+async def webhook_alertmanager(request: Request, db: AsyncSession = Depends(get_db)):
+    from app.models import EventoSistema
+
+    NOMES_ALERTA = {
+        "AccessPointOffline": ("Access Point", "offline"),
+        "ServidorOffline": ("Servidor", "offline"),
+        "ServidorArquivosOffline": ("Servidor", "offline"),
+        "ImpressoraOffline": ("Impressora", "offline"),
+        "PainelWebOffline": ("Painel Web", "offline"),
+        "InstanciaOffline": ("Equipamento", "offline"),
+        "DiscoAcimaDe90": ("Servidor", "disco_alto"),
+        "MemoriaAlta": ("Servidor", "memoria_alta"),
+        "VeeamBackupFalhou": ("Backup", "falhou"),
+        "VeeamBackupAtrasado": ("Backup", "atrasado"),
+    }
+
+    try:
+        payload = await request.json()
+        for alerta in payload.get("alerts", []):
+            labels = alerta.get("labels", {})
+            status_alerta = alerta.get("status", "")
+            alertname = labels.get("alertname", "")
+            categoria, situacao = NOMES_ALERTA.get(alertname, ("Equipamento", "offline"))
+            nome_equip = labels.get("nome") or labels.get("instance", "")
+
+            textos_firing = {
+                "offline": f"{categoria} {nome_equip} ficou offline",
+                "disco_alto": f"{categoria} {nome_equip} com disco acima de 90%",
+                "memoria_alta": f"{categoria} {nome_equip} com uso de memória elevado",
+                "falhou": f"Backup de {nome_equip} falhou",
+                "atrasado": f"Backup de {nome_equip} está atrasado",
+            }
+            textos_resolvido = {
+                "offline": f"{categoria} {nome_equip} voltou online",
+                "disco_alto": f"{categoria} {nome_equip} com uso de disco normalizado",
+                "memoria_alta": f"{categoria} {nome_equip} com uso de memória normalizado",
+                "falhou": f"Backup de {nome_equip} normalizado",
+                "atrasado": f"Backup de {nome_equip} normalizado",
+            }
+
+            if status_alerta == "firing":
+                tipo = "critico" if situacao in ("offline", "falhou") else "atencao"
+                texto = textos_firing.get(situacao, f"{categoria} {nome_equip} em alerta")
+            else:
+                tipo = "bom"
+                texto = textos_resolvido.get(situacao, f"{categoria} {nome_equip} normalizado")
+
+            db.add(EventoSistema(
+                tipo=tipo,
+                mensagem=texto[:300],
+                detalhes=labels.get("instance", "")[:300],
+            ))
+        await db.commit()
+    except Exception:
+        pass
+
+    return {"status": "ok"}
 @app.get("/dashboard/eventos/recentes")
 async def dashboard_eventos_recentes(
     limite: int = 8,
@@ -336,6 +394,33 @@ async def dashboard_estabilidade_semanal(
 ):
     from app.dashboard import get_estabilidade_semanal
     return await get_estabilidade_semanal(db)
+@app.post("/dashboard/alertas-ativos-duracao")
+async def dashboard_alertas_ativos_duracao(
+    request: Request,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_alertas_ativos_com_duracao
+    payload = await request.json()
+    nomes = payload.get("nomes", [])
+    return await get_alertas_ativos_com_duracao(db, nomes)
+@app.get("/dashboard/pior-desempenho-semana")
+async def dashboard_pior_desempenho_semana(
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_estabilidade_semanal, get_pior_desempenho_semana
+    estabilidade = await get_estabilidade_semanal(db)
+    return await get_pior_desempenho_semana(db, estabilidade)
+@app.get("/dashboard/ocorrencias-semana/{nome_equipamento}")
+async def dashboard_ocorrencias_semana(
+    nome_equipamento: str,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import contar_ocorrencias_semana
+    total = await contar_ocorrencias_semana(db, nome_equipamento)
+    return {"total": total}
 
 
 @app.get("/dashboard/metrics/host")

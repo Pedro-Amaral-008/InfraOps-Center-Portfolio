@@ -466,3 +466,118 @@ async def get_estabilidade_semanal(db):
     ordem = ["servidores", "access_points", "links", "backups", "impressoras"]
     resultado_ordenado = {chave: resultado[chave] for chave in ordem if chave in resultado}
     return resultado_ordenado
+
+
+async def get_alertas_ativos_com_duracao(db, itens_offline: list):
+    """Para cada item offline (lista de nomes), busca o evento mais recente
+    de 'ficou offline' no historico e calcula ha quanto tempo esta assim."""
+    from sqlalchemy import select, desc
+    from app.models import EventoSistema
+    from datetime import timezone
+
+    resultado = []
+    agora = datetime.now(timezone.utc)
+
+    for nome in itens_offline:
+        result = await db.execute(
+            select(EventoSistema)
+            .where(EventoSistema.mensagem.like(f"%{nome}%ficou offline%"))
+            .order_by(desc(EventoSistema.criado_em))
+            .limit(1)
+        )
+        evento = result.scalar_one_or_none()
+
+        if evento:
+            criado_em = evento.criado_em
+            if criado_em.tzinfo is None:
+                criado_em = criado_em.replace(tzinfo=timezone.utc)
+            diff = agora - criado_em
+            horas = int(diff.total_seconds() // 3600)
+            minutos = int((diff.total_seconds() % 3600) // 60)
+            if horas > 0:
+                duracao_texto = f"{horas}h {minutos}min"
+            else:
+                duracao_texto = f"{minutos}min"
+        else:
+            duracao_texto = "há pouco"
+
+        resultado.append({"nome": nome, "duracaoTexto": duracao_texto})
+
+    return resultado
+
+
+async def contar_ocorrencias_semana(db, nome_equipamento: str) -> int:
+    """Conta quantos eventos criticos ou de atencao esse equipamento teve
+    nos ultimos 7 dias (para o selo 'Xa vez essa semana')."""
+    from sqlalchemy import select, func as sqlfunc
+    from app.models import EventoSistema
+    from datetime import timezone
+
+    limite = datetime.now(timezone.utc) - timedelta(days=7)
+    result = await db.execute(
+        select(sqlfunc.count()).select_from(EventoSistema).where(
+            EventoSistema.mensagem.like(f"%{nome_equipamento}%"),
+            EventoSistema.tipo.in_(["critico", "atencao"]),
+            EventoSistema.criado_em >= limite,
+        )
+    )
+    return result.scalar_one()
+
+
+async def get_pior_desempenho_semana(db, estabilidade: dict):
+    """A partir dos dados ja calculados de estabilidade-semanal (semana atual),
+    calcula tambem a semana anterior para comparar, e acha a categoria com
+    pior media (ou melhor, se tudo estiver bem)."""
+    from sqlalchemy import select
+    from app.models import BackupExecution, PfsenseLinkStatus
+    from datetime import timezone
+
+    def media(valores):
+        validos = [v for v in valores if v is not None]
+        return sum(validos) / len(validos) if validos else 0
+
+    medias_atuais = {cat: media(vals) for cat, vals in estabilidade.items() if vals}
+
+    if not medias_atuais:
+        return None
+
+    pior_categoria = min(medias_atuais, key=medias_atuais.get)
+    pior_media = medias_atuais[pior_categoria]
+
+    # Calcula a media da semana ANTERIOR para a categoria pior, via Prometheus (servidores/access_points/impressoras)
+    # ou historico salvo (links/backups), reaproveitando a mesma logica com offset de 7 dias.
+    media_semana_passada = None
+    if pior_categoria in ("servidores", "access_points"):
+        job = "blackbox-servidores-tcp|blackbox-servidor-backup-principal" if pior_categoria == "servidores" else "blackbox-access-points"
+        query = f'avg(avg_over_time(probe_success{{job=~"{job}"}}[7d])) * 100'
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.get(
+                    f"{PROMETHEUS_URL}/api/v1/query",
+                    params={"query": query, "time": (datetime.now() - timedelta(days=7)).timestamp()}
+                )
+                data = response.json()
+                resultados = data.get("data", {}).get("result", [])
+                if resultados:
+                    media_semana_passada = round(float(resultados[0]["value"][1]), 1)
+            except Exception:
+                pass
+
+    delta = round(pior_media - media_semana_passada, 1) if media_semana_passada is not None else 0.0
+
+    nomes_amigaveis_categoria = {
+        "servidores": "Servidores",
+        "access_points": "Access Points",
+        "links": "Links de Rede",
+        "backups": "Backups",
+        "impressoras": "Impressoras",
+    }
+
+    quedas = len([v for v in estabilidade.get(pior_categoria, []) if v is not None and v < 99])
+
+    return {
+        "categoria": nomes_amigaveis_categoria.get(pior_categoria, pior_categoria),
+        "quedas7dias": quedas,
+        "percentSemana": round(pior_media, 1),
+        "deltaVsSemanaPassada": delta,
+    }

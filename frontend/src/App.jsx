@@ -8,7 +8,7 @@ import Login from './components/Login';
 import TrocarSenha from './components/TrocarSenha';
 import MetricChart from './components/MetricChart';
 import RefreshSelector from './components/RefreshSelector';
-import VisaoGeral from './components/VisaoGeral';
+import EopsDashboard from './components/EopsDashboard';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import Tabs from './components/Tabs';
 import ServerResourceCard from './components/ServerResourceCard';
@@ -768,7 +768,6 @@ function App() {
           </>
           ) : (
           <>
-          <h2 className="page-title">Dashboard</h2>
 
           {erro && (
             <div className="error-message">
@@ -779,59 +778,9 @@ function App() {
           {!dados && !erro && (
             <div className="loading-message">Carregando dados...</div>
           )}
-          <VisaoGeral token={token} dados={dados} parte="hero" />
 
 
-          {dados && (
-            <div className="cards-grid">
-              <StatusCard
-                title="Painel UniFi"
-                value={dados.painel_unifi === 'online' ? 'Online' : 'Offline'}
-                status={dados.painel_unifi === 'online' ? 'online' : 'offline'}
-              />
-              <div onClick={() => abrirDetalhe('servidores')} style={{ cursor: 'pointer' }}>
-                <StatusCard
-                  title="Servidores Online"
-                  value={dados.servidores_online}
-                  status="online"
-                  subtitle={`${dados.servidores_offline} offline · clique para detalhes`}
-                />
-              </div>
-              <div onClick={() => abrirDetalhe('access_points')} style={{ cursor: 'pointer' }}>
-                <StatusCard
-                  title="Access Points Online"
-                  value={dados.access_points_online}
-                  status={dados.access_points_offline > 0 ? 'warning' : 'online'}
-                  subtitle={`${dados.access_points_offline} offline · clique para detalhes`}
-                />
-              </div>
-              <div onClick={() => abrirDetalhe('links')} style={{ cursor: 'pointer' }}>
-                <StatusCard
-                  title="Links de Rede"
-                  value={dados.links_online}
-                  status={dados.links_offline > 0 ? 'offline' : 'online'}
-                  subtitle={`${dados.links_offline} offline · clique para detalhes`}
-                />
-              </div>
-              <div onClick={() => abrirDetalhe('backups')} style={{ cursor: 'pointer' }}>
-                <StatusCard
-                  title="Backups"
-                  value={dados.backups_ok}
-                  status={dados.backups_falharam > 0 ? 'offline' : 'online'}
-                  subtitle={`${dados.backups_falharam} falharam · clique para detalhes`}
-                />
-              </div>
-              <div onClick={() => abrirDetalhe('impressoras')} style={{ cursor: 'pointer' }}>
-                <StatusCard
-                  title="Impressoras Online"
-                  value={dados.impressoras_online}
-                  status={dados.impressoras_offline > 0 ? 'warning' : 'online'}
-                  subtitle={`${dados.impressoras_offline} offline · clique para detalhes`}
-                />
-              </div>
-            </div>
-          )}
-          <VisaoGeral token={token} dados={dados} parte="bottom" />
+          <EopsDashboard token={token} dados={dados} />
 
           {detalheAberto && dados[`${detalheAberto}_detalhe`] && (
             <div className="detail-table">
