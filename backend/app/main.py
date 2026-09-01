@@ -394,6 +394,30 @@ async def dashboard_estabilidade_semanal(
 ):
     from app.dashboard import get_estabilidade_semanal
     return await get_estabilidade_semanal(db)
+@app.get("/dashboard/estabilidade-com-variacao")
+async def dashboard_estabilidade_com_variacao(
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_estabilidade_com_variacao
+    return await get_estabilidade_com_variacao(db)
+@app.get("/dashboard/estabilidade-14-dias")
+async def dashboard_estabilidade_14_dias(
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_estabilidade_14_dias
+    return await get_estabilidade_14_dias(db)
+@app.get("/dashboard/relatorio")
+async def dashboard_relatorio(
+    dias: int = 15,
+    categorias: str = "",
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_dados_relatorio
+    lista_categorias = [c.strip() for c in categorias.split(",") if c.strip()] if categorias else None
+    return await get_dados_relatorio(db, dias, lista_categorias)
 @app.post("/dashboard/alertas-ativos-duracao")
 async def dashboard_alertas_ativos_duracao(
     request: Request,
@@ -813,9 +837,10 @@ async def dashboard_pfsense_links(
 @app.get("/dashboard/pfsense/vpns")
 async def dashboard_pfsense_vpns(
     usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     from app.pfsense import get_vpns_status_trafego
-    return await get_vpns_status_trafego()
+    return await get_vpns_status_trafego(db)
 @app.get("/dashboard/pfsense/vlans")
 async def dashboard_pfsense_vlans(
     usuario: User = Depends(get_current_user),
