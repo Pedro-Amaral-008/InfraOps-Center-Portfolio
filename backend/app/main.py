@@ -793,11 +793,21 @@ async def loop_verificacao_agentes():
 
         await asyncio.sleep(120)
 
+async def loop_consumo_rede():
+    from app.unifi import verificar_consumo_excessivo
+    while True:
+        async with AsyncSessionLocal() as db:
+            try:
+                await verificar_consumo_excessivo(db)
+            except Exception as e:
+                print(f"ERRO em verificar_consumo_excessivo: {e}")
+        await asyncio.sleep(20)
 @app.on_event("startup")
 async def iniciar_verificacao_agentes():
     asyncio.create_task(loop_verificacao_agentes())
     asyncio.create_task(loop_trafego_pfsense())
     asyncio.create_task(loop_resumo_diario())
+    asyncio.create_task(loop_consumo_rede())
 
 
 @app.get("/dashboard/controller/current")

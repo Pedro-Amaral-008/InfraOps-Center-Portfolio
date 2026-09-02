@@ -87,7 +87,7 @@ async def _obter_cookie_sessao():
     return None
 
 
-async def get_top_consumo_clientes(limite: int = 15):
+async def get_top_consumo_clientes(limite: int = 50):
     """Retorna os clientes que mais consomem banda AGORA (taxa em tempo real),
     usando a API classica (session-based) do UniFi, que traz esse dado -
     diferente da API oficial nova, que so tem dados de conectividade."""
@@ -106,10 +106,15 @@ async def get_top_consumo_clientes(limite: int = 15):
         except Exception:
             return []
 
+    IPS_EXCLUIDOS = {ip.strip() for ip in settings.ips_excluidos_consumo.split(",") if ip.strip()}
+
     resultado = []
     for c in clientes:
         taxa_total = c.get("bytes-r", 0) or 0
         if taxa_total <= 0:
+            continue
+        ip_cliente = c.get("ip") or c.get("last_ip", "")
+        if ip_cliente in IPS_EXCLUIDOS:
             continue
         resultado.append({
             "hostname": c.get("hostname") or c.get("name") or "Desconhecido",
@@ -122,3 +127,53 @@ async def get_top_consumo_clientes(limite: int = 15):
 
     resultado.sort(key=lambda x: x["total_mbps"], reverse=True)
     return resultado[:limite]
+
+
+LIMITE_MBPS_CONSUMO = 20
+DURACAO_MINIMA_SEGUNDOS = 40
+
+_estado_consumo_alto = {}  # mac -> {"desde": timestamp, "avisado": bool}
+
+
+async def verificar_consumo_excessivo(db):
+    """Roda com frequencia (a cada ~20s) verificando se algum cliente esta
+    consumindo acima do limite (download OU upload) de forma SUSTENTADA por
+    pelo menos DURACAO_MINIMA_SEGUNDOS. Quando confirma, registra um evento
+    no Feed do Dashboard (sem Telegram)."""
+    import time
+    from app.models import EventoSistema
+
+    agora = time.time()
+    clientes = await get_top_consumo_clientes(limite=50)
+    macs_atuais_acima = set()
+
+    for c in clientes:
+        acima_limite = c["download_mbps"] >= LIMITE_MBPS_CONSUMO or c["upload_mbps"] >= LIMITE_MBPS_CONSUMO
+        if not acima_limite:
+            continue
+
+        mac = c["mac"]
+        macs_atuais_acima.add(mac)
+
+        if mac not in _estado_consumo_alto:
+            _estado_consumo_alto[mac] = {"desde": agora, "avisado": False}
+            continue
+
+        registro = _estado_consumo_alto[mac]
+        duracao = agora - registro["desde"]
+
+        if duracao >= DURACAO_MINIMA_SEGUNDOS and not registro["avisado"]:
+            registro["avisado"] = True
+            direcao = "download" if c["download_mbps"] >= LIMITE_MBPS_CONSUMO else "upload"
+            valor = max(c["download_mbps"], c["upload_mbps"])
+            db.add(EventoSistema(
+                tipo="atencao",
+                mensagem=f"Consumo de rede {c['hostname']} acima de {LIMITE_MBPS_CONSUMO} Mbps ({direcao}: {valor:.1f} Mbps)",
+                detalhes=f"{c['ip']} · sustentado por mais de {DURACAO_MINIMA_SEGUNDOS}s",
+            ))
+            await db.commit()
+
+    # Limpa clientes que normalizaram (nao aparecem mais acima do limite)
+    for mac in list(_estado_consumo_alto.keys()):
+        if mac not in macs_atuais_acima:
+            del _estado_consumo_alto[mac]
