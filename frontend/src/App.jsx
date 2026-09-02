@@ -17,6 +17,7 @@ import Automacoes from './components/Automacoes';
 import Usuarios from './components/Usuarios';
 import Solicitacoes from './components/Solicitacoes';
 import Relatorios from './components/Relatorios';
+import ConsumoRede from './components/ConsumoRede';
 import './App.css';
 
 const API_URL = 'http://192.168.1.26:8000';
@@ -63,7 +64,6 @@ function App() {
   const [agentes, setAgentes] = useState([]);
   const [controllerAtual, setControllerAtual] = useState(null);
   const [unifiAps, setUnifiAps] = useState([]);
-  const [consumoRede, setConsumoRede] = useState([]);
   const [pfsenseLinks, setPfsenseLinks] = useState([]);
   const [pfsenseUptime, setPfsenseUptime] = useState([]);
   const [servidoresUptime, setServidoresUptime] = useState([]);
@@ -168,16 +168,6 @@ function App() {
       axios.get(`${API_URL}/dashboard/access-points/uptime?dias=30`, {
         headers: { Authorization: `Bearer ${token}` },
       }).then((response) => setApsUptime(response.data)).catch(() => {});
-    }
-    if (abaAtiva === "links_internet" && subAbaRede === "consumo") {
-      const buscarConsumo = () => {
-        axios.get(`${API_URL}/dashboard/unifi/top-consumo`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }).then((response) => setConsumoRede(response.data)).catch(() => {});
-      };
-      buscarConsumo();
-      const intervaloConsumo = setInterval(buscarConsumo, 15000);
-      return () => clearInterval(intervaloConsumo);
     }
     if (abaAtiva === "links_internet") {
       axios.get(`${API_URL}/dashboard/pfsense/links`, {
@@ -692,42 +682,7 @@ function App() {
                   </div>
                 </>
               )}
-              {subAbaRede === 'consumo' && (
-                <>
-                  <h3 className="detail-table-title">Consumo de Rede — Ao Vivo</h3>
-                  <p style={{ fontSize: '13px', opacity: 0.7, marginBottom: '16px' }}>
-                    Atualiza a cada 15 segundos. Linhas destacadas indicam consumo acima de 20 Mbps.
-                  </p>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Dispositivo</th>
-                        <th>IP</th>
-                        <th>Download</th>
-                        <th>Upload</th>
-                        <th>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {consumoRede.map((c) => {
-                        const acimaLimite = c.download_mbps >= 20 || c.upload_mbps >= 20;
-                        return (
-                          <tr key={c.mac} style={acimaLimite ? { background: 'rgba(239, 68, 68, 0.12)' } : undefined}>
-                            <td>{c.hostname}</td>
-                            <td>{c.ip}</td>
-                            <td style={acimaLimite && c.download_mbps >= 20 ? { color: '#ef4444', fontWeight: 700 } : undefined}>{c.download_mbps} Mbps</td>
-                            <td style={acimaLimite && c.upload_mbps >= 20 ? { color: '#ef4444', fontWeight: 700 } : undefined}>{c.upload_mbps} Mbps</td>
-                            <td style={{ fontWeight: 700 }}>{c.total_mbps} Mbps</td>
-                          </tr>
-                        );
-                      })}
-                      {consumoRede.length === 0 && (
-                        <tr><td colSpan="5" style={{ textAlign: 'center', opacity: 0.6 }}>Carregando dados de consumo...</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </>
-              )}
+              {subAbaRede === 'consumo' && <ConsumoRede token={token} />}
             </div>
           )}
           {abaAtiva === 'backups' && (

@@ -866,7 +866,17 @@ async def dashboard_unifi_top_consumo(
     usuario: User = Depends(get_current_user),
 ):
     from app.unifi import get_top_consumo_clientes
-    return await get_top_consumo_clientes(limite)
+    clientes, _ = await get_top_consumo_clientes(limite)
+    return clientes
+@app.get("/dashboard/unifi/top-consumo-semanal")
+async def dashboard_unifi_top_consumo_semanal(
+    dias: int = 7,
+    minimo: int = 5,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.unifi import get_top_consumo_semanal
+    return await get_top_consumo_semanal(db, dias, minimo)
 
 
 @app.get("/dashboard/pfsense/links")

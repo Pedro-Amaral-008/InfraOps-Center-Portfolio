@@ -87,10 +87,22 @@ async def _obter_cookie_sessao():
     return None
 
 
+
+
+LIMITE_MBPS_CONSUMO = 60
+DURACAO_MINIMA_SEGUNDOS = 60
+
+_estado_consumo_alto = {}  # mac -> {"desde": timestamp, "avisado": bool}
+
+
 async def get_top_consumo_clientes(limite: int = 50):
     """Retorna os clientes que mais consomem banda AGORA (taxa em tempo real),
-    usando a API classica (session-based) do UniFi, que traz esse dado -
-    diferente da API oficial nova, que so tem dados de conectividade."""
+    usando a API classica (session-based) do UniFi. Tambem calcula, por
+    cliente, ha quanto tempo ele esta continuamente acima do limite
+    (segundos_acima / sustentado), reaproveitado tanto pela tela quanto
+    pela checagem de alerta."""
+    import time
+
     cookie = await _obter_cookie_sessao()
     if not cookie:
         return []
@@ -107,6 +119,8 @@ async def get_top_consumo_clientes(limite: int = 50):
             return []
 
     IPS_EXCLUIDOS = {ip.strip() for ip in settings.ips_excluidos_consumo.split(",") if ip.strip()}
+    agora = time.time()
+    macs_atuais_acima = set()
 
     resultado = []
     for c in clientes:
@@ -116,64 +130,128 @@ async def get_top_consumo_clientes(limite: int = 50):
         ip_cliente = c.get("ip") or c.get("last_ip", "")
         if ip_cliente in IPS_EXCLUIDOS:
             continue
+
+        mac = c.get("mac", "")
+        download_mbps = round((c.get("rx_bytes-r", 0) or 0) * 8 / 1_000_000, 2)
+        upload_mbps = round((c.get("tx_bytes-r", 0) or 0) * 8 / 1_000_000, 2)
+        total_mbps = round(taxa_total * 8 / 1_000_000, 2)
+
+        acima_limite = download_mbps >= LIMITE_MBPS_CONSUMO or upload_mbps >= LIMITE_MBPS_CONSUMO
+        segundos_acima = 0
+        if acima_limite:
+            macs_atuais_acima.add(mac)
+            if mac not in _estado_consumo_alto:
+                _estado_consumo_alto[mac] = {"desde": agora, "avisado": False}
+            segundos_acima = agora - _estado_consumo_alto[mac]["desde"]
+
         resultado.append({
             "hostname": c.get("hostname") or c.get("name") or "Desconhecido",
             "ip": c.get("ip") or c.get("last_ip", ""),
-            "mac": c.get("mac", ""),
-            "download_mbps": round((c.get("rx_bytes-r", 0) or 0) * 8 / 1_000_000, 2),
-            "upload_mbps": round((c.get("tx_bytes-r", 0) or 0) * 8 / 1_000_000, 2),
-            "total_mbps": round(taxa_total * 8 / 1_000_000, 2),
+            "mac": mac,
+            "download_mbps": download_mbps,
+            "upload_mbps": upload_mbps,
+            "total_mbps": total_mbps,
+            "segundos_acima": round(segundos_acima),
+            "sustentado": segundos_acima >= DURACAO_MINIMA_SEGUNDOS,
         })
 
     resultado.sort(key=lambda x: x["total_mbps"], reverse=True)
-    return resultado[:limite]
+    return resultado[:limite], macs_atuais_acima
 
 
-LIMITE_MBPS_CONSUMO = 20
-DURACAO_MINIMA_SEGUNDOS = 40
-
-_estado_consumo_alto = {}  # mac -> {"desde": timestamp, "avisado": bool}
+def _formatar_duracao(segundos):
+    minutos = round(segundos / 60)
+    if minutos < 1:
+        return f"{round(segundos)} segundos"
+    if minutos == 1:
+        return "1 minuto"
+    return f"{minutos} minutos"
 
 
 async def verificar_consumo_excessivo(db):
-    """Roda com frequencia (a cada ~20s) verificando se algum cliente esta
-    consumindo acima do limite (download OU upload) de forma SUSTENTADA por
-    pelo menos DURACAO_MINIMA_SEGUNDOS. Quando confirma, registra um evento
-    no Feed do Dashboard (sem Telegram)."""
+    """Roda com frequencia (a cada ~20s): grava uma amostra de cada cliente
+    (para o historico/top semanal) e registra um evento no Feed do Dashboard
+    quando um cliente NORMALIZA depois de ter ficado sustentado acima do
+    limite - a mensagem entao informa o tempo TOTAL que ele ficou acima,
+    nao so o instante em que cruzou o limiar minimo."""
     import time
-    from app.models import EventoSistema
+    from app.models import EventoSistema, ConsumoRedeAmostra
 
-    agora = time.time()
-    clientes = await get_top_consumo_clientes(limite=50)
-    macs_atuais_acima = set()
+    clientes, macs_atuais_acima = await get_top_consumo_clientes(limite=50)
 
     for c in clientes:
-        acima_limite = c["download_mbps"] >= LIMITE_MBPS_CONSUMO or c["upload_mbps"] >= LIMITE_MBPS_CONSUMO
-        if not acima_limite:
+        db.add(ConsumoRedeAmostra(
+            mac=c["mac"], hostname=c["hostname"], ip=c["ip"],
+            download_mbps=c["download_mbps"], upload_mbps=c["upload_mbps"],
+        ))
+    await db.commit()
+
+    info_por_mac = {c["mac"]: c for c in clientes}
+    agora = time.time()
+
+    for mac in list(_estado_consumo_alto.keys()):
+        if mac in macs_atuais_acima:
             continue
 
-        mac = c["mac"]
-        macs_atuais_acima.add(mac)
-
-        if mac not in _estado_consumo_alto:
-            _estado_consumo_alto[mac] = {"desde": agora, "avisado": False}
-            continue
-
+        # Esse cliente estava sendo rastreado e agora normalizou - se ficou
+        # tempo suficiente acima do limite, registra o evento com a duracao real.
         registro = _estado_consumo_alto[mac]
-        duracao = agora - registro["desde"]
-
-        if duracao >= DURACAO_MINIMA_SEGUNDOS and not registro["avisado"]:
-            registro["avisado"] = True
-            direcao = "download" if c["download_mbps"] >= LIMITE_MBPS_CONSUMO else "upload"
-            valor = max(c["download_mbps"], c["upload_mbps"])
+        duracao_total = agora - registro["desde"]
+        if duracao_total >= DURACAO_MINIMA_SEGUNDOS:
+            c = info_por_mac.get(mac)
+            hostname = c["hostname"] if c else mac
+            ip = c["ip"] if c else ""
             db.add(EventoSistema(
                 tipo="atencao",
-                mensagem=f"Consumo de rede {c['hostname']} acima de {LIMITE_MBPS_CONSUMO} Mbps ({direcao}: {valor:.1f} Mbps)",
-                detalhes=f"{c['ip']} · sustentado por mais de {DURACAO_MINIMA_SEGUNDOS}s",
+                mensagem=f"Consumo de rede {hostname} ficou acima de {LIMITE_MBPS_CONSUMO} Mbps por {_formatar_duracao(duracao_total)}",
+                detalhes=f"{ip}" if ip else None,
             ))
             await db.commit()
 
-    # Limpa clientes que normalizaram (nao aparecem mais acima do limite)
-    for mac in list(_estado_consumo_alto.keys()):
-        if mac not in macs_atuais_acima:
-            del _estado_consumo_alto[mac]
+        del _estado_consumo_alto[mac]
+
+
+async def get_top_consumo_semanal(db, dias: int = 7, minimo: int = 5):
+    """Agrega as amostras coletadas nos ultimos N dias, retornando os
+    dispositivos que mais consumiram banda no periodo (media de download +
+    upload, em Mbps). Util pra ver quem consome mais 'no geral', nao so
+    o instante atual."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select, func as sqlfunc
+    from app.models import ConsumoRedeAmostra
+
+    limite_data = datetime.now(timezone.utc) - timedelta(days=dias)
+
+    result = await db.execute(
+        select(
+            ConsumoRedeAmostra.mac,
+            sqlfunc.max(ConsumoRedeAmostra.hostname).label("hostname"),
+            sqlfunc.max(ConsumoRedeAmostra.ip).label("ip"),
+            sqlfunc.avg(ConsumoRedeAmostra.download_mbps).label("download_medio"),
+            sqlfunc.avg(ConsumoRedeAmostra.upload_mbps).label("upload_medio"),
+            sqlfunc.max(ConsumoRedeAmostra.download_mbps).label("download_pico"),
+            sqlfunc.max(ConsumoRedeAmostra.upload_mbps).label("upload_pico"),
+            sqlfunc.count(ConsumoRedeAmostra.id).label("amostras"),
+        )
+        .where(ConsumoRedeAmostra.coletado_em >= limite_data)
+        .group_by(ConsumoRedeAmostra.mac)
+        .order_by((sqlfunc.avg(ConsumoRedeAmostra.download_mbps) + sqlfunc.avg(ConsumoRedeAmostra.upload_mbps)).desc())
+    )
+    linhas = result.all()
+
+    resultado = [
+        {
+            "mac": r.mac,
+            "hostname": r.hostname,
+            "ip": r.ip,
+            "download_medio_mbps": round(r.download_medio, 2),
+            "upload_medio_mbps": round(r.upload_medio, 2),
+            "download_pico_mbps": round(r.download_pico, 2),
+            "upload_pico_mbps": round(r.upload_pico, 2),
+            "total_medio_mbps": round(r.download_medio + r.upload_medio, 2),
+            "amostras": r.amostras,
+        }
+        for r in linhas
+    ]
+
+    return resultado[:max(minimo, len(resultado))] if len(resultado) >= minimo else resultado
