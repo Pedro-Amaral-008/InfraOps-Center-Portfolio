@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     telegram_chat_id: str
     unifi_api_key: str
     unifi_controller_url: str
+    unifi_username: str = ""
+    unifi_password: str = ""
     pfsense_host: str
     pfsense_snmp_community: str
     smtp_host: str = "smtp.office365.com"
