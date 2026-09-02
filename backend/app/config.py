@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     unifi_controller_url: str
     unifi_username: str = ""
     unifi_password: str = ""
+    ips_excluidos_consumo: str = ""
     pfsense_host: str
     pfsense_snmp_community: str
     smtp_host: str = "smtp.office365.com"
