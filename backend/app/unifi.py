@@ -141,7 +141,11 @@ async def get_top_consumo_clientes(limite: int = 50):
         if acima_limite:
             macs_atuais_acima.add(mac)
             if mac not in _estado_consumo_alto:
-                _estado_consumo_alto[mac] = {"desde": agora, "avisado": False}
+                _estado_consumo_alto[mac] = {"desde": agora, "avisado": False, "pico_download": download_mbps, "pico_upload": upload_mbps}
+            else:
+                _r = _estado_consumo_alto[mac]
+                _r["pico_download"] = max(_r["pico_download"], download_mbps)
+                _r["pico_upload"] = max(_r["pico_upload"], upload_mbps)
             segundos_acima = agora - _estado_consumo_alto[mac]["desde"]
 
         resultado.append({
@@ -201,9 +205,13 @@ async def verificar_consumo_excessivo(db):
             c = info_por_mac.get(mac)
             hostname = c["hostname"] if c else mac
             ip = c["ip"] if c else ""
+            pico_download = registro.get("pico_download", 0)
+            pico_upload = registro.get("pico_upload", 0)
+            direcao = "download" if pico_download >= pico_upload else "upload"
+            pico_maior = max(pico_download, pico_upload)
             db.add(EventoSistema(
                 tipo="atencao",
-                mensagem=f"Consumo de rede {hostname} ficou acima de {LIMITE_MBPS_CONSUMO} Mbps por {_formatar_duracao(duracao_total)}",
+                mensagem=f"Consumo de rede {hostname} ficou acima de {LIMITE_MBPS_CONSUMO} Mbps por {_formatar_duracao(duracao_total)} (pico {direcao}: {pico_maior:.1f} Mbps)",
                 detalhes=f"{ip}" if ip else None,
             ))
             await db.commit()
