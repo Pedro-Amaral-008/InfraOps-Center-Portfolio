@@ -3,6 +3,7 @@ import secrets
 from fastapi import FastAPI, Depends, HTTPException, status, Header, Request
 from app.config import settings
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select, desc, func, case
 from datetime import datetime, timedelta, timezone
@@ -418,6 +419,29 @@ async def dashboard_relatorio(
     from app.dashboard import get_dados_relatorio
     lista_categorias = [c.strip() for c in categorias.split(",") if c.strip()] if categorias else None
     return await get_dados_relatorio(db, dias, lista_categorias)
+@app.get("/dashboard/relatorio/pdf")
+async def dashboard_relatorio_pdf(
+    dias: int = 15,
+    categorias: str = "",
+    periodo_label: str = "",
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_dados_relatorio, gerar_html_relatorio_pdf
+    from weasyprint import HTML
+    import io
+
+    lista_categorias = [c.strip() for c in categorias.split(",") if c.strip()] if categorias else None
+    dados = await get_dados_relatorio(db, dias, lista_categorias)
+    html_str = gerar_html_relatorio_pdf(dados, periodo_label or f"Últimos {dias} dias")
+
+    pdf_bytes = HTML(string=html_str).write_pdf()
+    buffer = io.BytesIO(pdf_bytes)
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=relatorio-eops.pdf"},
+    )
 @app.post("/dashboard/alertas-ativos-duracao")
 async def dashboard_alertas_ativos_duracao(
     request: Request,
@@ -826,6 +850,13 @@ async def dashboard_unifi_aps(
 ):
     from app.unifi import get_aps_com_clientes
     return await get_aps_com_clientes()
+@app.get("/dashboard/unifi/top-consumo")
+async def dashboard_unifi_top_consumo(
+    limite: int = 15,
+    usuario: User = Depends(get_current_user),
+):
+    from app.unifi import get_top_consumo_clientes
+    return await get_top_consumo_clientes(limite)
 
 
 @app.get("/dashboard/pfsense/links")
