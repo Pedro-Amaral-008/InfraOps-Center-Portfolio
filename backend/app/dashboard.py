@@ -994,3 +994,334 @@ async def get_dados_relatorio(db, dias: int, categorias_selecionadas: list = Non
         "severidade": contagem_severidade,
         "ranking": ranking_formatado,
     }
+
+
+def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
+    """Monta o HTML completo do relatorio, com CSS compativel com WeasyPrint
+    (sem color-mix(), sem CSS Grid - tudo em flexbox/bloco com larguras fixas
+    em px, que o motor de renderizacao do WeasyPrint suporta de forma solida).
+    Retorna uma string HTML pronta pra converter em PDF."""
+
+    CORES = {
+        "verde": "#22c55e", "verde_dim": "rgba(34,197,94,0.14)",
+        "ambar": "#f59e0b", "ambar_dim": "rgba(245,158,11,0.14)",
+        "vermelho": "#ef4444", "vermelho_dim": "rgba(239,68,68,0.14)",
+        "marca": "#6172f3", "marca_dim": "rgba(97,114,243,0.14)",
+        "fundo": "#151b24", "elevado": "#1b2330", "tinta": "#eef2f8",
+        "suave": "#97a3b5", "fraca": "#64707f", "linha": "rgba(255,255,255,0.08)",
+        "borda": "rgba(255,255,255,0.10)",
+    }
+
+    def cor_faixa(media):
+        if media >= 99:
+            return CORES["verde"]
+        if media >= 90:
+            return CORES["ambar"]
+        return CORES["vermelho"]
+
+    def classe_faixa(media):
+        if media >= 99:
+            return "bom"
+        if media >= 90:
+            return "mid"
+        return "ruim"
+
+    def escapar(texto):
+        if texto is None:
+            return ""
+        return str(texto).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def formatar_data_hora(iso_str):
+        try:
+            dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+            return dt.strftime("%d/%m %H:%M")
+        except Exception:
+            return iso_str
+
+    def gerar_linha_svg(serie, cor):
+        if not serie or len(serie) < 2:
+            return ""
+        valores = [p["v"] for p in serie]
+        vmin, vmax = min(valores + [0]), max(valores + [100])
+        faixa_v = (vmax - vmin) or 1
+        x0, x1, y0, y1 = 10, 450, 20, 120
+        passo_x = (x1 - x0) / (len(serie) - 1 or 1)
+        pontos = []
+        for i, p in enumerate(serie):
+            x = x0 + i * passo_x
+            y = y1 - ((p["v"] - vmin) / faixa_v) * (y1 - y0)
+            pontos.append((x, y))
+        path = " ".join(f"{'M' if i == 0 else 'L'}{x:.1f},{y:.1f}" for i, (x, y) in enumerate(pontos))
+        area = f"{path} L{pontos[-1][0]:.1f},{y1} L{pontos[0][0]:.1f},{y1} Z"
+        return f'''<svg viewBox="0 0 460 140" style="width:100%;display:block;">
+            <line x1="10" y1="20" x2="450" y2="20" stroke="{CORES['linha']}" stroke-dasharray="2 4"/>
+            <line x1="10" y1="70" x2="450" y2="70" stroke="{CORES['linha']}" stroke-dasharray="2 4"/>
+            <path d="{area}" fill="{cor}" opacity="0.1"/>
+            <path d="{path}" fill="none" stroke="{cor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>'''
+
+    def gerar_donut(itens, raio=42):
+        total = sum(i["valor"] for i in itens) or 1
+        circunferencia = 2 * 3.14159265 * raio
+        acumulado = 0
+        arcos = []
+        for item in itens:
+            proporcao = item["valor"] / total
+            comprimento = proporcao * circunferencia
+            offset = -acumulado
+            acumulado += comprimento
+            arcos.append((item["cor"], comprimento, circunferencia, offset))
+        circulos = "".join(
+            f'<circle cx="55" cy="55" r="{raio}" fill="none" stroke="{cor}" stroke-width="14" '
+            f'stroke-dasharray="{comp:.2f} {circ:.2f}" stroke-dashoffset="{off:.2f}" '
+            f'transform="rotate(-90 55 55)"/>'
+            for cor, comp, circ, off in arcos
+        )
+        total_real = sum(i["valor"] for i in itens)
+        return f'''<svg viewBox="0 0 110 110" style="width:100px;height:100px;flex-shrink:0;">
+            <circle cx="55" cy="55" r="{raio}" fill="none" stroke="{CORES['linha']}" stroke-width="14"/>
+            {circulos}
+            <text x="55" y="52" text-anchor="middle" font-size="18" font-weight="700" fill="{CORES['tinta']}">{total_real}</text>
+            <text x="55" y="66" text-anchor="middle" font-size="8" fill="{CORES['suave']}">eventos</text>
+        </svg>'''
+
+    css = f'''
+    @page {{ margin: 14mm; }}
+    * {{ box-sizing: border-box; }}
+    body {{ font-family: Arial, Helvetica, sans-serif; background: #0b0f16; color: {CORES['tinta']}; margin: 0; padding: 0; }}
+    .pagina {{ background: {CORES['fundo']}; border: 1px solid {CORES['borda']}; border-radius: 14px; padding: 22px 26px; margin-bottom: 16px; page-break-inside: avoid; }}
+    .titulo {{ font-size: 18px; font-weight: 800; margin: 0 0 4px; }}
+    .sub {{ font-size: 11.5px; color: {CORES['suave']}; margin-bottom: 14px; }}
+    .kpi-linha {{ display: flex; margin-bottom: 16px; }}
+    .kpi-linha .kpi {{ margin-right: 10px; }}
+    .kpi-linha .kpi:last-child {{ margin-right: 0; }}
+    .kpi {{ background: {CORES['elevado']}; border: 1px solid {CORES['borda']}; border-radius: 10px; padding: 12px 14px; flex: 1; page-break-inside: avoid; }}
+    .kpi .rot {{ font-size: 10.5px; color: {CORES['suave']}; margin-bottom: 6px; }}
+    .kpi .val {{ font-size: 20px; font-weight: 800; }}
+    .val.bom {{ color: {CORES['verde']}; }} .val.mid {{ color: {CORES['ambar']}; }} .val.ruim {{ color: {CORES['vermelho']}; }}
+    .caixa {{ background: {CORES['elevado']}; border: 1px solid {CORES['borda']}; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; page-break-inside: avoid; }}
+    .caixa-titulo {{ font-size: 11.5px; font-weight: 600; margin-bottom: 8px; }}
+    .texto-auto {{ font-size: 12px; line-height: 1.5; color: {CORES['suave']}; background: {CORES['elevado']}; border: 1px solid {CORES['borda']}; border-left: 3px solid {CORES['marca']}; border-radius: 6px; padding: 10px 14px; margin: 12px 0; page-break-inside: avoid; }}
+    .texto-auto b {{ color: {CORES['tinta']}; }}
+    .cat-header {{ display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid {CORES['linha']}; }}
+    .cat-nome {{ font-size: 16px; font-weight: 800; flex: 1; }}
+    .cat-media {{ text-align: right; }}
+    .cat-media .num {{ font-size: 22px; font-weight: 800; }}
+    .cat-media .rot {{ font-size: 10px; color: {CORES['suave']}; }}
+    .donut-wrap {{ display: flex; align-items: center; }}
+    .donut-wrap svg {{ margin-right: 14px; }}
+    .donut-legenda {{ flex: 1; }}
+    .donut-legenda .item {{ display: flex; align-items: center; font-size: 11px; margin-bottom: 6px; }}
+    .donut-legenda .item .dot {{ margin-right: 6px; }}
+    .donut-legenda .item span:not(.dot) {{ margin-right: 6px; }}
+    .donut-legenda .item b {{ margin-left: auto; }}
+    .dot {{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }}
+    table.anexo {{ width: 100%; border-collapse: collapse; font-size: 10.5px; }}
+    table.anexo th {{ text-align: left; font-size: 9.5px; color: {CORES['fraca']}; padding: 6px 8px; border-bottom: 1px solid {CORES['borda']}; }}
+    table.anexo td {{ padding: 6px 8px; border-bottom: 1px solid {CORES['linha']}; }}
+    table.anexo tr {{ page-break-inside: avoid; }}
+    '''
+    total_eventos = len(dados["eventos"])
+    resumo = dados["resumo"]
+
+    # Delta geral: media das variacoes individuais das categorias que tem mediaAnterior
+    deltas_validos = [
+        info["media"] - info["mediaAnterior"]
+        for info in dados["categorias"].values()
+        if info.get("mediaAnterior") is not None
+    ]
+    delta_geral = sum(deltas_validos) / len(deltas_validos) if deltas_validos else None
+    delta_geral_html = ""
+    if delta_geral is not None:
+        cor_delta = CORES["verde"] if delta_geral >= 0 else CORES["vermelho"]
+        seta = "▲" if delta_geral >= 0 else "▼"
+        delta_geral_html = f'<div style="font-size:10px;color:{cor_delta};margin-top:4px;">{seta} {abs(delta_geral):.1f}% vs. período anterior</div>'
+
+    total_paginas = 2 + len(dados["categorias"]) + 1  # capa + resumo + categorias + anexo
+
+    kpis_html = f'''
+    <div class="kpi-linha">
+      <div class="kpi"><div class="rot">Uptime médio geral</div><div class="val {classe_faixa(resumo['uptimeGeral'])}">{resumo['uptimeGeral']}%</div>{delta_geral_html}</div>
+      <div class="kpi"><div class="rot">Total de incidentes</div><div class="val">{resumo['totalIncidentes']}</div></div>
+      <div class="kpi"><div class="rot">Total de eventos</div><div class="val">{total_eventos}</div></div>
+      <div class="kpi"><div class="rot">Categorias saudáveis</div><div class="val mid">{resumo['categoriasSaudaveis']} de {resumo['totalCategorias']}</div></div>
+    </div>'''
+
+    donut_geral = gerar_donut([
+        {"valor": dados["severidade"]["critico"], "cor": CORES["vermelho"]},
+        {"valor": dados["severidade"]["atencao"], "cor": CORES["ambar"]},
+        {"valor": dados["severidade"]["bom"], "cor": CORES["verde"]},
+    ])
+
+    equipamento_top = dados["ranking"][0] if dados["ranking"] else None
+
+    cards_destaque_html = f'''
+    <div class="kpi-linha">
+      <div class="kpi">
+        <div class="rot">Melhor desempenho</div>
+        <div class="val bom" style="font-size:16px;">{escapar(resumo.get('melhorCategoria') or '—')}</div>
+        <div style="font-size:11px;color:{CORES['suave']};margin-top:2px;">{resumo.get('melhorCategoriaValor') if resumo.get('melhorCategoriaValor') is not None else '—'}%</div>
+      </div>
+      <div class="kpi">
+        <div class="rot">Pior desempenho</div>
+        <div class="val ruim" style="font-size:16px;">{escapar(resumo.get('piorCategoria') or '—')}</div>
+        <div style="font-size:11px;color:{CORES['suave']};margin-top:2px;">{resumo.get('piorCategoriaValor') if resumo.get('piorCategoriaValor') is not None else '—'}%</div>
+      </div>
+      <div class="kpi">
+        <div class="rot">Equipamento mais problemático</div>
+        <div class="val" style="font-size:16px;">{escapar(equipamento_top['equipamento']) if equipamento_top else '—'}</div>
+        <div style="font-size:11px;color:{CORES['vermelho']};margin-top:2px;">{f"{equipamento_top['ocorrencias']}x ocorrências" if equipamento_top else '—'}</div>
+      </div>
+    </div>'''
+
+    pagina_capa = f'''
+    <div class="pagina" style="min-height: 620px; display:flex; flex-direction:column; justify-content:space-between;">
+      <div style="font-weight:800; font-size:15px;">E-OPS · Elcop</div>
+      <div>
+        <div style="display:inline-block; font-size:11px; font-weight:700; color:{CORES['marca']}; background:{CORES['marca_dim']}; border-radius:6px; padding:4px 10px; margin-bottom:16px; text-transform:uppercase;">Relatório · {escapar(periodo_label)}</div>
+        <div style="font-size:26px; font-weight:800; margin-bottom:10px;">Relatório de Disponibilidade e Incidentes</div>
+        <div style="font-size:14px; color:{CORES['suave']}; margin-bottom:4px;">{escapar(periodo_label)}</div>
+        <div style="font-size:12px; color:{CORES['fraca']};">{', '.join(info['nome'] for info in dados['categorias'].values())}</div>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:11px; color:{CORES['fraca']}; border-top:1px solid {CORES['linha']}; padding-top:14px;">
+        <span>Gerado automaticamente pelo E-OPS</span>
+        <span>Gerado em {formatar_data_hora(dados['gerado_em'])}</span>
+      </div>
+      <div style="text-align:right; font-size:9px; color:{CORES['fraca']}; margin-top:8px;">1 de {total_paginas}</div>
+    </div>'''
+
+    pagina_resumo = f'''
+    <div class="pagina">
+      <div class="titulo">Resumo geral</div>
+      <div class="sub">Visão consolidada das categorias selecionadas no período</div>
+      {kpis_html}
+      {cards_destaque_html}
+      <div class="caixa">
+        <div class="caixa-titulo">Eventos por severidade — {total_eventos} no total</div>
+        <div class="donut-wrap">
+          {donut_geral}
+          <div class="donut-legenda">
+            <div class="item"><span class="dot" style="background:{CORES['vermelho']}"></span>Críticos<b>{dados['severidade']['critico']}</b></div>
+            <div class="item"><span class="dot" style="background:{CORES['ambar']}"></span>Atenção<b>{dados['severidade']['atencao']}</b></div>
+            <div class="item"><span class="dot" style="background:{CORES['verde']}"></span>Resolvidos<b>{dados['severidade']['bom']}</b></div>
+          </div>
+        </div>
+      </div>
+      <div class="texto-auto">
+        No geral, as categorias selecionadas mantiveram <b>{resumo['uptimeGeral']}% de disponibilidade</b> no período.
+        {f"O destaque negativo foi <b>{escapar(resumo['piorCategoria'])}</b>, com {resumo['piorCategoriaValor']}% de uptime." if resumo.get('piorCategoria') else ''}
+      </div>
+      <div style="text-align:right; font-size:9px; color:{CORES['fraca']}; margin-top:8px;">2 de {total_paginas}</div>
+    </div>'''
+    PALAVRA_CHAVE_POR_CATEGORIA = {
+        "Servidores": "Servidor", "Access Points": "Access Point", "Links de Rede": "Link",
+        "VPNs": "VPN", "VLANs": "VLAN", "Backups": "Backup",
+    }
+
+    paginas_categorias = []
+    for chave, info in dados["categorias"].items():
+        cor = cor_faixa(info["media"])
+        delta = None
+        if info.get("mediaAnterior") is not None:
+            delta = info["media"] - info["mediaAnterior"]
+        delta_texto = f" ({'melhora' if delta >= 0 else 'queda'} de {abs(delta):.1f} pontos vs. período anterior)" if delta is not None else ""
+        grafico = gerar_linha_svg(info["serie"], cor) or f'<div style="color:{CORES["fraca"]};font-size:11px;">Sem dados suficientes no período.</div>'
+
+        palavra_chave = PALAVRA_CHAVE_POR_CATEGORIA.get(info["nome"], info["nome"])
+        eventos_cat = [e for e in dados["eventos"] if palavra_chave in e["mensagem"]]
+
+        sev_cat = {"critico": 0, "atencao": 0, "bom": 0}
+        for e in eventos_cat:
+            if e["tipo"] in sev_cat:
+                sev_cat[e["tipo"]] += 1
+        donut_cat = gerar_donut([
+            {"valor": sev_cat["critico"], "cor": CORES["vermelho"]},
+            {"valor": sev_cat["atencao"], "cor": CORES["ambar"]},
+            {"valor": sev_cat["bom"], "cor": CORES["verde"]},
+        ], raio=34)
+
+        contagem_equip = {}
+        for e in eventos_cat:
+            if e["tipo"] == "critico":
+                nome_equip = " ".join(e["mensagem"].split()[:2])
+                contagem_equip[nome_equip] = contagem_equip.get(nome_equip, 0) + 1
+        ranking_cat = sorted(contagem_equip.items(), key=lambda x: x[1], reverse=True)[:5]
+        ranking_html = "".join(
+            f'<div style="display:flex;align-items:center;padding:5px 0;font-size:11px;border-bottom:1px solid {CORES["linha"]};">'
+            f'<span style="width:16px;height:16px;margin-right:8px;border-radius:4px;background:{CORES["linha"]};color:{CORES["suave"]};font-size:9px;text-align:center;line-height:16px;flex-shrink:0;">{i+1}</span>'
+            f'<span style="flex:1;margin-right:8px;">{escapar(nome)}</span>'
+            f'<span style="color:{CORES["vermelho"]};font-weight:700;">{qtd}x</span></div>'
+            for i, (nome, qtd) in enumerate(ranking_cat)
+        ) or f'<div style="font-size:11px;color:{CORES["fraca"]};">Nenhuma ocorrência crítica nesta categoria.</div>'
+
+        timeline_html = "".join(
+            f'<div style="display:flex;padding:5px 0;border-bottom:1px solid {CORES["linha"]};font-size:10.5px;">'
+            f'<span style="color:{CORES["suave"]};width:60px;margin-right:8px;flex-shrink:0;">{formatar_data_hora(e["criado_em"])}</span>'
+            f'<span>{escapar(e["mensagem"])}</span></div>'
+            for e in eventos_cat[:8]
+        ) or f'<div style="font-size:11px;color:{CORES["fraca"]};">Nenhum evento nesta categoria.</div>'
+
+        paginas_categorias.append(f'''
+        <div class="pagina" style="border-left: 3px solid {cor};">
+          <div class="cat-header">
+            <div class="cat-nome">{escapar(info['nome'])}</div>
+            <div class="cat-media"><div class="num" style="color:{cor}">{info['media']}%</div><div class="rot">uptime médio</div></div>
+          </div>
+          <div class="caixa"><div class="caixa-titulo">Evolução do uptime — {escapar(periodo_label)}</div>{grafico}</div>
+          <div class="texto-auto">
+            <b>{escapar(info['nome'])}</b> apresentou {info['media']}% de uptime no período{delta_texto}.
+          </div>
+          <div class="caixa">
+            <div class="caixa-titulo">Distribuição de eventos nesta categoria</div>
+            <div class="donut-wrap">
+              {donut_cat}
+              <div class="donut-legenda">
+                <div class="item"><span class="dot" style="background:{CORES['vermelho']}"></span>Crítico<b>{sev_cat['critico']}</b></div>
+                <div class="item"><span class="dot" style="background:{CORES['ambar']}"></span>Atenção<b>{sev_cat['atencao']}</b></div>
+                <div class="item"><span class="dot" style="background:{CORES['verde']}"></span>Resolvido<b>{sev_cat['bom']}</b></div>
+              </div>
+            </div>
+          </div>
+          <div class="caixa"><div class="caixa-titulo">Ranking de equipamentos problemáticos</div>{ranking_html}</div>
+          <div class="caixa"><div class="caixa-titulo">Linha do tempo de eventos</div>{timeline_html}</div>
+        </div>''')
+
+
+    ROTULO_SEVERIDADE = {"critico": "Crítico", "atencao": "Atenção", "bom": "Resolvido"}
+
+    def badge_severidade(tipo):
+        cor = CORES["vermelho"] if tipo == "critico" else CORES["ambar"] if tipo == "atencao" else CORES["verde"]
+        cor_dim = CORES["vermelho_dim"] if tipo == "critico" else CORES["ambar_dim"] if tipo == "atencao" else CORES["verde_dim"]
+        rotulo = ROTULO_SEVERIDADE.get(tipo, tipo)
+        return f'<span style="display:inline-block;padding:2px 8px;border-radius:5px;font-size:9.5px;font-weight:700;color:{cor};background:{cor_dim};">{rotulo}</span>'
+
+    linhas_anexo = "".join(
+        f'''<tr>
+          <td>{formatar_data_hora(ev['criado_em'])}</td>
+          <td>{escapar(ev['mensagem'])}</td>
+          <td>{escapar(ev.get('detalhes') or '—')}</td>
+          <td>{badge_severidade(ev['tipo'])}</td>
+        </tr>'''
+        for ev in dados["eventos"][:150]
+    )
+
+    pagina_anexo = f'''
+    <div class="pagina">
+      <div class="titulo" style="font-size:15px;">Anexo — todos os eventos do período</div>
+      <div class="sub">{total_eventos} eventos, ordenados cronologicamente</div>
+      <table class="anexo">
+        <thead><tr><th>Data/hora</th><th>Evento</th><th>Detalhes</th><th>Severidade</th></tr></thead>
+        <tbody>{linhas_anexo}</tbody>
+      </table>
+    </div>'''
+
+    html_final = f'''<!doctype html>
+<html><head><meta charset="utf-8"><style>{css}</style></head>
+<body>
+{pagina_capa}
+{pagina_resumo}
+{''.join(paginas_categorias)}
+{pagina_anexo}
+</body></html>'''
+
+    return html_final
