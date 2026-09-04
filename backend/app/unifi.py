@@ -150,6 +150,7 @@ async def get_top_consumo_clientes(limite: int = 50):
 
         resultado.append({
             "hostname": c.get("hostname") or c.get("name") or "Desconhecido",
+            "ap": (c.get("last_uplink_name") or "").strip() or None,
             "ip": c.get("ip") or c.get("last_ip", ""),
             "mac": mac,
             "download_mbps": download_mbps,
@@ -187,6 +188,7 @@ async def verificar_consumo_excessivo(db):
         db.add(ConsumoRedeAmostra(
             mac=c["mac"], hostname=c["hostname"], ip=c["ip"],
             download_mbps=c["download_mbps"], upload_mbps=c["upload_mbps"],
+            ap=c.get("ap"),
         ))
     await db.commit()
 
@@ -263,3 +265,167 @@ async def get_top_consumo_semanal(db, dias: int = 7, minimo: int = 5):
     ]
 
     return resultado[:max(minimo, len(resultado))] if len(resultado) >= minimo else resultado
+
+
+async def get_historico_consumo_agregado(db, minutos: float = 60, num_baldes: int = 150):
+    """Agrega as amostras do periodo em ate 'num_baldes' pontos no tempo.
+
+    IMPORTANTE: o "total da rede" de cada ponto e a MEDIA das rodadas de
+    coleta dentro daquele intervalo, nao a SOMA de todas as leituras -
+    somar leituras ao longo do tempo infla o numero artificialmente (uma
+    janela de 24h teria centenas de leituras somadas, um valor sem
+    significado real). Uma "rodada de coleta" e o conjunto de amostras de
+    todos os dispositivos, coletadas quase no mesmo instante (arredondado
+    pro intervalo de coleta mais proximo) - a soma DENTRO da rodada da o
+    consumo real da rede naquele instante; a MEDIA dessas rodadas dentro
+    do balde de tempo da o valor comparavel ao grafico.
+    """
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select
+    from app.models import ConsumoRedeAmostra
+
+    limite_data = datetime.now(timezone.utc) - timedelta(minutes=minutos)
+
+    result = await db.execute(
+        select(ConsumoRedeAmostra)
+        .where(ConsumoRedeAmostra.coletado_em >= limite_data)
+        .order_by(ConsumoRedeAmostra.coletado_em)
+    )
+    amostras = result.scalars().all()
+
+    if not amostras:
+        return []
+
+    rodadas = {}
+    for a in amostras:
+        chave_rodada = int(a.coletado_em.timestamp() // 15)
+        if chave_rodada not in rodadas:
+            rodadas[chave_rodada] = {"total": 0.0, "timestamp": a.coletado_em, "maior_individual": 0.0, "maior_hostname": None, "maior_ap": None, "maior_mac": None, "maior_download": 0.0, "maior_upload": 0.0}
+        r = rodadas[chave_rodada]
+        total_amostra = a.download_mbps + a.upload_mbps
+        r["total"] += total_amostra
+        if total_amostra > r["maior_individual"]:
+            r["maior_individual"] = total_amostra
+            r["maior_hostname"] = a.hostname
+            r["maior_ap"] = a.ap
+            r["maior_mac"] = a.mac
+            r["maior_download"] = a.download_mbps
+            r["maior_upload"] = a.upload_mbps
+
+    rodadas_ordenadas = [rodadas[k] for k in sorted(rodadas.keys())]
+
+    inicio = rodadas_ordenadas[0]["timestamp"]
+    fim = rodadas_ordenadas[-1]["timestamp"]
+    duracao_total = (fim - inicio).total_seconds() or 1
+    tamanho_balde = max(duracao_total / num_baldes, 1)
+
+    baldes = {}
+    for r in rodadas_ordenadas:
+        indice_balde = int((r["timestamp"] - inicio).total_seconds() / tamanho_balde)
+        if indice_balde not in baldes:
+            baldes[indice_balde] = {
+                "somatorio_total": 0.0, "contagem": 0, "maior_individual": 0.0,
+                "maior_hostname": None, "maior_ap": None, "maior_mac": None,
+                "maior_download": 0.0, "maior_upload": 0.0, "timestamp": r["timestamp"],
+            }
+        b = baldes[indice_balde]
+        b["somatorio_total"] += r["total"]
+        b["contagem"] += 1
+        if r["maior_individual"] > b["maior_individual"]:
+            b["maior_individual"] = r["maior_individual"]
+            b["maior_hostname"] = r["maior_hostname"]
+            b["maior_ap"] = r["maior_ap"]
+            b["maior_mac"] = r["maior_mac"]
+            b["maior_download"] = r["maior_download"]
+            b["maior_upload"] = r["maior_upload"]
+        b["timestamp"] = r["timestamp"]
+
+    resultado = [
+        {
+            "timestamp": v["timestamp"].isoformat(),
+            "total_mbps": round(v["somatorio_total"] / v["contagem"], 2),
+            "pico_hostname": v["maior_hostname"],
+            "pico_mbps": round(v["maior_individual"], 2),
+            "pico_ap": v["maior_ap"],
+            "pico_mac": v["maior_mac"],
+            "pico_download_mbps": round(v["maior_download"], 2),
+            "pico_upload_mbps": round(v["maior_upload"], 2),
+        }
+        for k, v in sorted(baldes.items())
+    ]
+    return resultado
+
+
+async def get_picos_sustentados(db, minutos: float = 60, limiar_mbps: float = 60, duracao_minima_segundos: int = 60):
+    """Analisa o historico POR DISPOSITIVO (nao a rede toda somada) e
+    encontra trechos onde o download OU o upload de UM UNICO dispositivo
+    ficou >= limiar_mbps de forma continua por pelo menos
+    duracao_minima_segundos. Retorna uma lista de eventos, cada um com
+    inicio, fim, duracao, hostname/mac/ap e o valor de pico atingido."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select
+    from app.models import ConsumoRedeAmostra
+
+    limite_data = datetime.now(timezone.utc) - timedelta(minutes=minutos)
+
+    result = await db.execute(
+        select(ConsumoRedeAmostra)
+        .where(ConsumoRedeAmostra.coletado_em >= limite_data)
+        .order_by(ConsumoRedeAmostra.mac, ConsumoRedeAmostra.coletado_em)
+    )
+    amostras = result.scalars().all()
+
+    por_mac = {}
+    for a in amostras:
+        por_mac.setdefault(a.mac, []).append(a)
+
+    eventos = []
+    for mac, lista in por_mac.items():
+        trecho_inicio = None
+        trecho_pico = 0.0
+        trecho_direcao = None
+
+        def fechar_trecho(fim_amostra):
+            nonlocal trecho_inicio, trecho_pico, trecho_direcao
+            if trecho_inicio is None:
+                return
+            duracao = (fim_amostra.coletado_em - trecho_inicio.coletado_em).total_seconds()
+            if duracao >= duracao_minima_segundos:
+                eventos.append({
+                    "mac": mac,
+                    "hostname": trecho_inicio.hostname,
+                    "ap": trecho_inicio.ap,
+                    "direcao": trecho_direcao,
+                    "pico_mbps": round(trecho_pico, 2),
+                    "inicio": trecho_inicio.coletado_em.isoformat(),
+                    "fim": fim_amostra.coletado_em.isoformat(),
+                    "duracao_segundos": round(duracao),
+                })
+            trecho_inicio = None
+            trecho_pico = 0.0
+            trecho_direcao = None
+
+        anterior = None
+        for a in lista:
+            acima_download = a.download_mbps >= limiar_mbps
+            acima_upload = a.upload_mbps >= limiar_mbps
+            acima = acima_download or acima_upload
+
+            if acima:
+                if trecho_inicio is None:
+                    trecho_inicio = a
+                valor_atual = max(a.download_mbps, a.upload_mbps)
+                if valor_atual > trecho_pico:
+                    trecho_pico = valor_atual
+                    trecho_direcao = "download" if acima_download and a.download_mbps >= a.upload_mbps else "upload"
+            else:
+                if trecho_inicio is not None and anterior is not None:
+                    fechar_trecho(anterior)
+
+            anterior = a
+
+        if trecho_inicio is not None and anterior is not None:
+            fechar_trecho(anterior)
+
+    eventos.sort(key=lambda e: e["inicio"])
+    return eventos
