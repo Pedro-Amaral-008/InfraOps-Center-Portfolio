@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import GraficoHistoricoConsumo from './GraficoHistoricoConsumo';
 
 const API_URL = 'http://192.168.1.26:8000';
 const JANELA_GRAFICO = 40;
@@ -110,15 +111,7 @@ function ConsumoRede({ token }) {
             </div>
           </div>
 
-          <div style={{ background: 'var(--bg-elevated, #1b2330)', border: '1px solid var(--border-subtle, rgba(255,255,255,0.1))', borderRadius: '12px', padding: '16px 18px', marginBottom: '20px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px' }}>Consumo total da rede</div>
-            <div style={{ fontSize: '11.5px', opacity: 0.6, marginBottom: '10px' }}>Download + upload agregado, últimos minutos</div>
-            <svg viewBox="0 0 900 160" style={{ width: '100%', display: 'block' }}>{svgConteudo}</svg>
-            <div style={{ display: 'flex', gap: '16px', marginTop: '8px', fontSize: '11.5px', opacity: 0.7 }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}><i style={{ width: '9px', height: '3px', borderRadius: '2px', background: '#3987e5', display: 'inline-block' }} />Download</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}><i style={{ width: '9px', height: '3px', borderRadius: '2px', background: '#d55181', display: 'inline-block' }} />Upload</span>
-            </div>
-          </div>
+          <GraficoHistoricoConsumo token={token} apiUrl={API_URL} />
 
           <table>
             <thead>

@@ -877,6 +877,22 @@ async def dashboard_unifi_top_consumo_semanal(
 ):
     from app.unifi import get_top_consumo_semanal
     return await get_top_consumo_semanal(db, dias, minimo)
+@app.get("/dashboard/unifi/consumo/historico")
+async def dashboard_unifi_consumo_historico(
+    minutos: float = 60,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.unifi import get_historico_consumo_agregado
+    return await get_historico_consumo_agregado(db, minutos)
+@app.get("/dashboard/unifi/consumo/picos")
+async def dashboard_unifi_consumo_picos(
+    minutos: float = 60,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.unifi import get_picos_sustentados
+    return await get_picos_sustentados(db, minutos)
 
 
 @app.get("/dashboard/pfsense/links")

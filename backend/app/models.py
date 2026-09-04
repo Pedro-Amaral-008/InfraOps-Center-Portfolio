@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, JSON, Numeric
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, JSON, Numeric, Float
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -157,3 +157,16 @@ class EventoSistema(Base):
     mensagem = Column(String, nullable=False)
     detalhes = Column(String, nullable=True)
     criado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ConsumoRedeAmostra(Base):
+    __tablename__ = "unifi_consumo_amostras"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mac = Column(String, nullable=False, index=True)
+    hostname = Column(String, nullable=False)
+    ip = Column(String, nullable=False)
+    download_mbps = Column(Float, nullable=False)
+    upload_mbps = Column(Float, nullable=False)
+    ap = Column(String, nullable=True)
+    coletado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
