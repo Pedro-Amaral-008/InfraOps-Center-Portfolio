@@ -418,7 +418,13 @@ async def dashboard_relatorio(
 ):
     from app.dashboard import get_dados_relatorio
     lista_categorias = [c.strip() for c in categorias.split(",") if c.strip()] if categorias else None
-    return await get_dados_relatorio(db, dias, lista_categorias)
+    incluir_acessos = lista_categorias is not None and "acessos" in lista_categorias
+    categorias_uptime = [c for c in lista_categorias if c != "acessos"] if lista_categorias else None
+    dados = await get_dados_relatorio(db, dias, categorias_uptime)
+    if incluir_acessos:
+        from app.acessos import get_relatorio_acessos
+        dados["acessos"] = await get_relatorio_acessos(db, dias)
+    return dados
 @app.get("/dashboard/relatorio/pdf")
 async def dashboard_relatorio_pdf(
     dias: int = 15,
@@ -432,7 +438,12 @@ async def dashboard_relatorio_pdf(
     import io
 
     lista_categorias = [c.strip() for c in categorias.split(",") if c.strip()] if categorias else None
-    dados = await get_dados_relatorio(db, dias, lista_categorias)
+    incluir_acessos = lista_categorias is not None and "acessos" in lista_categorias
+    categorias_uptime = [c for c in lista_categorias if c != "acessos"] if lista_categorias else None
+    dados = await get_dados_relatorio(db, dias, categorias_uptime)
+    if incluir_acessos:
+        from app.acessos import get_relatorio_acessos
+        dados["acessos"] = await get_relatorio_acessos(db, dias)
     html_str = gerar_html_relatorio_pdf(dados, periodo_label or f"Últimos {dias} dias")
 
     pdf_bytes = HTML(string=html_str).write_pdf()
@@ -802,12 +813,33 @@ async def loop_consumo_rede():
             except Exception as e:
                 print(f"ERRO em verificar_consumo_excessivo: {e}")
         await asyncio.sleep(20)
+async def loop_acessos_suricata():
+    from app.acessos import sincronizar_acessos_suricata
+    while True:
+        async with AsyncSessionLocal() as db:
+            try:
+                await sincronizar_acessos_suricata(db)
+            except Exception as e:
+                print(f"ERRO em sincronizar_acessos_suricata: {e}")
+        await asyncio.sleep(60)
+async def loop_recategorizacao_diaria():
+    from app.acessos import recategorizar_dominios_outros
+    while True:
+        await asyncio.sleep(86400)
+        async with AsyncSessionLocal() as db:
+            try:
+                atualizados = await recategorizar_dominios_outros(db)
+                print(f"recategorizacao diaria: {atualizados} linhas atualizadas")
+            except Exception as e:
+                print(f"ERRO em recategorizar_dominios_outros: {e}")
 @app.on_event("startup")
 async def iniciar_verificacao_agentes():
     asyncio.create_task(loop_verificacao_agentes())
     asyncio.create_task(loop_trafego_pfsense())
     asyncio.create_task(loop_resumo_diario())
     asyncio.create_task(loop_consumo_rede())
+    asyncio.create_task(loop_acessos_suricata())
+    asyncio.create_task(loop_recategorizacao_diaria())
 
 
 @app.get("/dashboard/controller/current")
@@ -893,6 +925,49 @@ async def dashboard_unifi_consumo_picos(
 ):
     from app.unifi import get_picos_sustentados
     return await get_picos_sustentados(db, minutos)
+@app.get("/dashboard/acessos/dispositivos")
+async def dashboard_acessos_dispositivos(
+    horas: float = 1440,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_dispositivos_acessos
+    return await get_dispositivos_acessos(db, horas)
+@app.get("/dashboard/acessos/top-sites")
+async def dashboard_acessos_top_sites(
+    horas: float = 1440,
+    limite: int = 8,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_top_sites_rede
+    return await get_top_sites_rede(db, horas, limite)
+@app.get("/dashboard/acessos/dispositivo/{mac}")
+async def dashboard_acessos_dispositivo(
+    mac: str,
+    horas: float = 1440,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_detalhe_dispositivo
+    return await get_detalhe_dispositivo(db, mac, horas)
+@app.get("/dashboard/acessos/identidade-vpn")
+async def dashboard_acessos_identidade_vpn(
+    ip: str,
+    usuario: User = Depends(exigir_papel("admin", "super_admin")),
+):
+    from app.acessos import buscar_nome_vpn_por_ip
+    nome = await buscar_nome_vpn_por_ip(ip)
+    return {"nome": nome}
+@app.get("/dashboard/acessos/dispositivo/{mac}/por-hora")
+async def dashboard_acessos_por_hora(
+    mac: str,
+    horas: float = 1440,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_atividade_por_hora
+    return await get_atividade_por_hora(db, mac, horas)
 
 
 @app.get("/dashboard/pfsense/links")
