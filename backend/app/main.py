@@ -453,6 +453,47 @@ async def dashboard_relatorio_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=relatorio-eops.pdf"},
     )
+@app.get("/dashboard/acessos/dispositivo/{mac}/relatorio.pdf")
+async def dashboard_acessos_dispositivo_relatorio_pdf(
+    mac: str,
+    horas: float = 24,
+    periodo_label: str = "",
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_detalhe_dispositivo
+    from app.dashboard import gerar_html_relatorio_dispositivo
+    from weasyprint import HTML
+    import io
+    detalhe = await get_detalhe_dispositivo(db, mac, horas)
+    html_str = gerar_html_relatorio_dispositivo(detalhe, periodo_label or f"Últimas {horas:.0f}h")
+    pdf_bytes = HTML(string=html_str).write_pdf()
+    buffer = io.BytesIO(pdf_bytes)
+    nome_arquivo = (detalhe.get("hostname") or mac).replace(" ", "-")
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=relatorio-{nome_arquivo}.pdf"},
+    )
+@app.get("/dashboard/acessos/dispositivo/{mac}/relatorio.html")
+async def dashboard_acessos_dispositivo_relatorio_html(
+    mac: str,
+    horas: float = 24,
+    periodo_label: str = "",
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_detalhe_dispositivo
+    from app.dashboard import gerar_html_relatorio_dispositivo
+    from fastapi.responses import Response
+    detalhe = await get_detalhe_dispositivo(db, mac, horas)
+    html_str = gerar_html_relatorio_dispositivo(detalhe, periodo_label or f"Últimas {horas:.0f}h")
+    nome_arquivo = (detalhe.get("hostname") or mac).replace(" ", "-")
+    return Response(
+        content=html_str,
+        media_type="text/html",
+        headers={"Content-Disposition": f"attachment; filename=relatorio-{nome_arquivo}.html"},
+    )
 @app.post("/dashboard/alertas-ativos-duracao")
 async def dashboard_alertas_ativos_duracao(
     request: Request,
