@@ -164,6 +164,60 @@ async def get_top_consumo_clientes(limite: int = 50):
     return resultado[:limite], macs_atuais_acima
 
 
+async def get_todos_clientes():
+    """Retorna todos os clientes conhecidos pelo UniFi, para uso em cruzamento de
+    IP -> hostname/MAC/AP por outras rotinas (ex: correlacao de acessos do
+    Suricata). Combina dois endpoints: 'stat/sta' traz só quem está ativo AGORA
+    (dado mais fresco: AP atual, IP atual), e 'stat/alluser' traz todo mundo que
+    o UniFi já viu (inclusive offline), o que evita perder a identificação de um
+    dispositivo só porque ele não estava conectado bem no instante do poll.
+    'sta' tem prioridade; 'alluser' só preenche os IPs que faltaram no 'sta'."""
+    cookie = await _obter_cookie_sessao()
+    if not cookie:
+        return []
+    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+        try:
+            resp_sta = await client.get(
+                f"{settings.unifi_controller_url}/proxy/network/api/s/default/stat/sta",
+                cookies={"TOKEN": cookie},
+            )
+            resp_sta.raise_for_status()
+            clientes_sta = resp_sta.json().get("data", [])
+        except Exception:
+            clientes_sta = []
+        try:
+            resp_all = await client.get(
+                f"{settings.unifi_controller_url}/proxy/network/api/s/default/stat/alluser",
+                cookies={"TOKEN": cookie},
+            )
+            resp_all.raise_for_status()
+            clientes_all = resp_all.json().get("data", [])
+        except Exception:
+            clientes_all = []
+    mapa_por_ip = {}
+    for c in clientes_all:
+        ip = c.get("ip") or c.get("last_ip", "")
+        if not ip:
+            continue
+        mapa_por_ip[ip] = {
+            "ip": ip,
+            "mac": c.get("mac", ""),
+            "hostname": c.get("hostname") or c.get("name") or "Desconhecido",
+            "ap": (c.get("last_uplink_name") or "").strip() or None,
+        }
+    for c in clientes_sta:
+        ip = c.get("ip") or c.get("last_ip", "")
+        if not ip:
+            continue
+        mapa_por_ip[ip] = {
+            "ip": ip,
+            "mac": c.get("mac", ""),
+            "hostname": c.get("hostname") or c.get("name") or "Desconhecido",
+            "ap": (c.get("last_uplink_name") or "").strip() or None,
+        }
+    return list(mapa_por_ip.values())
+
+
 def _formatar_duracao(segundos):
     minutos = round(segundos / 60)
     if minutos < 1:
@@ -175,12 +229,15 @@ def _formatar_duracao(segundos):
 
 async def verificar_consumo_excessivo(db):
     """Roda com frequencia (a cada ~20s): grava uma amostra de cada cliente
-    (para o historico/top semanal) e registra um evento no Feed do Dashboard
-    quando um cliente NORMALIZA depois de ter ficado sustentado acima do
-    limite - a mensagem entao informa o tempo TOTAL que ele ficou acima,
-    nao so o instante em que cruzou o limiar minimo."""
-    import time
-    from app.models import EventoSistema, ConsumoRedeAmostra
+    (para o historico/top semanal), limpa o rastreamento ao vivo (usado so
+    pro "piscando" da tabela) dos clientes que normalizaram, e sincroniza o
+    Feed do Dashboard com os MESMOS picos sustentados calculados direto do
+    banco (get_picos_sustentados) - a mesma fonte usada pelo grafico e pela
+    lista "Picos recentes". Assim o Feed e o grafico nunca ficam diferentes,
+    mesmo que o backend reinicie no meio de um pico em andamento."""
+    from app.models import EventoSistema, ConsumoRedeAmostra, ConsumoPicoRegistrado
+    from datetime import datetime
+    from sqlalchemy import select
 
     clientes, macs_atuais_acima = await get_top_consumo_clientes(limite=50)
 
@@ -192,33 +249,48 @@ async def verificar_consumo_excessivo(db):
         ))
     await db.commit()
 
-    info_por_mac = {c["mac"]: c for c in clientes}
-    agora = time.time()
-
+    # limpa o rastreamento ao vivo (usado so pro "piscando" da tabela) dos
+    # clientes que normalizaram - sem isso, segundos_acima nunca zeraria.
     for mac in list(_estado_consumo_alto.keys()):
-        if mac in macs_atuais_acima:
+        if mac not in macs_atuais_acima:
+            del _estado_consumo_alto[mac]
+
+    # sincroniza o Feed com os picos calculados direto do banco (mesma fonte
+    # do grafico) - so registra o que ja fechou de verdade (nao o que ainda
+    # esta em andamento).
+    eventos = await get_picos_sustentados(
+        db, minutos=180, limiar_mbps=LIMITE_MBPS_CONSUMO, duracao_minima_segundos=DURACAO_MINIMA_SEGUNDOS
+    )
+    info_por_mac = {c["mac"]: c for c in clientes}
+
+    for evento in eventos:
+        if evento.get("aberto"):
             continue
 
-        # Esse cliente estava sendo rastreado e agora normalizou - se ficou
-        # tempo suficiente acima do limite, registra o evento com a duracao real.
-        registro = _estado_consumo_alto[mac]
-        duracao_total = agora - registro["desde"]
-        if duracao_total >= DURACAO_MINIMA_SEGUNDOS:
-            c = info_por_mac.get(mac)
-            hostname = c["hostname"] if c else mac
-            ip = c["ip"] if c else ""
-            pico_download = registro.get("pico_download", 0)
-            pico_upload = registro.get("pico_upload", 0)
-            direcao = "download" if pico_download >= pico_upload else "upload"
-            pico_maior = max(pico_download, pico_upload)
-            db.add(EventoSistema(
-                tipo="atencao",
-                mensagem=f"Consumo de rede {hostname} ficou acima de {LIMITE_MBPS_CONSUMO} Mbps por {_formatar_duracao(duracao_total)} (pico {direcao}: {pico_maior:.1f} Mbps)",
-                detalhes=f"{ip}" if ip else None,
-            ))
-            await db.commit()
+        inicio = datetime.fromisoformat(evento["inicio"])
+        fim = datetime.fromisoformat(evento["fim"])
 
-        del _estado_consumo_alto[mac]
+        ja_registrado = await db.execute(
+            select(ConsumoPicoRegistrado).where(
+                ConsumoPicoRegistrado.mac == evento["mac"],
+                ConsumoPicoRegistrado.inicio == inicio,
+            )
+        )
+        if ja_registrado.scalar_one_or_none():
+            continue
+
+        duracao_total = (fim - inicio).total_seconds()
+        c = info_por_mac.get(evento["mac"])
+        ip = c["ip"] if c else ""
+
+        db.add(EventoSistema(
+            tipo="atencao",
+            mensagem=f"Consumo de rede {evento['hostname']} ficou acima de {LIMITE_MBPS_CONSUMO} Mbps por {_formatar_duracao(duracao_total)} (pico {evento['direcao']}: {evento['pico_mbps']:.1f} Mbps)",
+            detalhes=f"{ip}" if ip else None,
+        ))
+        db.add(ConsumoPicoRegistrado(mac=evento["mac"], inicio=inicio, fim=fim))
+
+    await db.commit()
 
 
 async def get_top_consumo_semanal(db, dias: int = 7, minimo: int = 5):
@@ -385,7 +457,7 @@ async def get_picos_sustentados(db, minutos: float = 60, limiar_mbps: float = 60
         trecho_pico = 0.0
         trecho_direcao = None
 
-        def fechar_trecho(fim_amostra):
+        def fechar_trecho(fim_amostra, aberto=False):
             nonlocal trecho_inicio, trecho_pico, trecho_direcao
             if trecho_inicio is None:
                 return
@@ -400,6 +472,7 @@ async def get_picos_sustentados(db, minutos: float = 60, limiar_mbps: float = 60
                     "inicio": trecho_inicio.coletado_em.isoformat(),
                     "fim": fim_amostra.coletado_em.isoformat(),
                     "duracao_segundos": round(duracao),
+                    "aberto": aberto,
                 })
             trecho_inicio = None
             trecho_pico = 0.0
@@ -425,7 +498,7 @@ async def get_picos_sustentados(db, minutos: float = 60, limiar_mbps: float = 60
             anterior = a
 
         if trecho_inicio is not None and anterior is not None:
-            fechar_trecho(anterior)
+            fechar_trecho(anterior, aberto=True)
 
     eventos.sort(key=lambda e: e["inicio"])
     return eventos

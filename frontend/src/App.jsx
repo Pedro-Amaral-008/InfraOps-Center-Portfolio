@@ -18,6 +18,7 @@ import Usuarios from './components/Usuarios';
 import Solicitacoes from './components/Solicitacoes';
 import Relatorios from './components/Relatorios';
 import ConsumoRede from './components/ConsumoRede';
+import Acessos from './components/Acessos';
 import './App.css';
 
 const API_URL = 'http://192.168.1.26:8000';
@@ -314,7 +315,7 @@ function App() {
               <Solicitacoes token={token} />
             </>
           ) : navPrincipal === 'relatorios' ? (
-            <Relatorios token={token} />
+            <Relatorios token={token} role={usuario?.role} />
           ) : navPrincipal === 'metricas' ? (
           <>
           <h2 className="page-title">
@@ -457,6 +458,12 @@ function App() {
                   onClick={() => setSubAbaRede('consumo')}
                 >
                   Consumo de Rede
+                </button>
+                <button
+                  className={`btn ${subAbaRede === 'acessos' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setSubAbaRede('acessos')}
+                >
+                  Acessos
                 </button>
               </div>
 
@@ -683,6 +690,7 @@ function App() {
                 </>
               )}
               {subAbaRede === 'consumo' && <ConsumoRede token={token} />}
+              {subAbaRede === 'acessos' && <Acessos token={token} role={usuario?.role} />}
             </div>
           )}
           {abaAtiva === 'backups' && (

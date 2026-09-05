@@ -1,9 +1,9 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 from app.config import settings
 
 INTERFACES = {
     3: "WAN_Vivo",
-    2: "WAN_G8",
     4: "WAN_Nio",
 }
 
@@ -38,7 +38,6 @@ async def consultar_oid(oid: str):
 
 
 NOMES_AMIGAVEIS = {
-    "WAN_G8GW": "WAN_G8",
     "VIVO_DEDICADO_GATEWAY": "WAN_Vivo",
     "WAN_OI_DHCP": "WAN_Nio",
 }
@@ -101,7 +100,7 @@ async def registrar_status_links(db):
 async def registrar_trafego(db):
     from app.models import PfsenseTrafego
     trafego = await get_trafego_links()
-    vpns = await get_vpns_status_trafego()
+    vpns = await get_vpns_status_trafego(db)
     vlans = await get_vlans_status_trafego()
     for t in trafego + vpns + vlans:
         registro = PfsenseTrafego(
@@ -164,11 +163,40 @@ async def get_trafego_links():
     return resultado
 
 
-async def get_vpns_status_trafego():
+async def houve_trafego_recente(db, nome_link: str, minutos: int = 45) -> bool:
+    """Confirma se um link teve QUALQUER trafego (download ou upload) nos
+    ultimos N minutos, usando o historico ja salvo em pfsense_trafego.
+    Um tunel VPN ponto-a-ponto realmente ativo sempre gera algum trafego
+    (keepalive), mesmo sem uso ativo - ausencia total de trafego por varios
+    minutos e sinal real de que nao ha peer conectado, mesmo que a interface
+    apareca "up" localmente (ifOperStatus so reflete o lado local)."""
+    if db is None:
+        return True  # sem banco disponivel, nao aplica esse filtro extra
+    from sqlalchemy import select
+    from app.models import PfsenseTrafego
+    limite = datetime.now(timezone.utc) - timedelta(minutes=minutos)
+    result = await db.execute(
+        select(PfsenseTrafego).where(
+            PfsenseTrafego.nome_link == nome_link,
+            PfsenseTrafego.registrado_em >= limite,
+        )
+    )
+    registros = result.scalars().all()
+    if not registros:
+        return True  # sem historico suficiente ainda, nao penaliza
+    total_trafego = sum((r.download_mbps or 0) + (r.upload_mbps or 0) for r in registros)
+    return total_trafego > 0
+
+
+async def get_vpns_status_trafego(db=None):
     trafego = await get_trafego_por_indices(VPNS)
     resultado = []
     for t in trafego:
         status = await get_status_operstatus(t["indice"])
+        if status == "online" and db is not None:
+            ativo_de_verdade = await houve_trafego_recente(db, t["nome"])
+            if not ativo_de_verdade:
+                status = "offline"
         resultado.append({
             "nome": t["nome"],
             "status": status,
@@ -227,12 +255,19 @@ async def verificar_alertas_links(db):
             await definir_estado(db, "pfsense", nome, False, notificacao_enviada=False)
 
 
+def _vpn_dentro_do_expediente() -> bool:
+    from datetime import datetime, timezone, timedelta
+    fuso_local = timezone(timedelta(hours=-3))
+    agora_local = datetime.now(fuso_local)
+    return agora_local.weekday() <= 4 and 8 <= agora_local.hour < 18
+
+
 async def verificar_alertas_vpns_vlans(db):
     from datetime import datetime
     from app.agent_alerts import obter_estado, definir_estado, enviar_telegram
 
     categorias = [
-        ("VPN", await get_vpns_status_trafego()),
+        ("VPN", await get_vpns_status_trafego(db)),
         ("VLAN", await get_vlans_status_trafego()),
     ]
 
@@ -246,25 +281,37 @@ async def verificar_alertas_vpns_vlans(db):
 
             registro = await obter_estado(db, f"pfsense-{tipo.lower()}", nome)
             estava_offline = registro.em_alerta if registro else False
+            notificacao_ja_enviada = registro.notificacao_enviada if registro else False
+            pode_alertar = _vpn_dentro_do_expediente() if tipo == "VPN" else True
 
             if offline and not estava_offline:
-                msg = (
-                    f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
-                    f"<b>{tipo} OFFLINE</b> ❌:\n\n"
-                    f"🌐 <b>Nome:</b> {nome}\n"
-                    f"🕐 <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
-                    f"⚠️ <b>Ação:</b> Verificar conectividade imediatamente"
-                )
-                await enviar_telegram(msg, parse_mode="HTML")
-                await definir_estado(db, f"pfsense-{tipo.lower()}", nome, True, notificacao_enviada=True)
-            elif not offline and estava_offline:
-                notificacao_foi_enviada = registro.notificacao_enviada if registro else False
-                if notificacao_foi_enviada:
+                if pode_alertar:
                     msg = (
                         f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
-                        f"<b>{tipo} NORMALIZADA</b> ✅:\n\n"
-                        f"🌐 <b>Nome:</b> {nome}\n"
-                        f"🕐 <b>Horário:</b> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                        f"❌ <b>{tipo} {nome} ficou offline</b>\n\n"
+                        f"🕐 Horário: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+                        f"⚠️ Ação: Verificar conectividade imediatamente"
+                    )
+                    await enviar_telegram(msg, parse_mode="HTML")
+                    await definir_estado(db, f"pfsense-{tipo.lower()}", nome, True, notificacao_enviada=True)
+                else:
+                    await definir_estado(db, f"pfsense-{tipo.lower()}", nome, True, notificacao_enviada=False)
+            elif offline and estava_offline:
+                if pode_alertar and not notificacao_ja_enviada:
+                    msg = (
+                        f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
+                        f"❌ <b>{tipo} {nome} ainda offline</b>\n\n"
+                        f"🕐 Horário: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+                        f"⚠️ Ação: Verificar conectividade imediatamente"
+                    )
+                    await enviar_telegram(msg, parse_mode="HTML")
+                    await definir_estado(db, f"pfsense-{tipo.lower()}", nome, True, notificacao_enviada=True)
+            elif not offline and estava_offline:
+                if notificacao_ja_enviada and pode_alertar:
+                    msg = (
+                        f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
+                        f"✅ <b>{tipo} {nome} voltou online</b>\n\n"
+                        f"🕐 Horário: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
                     )
                     await enviar_telegram(msg, parse_mode="HTML")
                 await definir_estado(db, f"pfsense-{tipo.lower()}", nome, False, notificacao_enviada=False)
@@ -273,7 +320,7 @@ async def verificar_alertas_vpns_vlans(db):
 async def registrar_status_vpns_vlans(db):
     from app.models import PfsenseVpnVlanStatus
 
-    vpns = await get_vpns_status_trafego()
+    vpns = await get_vpns_status_trafego(db)
     for v in vpns:
         if v["status"] == "desconhecido":
             continue

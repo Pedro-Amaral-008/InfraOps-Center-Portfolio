@@ -20,6 +20,7 @@ const CATEGORIAS_DISPONIVEIS = [
   { chave: 'vpns', label: 'VPNs', cor: 'var(--rel-s6)' },
   { chave: 'vlans', label: 'VLANs', cor: 'var(--rel-s4)' },
   { chave: 'backups', label: 'Backups', cor: 'var(--rel-s5)' },
+  { chave: 'acessos', label: 'Acessos (Internet)', cor: 'var(--rel-marca)' },
 ];
 
 const ICONES_CATEGORIA = {
@@ -46,6 +47,16 @@ function formatarDataHora(iso) {
 }
 function formatarDataCurta(iso) {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+function formatarBytesRel(n) {
+  n = n || 0;
+  const unidades = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < unidades.length - 1) {
+    n /= 1024;
+    i += 1;
+  }
+  return `${n.toFixed(1)} ${unidades[i]}`;
 }
 
 // Gera um path SVG (viewBox 460x140, area util x:10-450 y:20-120) a partir
@@ -88,12 +99,22 @@ function IconeSeta({ tipo }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M6 13l6 6 6-6" /></svg>;
 }
 
-function Relatorios({ token }) {
+function Relatorios({ token, role }) {
   const [periodoSelecionado, setPeriodoSelecionado] = useState('15');
   const [categoriasSelecionadas, setCategoriasSelecionadas] = useState(CATEGORIAS_DISPONIVEIS.map((c) => c.chave));
   const [dados, setDados] = useState(null);
   const [carregando, setCarregando] = useState(false);
   const [abaVisivel, setAbaVisivel] = useState('geral');
+  const [nomesRevelados, setNomesRevelados] = useState({});
+  const podeRevelarIdentidade = role === 'admin' || role === 'super_admin';
+  const revelarIdentidadeAcessos = (mac, ip) => {
+    if (!podeRevelarIdentidade || nomesRevelados[mac] || !ip) return;
+    axios.get(`${API_URL}/dashboard/acessos/identidade-vpn`, {
+      params: { ip },
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => setNomesRevelados((prev) => ({ ...prev, [mac]: r.data.nome || 'Não encontrado' })))
+      .catch(() => setNomesRevelados((prev) => ({ ...prev, [mac]: 'Erro ao consultar' })));
+  };
 
   const alternarCategoria = (chave) => {
     setCategoriasSelecionadas((prev) => (prev.includes(chave) ? prev.filter((c) => c !== chave) : [...prev, chave]));
@@ -182,6 +203,7 @@ function Relatorios({ token }) {
 
     const secoes = [{ id: 'geral', label: 'Geral' }];
     Object.entries(dados.categorias).forEach(([chave, info]) => secoes.push({ id: chave, label: info.nome }));
+    if (dados.acessos) secoes.push({ id: 'acessos', label: 'Acessos à Internet' });
     secoes.push({ id: 'anexo', label: 'Anexo' });
 
     const pills = secoes.map((s, i) => `<span class="rel-pill${i === 0 ? ' ativa' : ''}" data-aba="${s.id}">${s.label}</span>`).join('');
@@ -288,6 +310,41 @@ function Relatorios({ token }) {
       </div>`;
     }).join('');
 
+    let htmlAcessos = '';
+    if (dados.acessos) {
+      const ac = dados.acessos;
+      const paletaAc = ['var(--rel-marca)', 'var(--rel-verde)', 'var(--rel-ambar)', 'var(--rel-vermelho)', 'var(--rel-s2)', 'var(--rel-s3)', 'var(--rel-s4)', 'var(--rel-s5)'];
+      const totalTrafegoTexto = formatarBytesRel(ac.resumo.volume_total_bytes);
+      const donutAcHtml = gerarDonut((ac.top_sites || []).map((s, i) => ({
+        valor: s.volume_bytes,
+        cor: paletaAc[i % paletaAc.length],
+      })), 42).map((seg) => `<circle cx="55" cy="55" r="42" fill="none" stroke="${seg.cor}" stroke-width="14" stroke-dasharray="${seg.comprimento} ${seg.circunferencia}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 55 55)"/>`).join('');
+      const legendaAcHtml = (ac.top_sites || []).map((s, i) => `<div class="rel-item"><i style="background:${paletaAc[i % paletaAc.length]}"></i>${s.categoria}<b>${s.percentual}%</b></div>`).join('');
+      const linhaTabelaAc = (r) => `<tr><td>${r.hostname}</td><td>${formatarBytesRel(r.volume_bytes)}</td><td>${r.categoria_principal || '—'}</td></tr>`;
+      htmlAcessos = `<div class="rel-pagina rel-oculta" data-secao="acessos">
+        <div class="rel-sec-cabecalho"><div><div class="rel-titulo">Acessos à internet</div><div class="rel-sub">Resumo de navegação capturado no período</div></div></div>
+        <div class="rel-kpi-grade" style="grid-template-columns:repeat(3,1fr);">
+          <div class="rel-kpi"><div class="rel-rot">Volume total trafegado</div><div class="rel-val" style="font-size:18px;">${totalTrafegoTexto}</div></div>
+          <div class="rel-kpi"><div class="rel-rot">Categoria mais acessada</div><div class="rel-val" style="font-size:18px;">${ac.resumo.categoria_mais_acessada || '—'}</div></div>
+          <div class="rel-kpi"><div class="rel-rot">Dispositivos monitorados</div><div class="rel-val" style="font-size:18px;">${ac.resumo.dispositivos_monitorados}</div></div>
+        </div>
+        <div class="rel-caixa">
+          <div class="rel-titulo-mini">Top categorias acessadas na rede</div>
+          <div class="rel-donut-wrap">
+            <svg viewBox="0 0 110 110" style="width:100px;flex-shrink:0;"><circle cx="55" cy="55" r="42" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="14"/>${donutAcHtml}<text x="55" y="51" text-anchor="middle" font-size="${totalTrafegoTexto.length <= 7 ? 14 : 11}" font-weight="700" fill="var(--rel-tinta)">${totalTrafegoTexto}</text><text x="55" y="65" text-anchor="middle" font-size="7" fill="var(--rel-suave)">tráfego</text></svg>
+            <div class="rel-donut-legenda">${legendaAcHtml}</div>
+          </div>
+        </div>
+        <div style="margin-top:18px;">
+          <div class="rel-titulo-mini" style="margin-bottom:8px;">Top 10 dispositivos por volume</div>
+          <table class="rel-tabela-anexo"><thead><tr><th>Dispositivo</th><th>Volume</th><th>Categoria principal</th></tr></thead><tbody>${(ac.ranking_geral || []).map(linhaTabelaAc).join('')}</tbody></table>
+        </div>
+        <div style="margin-top:18px;">
+          <div class="rel-titulo-mini" style="margin-bottom:8px;">Top 10 — uso não corporativo (lazer)</div>
+          <table class="rel-tabela-anexo"><thead><tr><th>Dispositivo</th><th>Volume</th><th>Categoria principal</th></tr></thead><tbody>${(ac.ranking_pessoal || []).map(linhaTabelaAc).join('')}</tbody></table>
+        </div>
+      </div>`;
+    }
     let htmlAnexo = `<div class="rel-pagina rel-oculta" data-secao="anexo">
       <div class="rel-sec-cabecalho"><div><div class="rel-titulo">Anexo — todos os eventos do período</div></div></div>
       <table class="rel-tabela-anexo"><thead><tr><th>Data/hora</th><th>Evento</th><th>Severidade</th></tr></thead><tbody>
@@ -312,7 +369,7 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório E-Ops</title><style>${cssCompleto}</style></head>
 <body class="rel-app">
   <div class="rel-faixa-nav"><b>Relatório · ${periodoLabel}</b>${pills}</div>
-  <div class="rel-doc">${htmlCapa}${htmlResumo}${htmlCategorias}${htmlAnexo}</div>
+  <div class="rel-doc">${htmlCapa}${htmlResumo}${htmlCategorias}${htmlAcessos}${htmlAnexo}</div>
   <script>${script}</script>
 </body></html>`;
 
@@ -438,7 +495,7 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
               <div className="rel-titulo">Resumo geral</div>
               <div className="rel-sub">Visão consolidada das categorias selecionadas no período</div>
             </div>
-            <span className="rel-badge-sec">1 de {Object.keys(dados.categorias).length + 2}</span>
+            <span className="rel-badge-sec">1 de {(Object.keys(dados.categorias).length + 2 + (dados.acessos ? 2 : 0))}</span>
           </div>
 
           <div className="rel-kpi-grade">
@@ -458,6 +515,12 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
               <div className="rel-rot">Categorias saudáveis</div>
               <div className="rel-val mid">{dados.resumo.categoriasSaudaveis} de {dados.resumo.totalCategorias}</div>
             </div>
+            {dados.acessos && (
+              <div className="rel-kpi">
+                <div className="rel-rot">Volume de acessos (internet)</div>
+                <div className="rel-val">{formatarBytesRel(dados.acessos.resumo.volume_total_bytes)}</div>
+              </div>
+            )}
           </div>
 
           <div className="rel-graf-grid-2">
@@ -548,7 +611,7 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
             <div className="rel-pagina" style={{ '--faixa': cor }} key={chave}>
               <div className="rel-sec-cabecalho">
                 <div><div className="rel-titulo">Detalhe por categoria</div><div className="rel-sub">{info.nome}</div></div>
-                <span className="rel-badge-sec">{idx + 2} de {Object.keys(dados.categorias).length + 2}</span>
+                <span className="rel-badge-sec">{idx + 2} de {(Object.keys(dados.categorias).length + 2 + (dados.acessos ? 2 : 0))}</span>
               </div>
 
               <div className="rel-cat-header">
@@ -666,12 +729,120 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
             </div>
           );
         })}
+        {dados.acessos && (() => {
+          const ac = dados.acessos;
+          const paletaAc = ['var(--rel-marca)', 'var(--rel-verde)', 'var(--rel-ambar)', 'var(--rel-vermelho)', 'var(--rel-s2)', 'var(--rel-s3)', 'var(--rel-s4)', 'var(--rel-s5)'];
+          const donutAc = gerarDonut((ac.top_sites || []).map((s, i) => ({
+            valor: s.volume_bytes,
+            cor: paletaAc[i % paletaAc.length],
+          })), 38);
+          const linhaDispositivo = (r) => {
+            const naoResolvido = r.hostname === 'Desconhecido';
+            const ehVpn = !!(r.ip && r.ip.startsWith('10.8.'));
+            const nomeRevelado = nomesRevelados[r.mac];
+            return (
+              <tr key={r.mac}>
+                <td>
+                  {r.hostname}
+                  {naoResolvido && ehVpn && podeRevelarIdentidade && (
+                    nomeRevelado ? (
+                      <span style={{ marginLeft: '6px', opacity: 0.8 }}>({nomeRevelado})</span>
+                    ) : (
+                      <span
+                        style={{ marginLeft: '6px', cursor: 'pointer', textDecoration: 'underline dotted', fontSize: '10.5px', opacity: 0.7 }}
+                        onClick={() => revelarIdentidadeAcessos(r.mac, r.ip)}
+                      >
+                        revelar identidade
+                      </span>
+                    )
+                  )}
+                </td>
+                <td>{formatarBytesRel(r.volume_bytes)}</td>
+                <td>{r.categoria_principal || '—'}</td>
+              </tr>
+            );
+          };
+          const paginaAtualDonut = Object.keys(dados.categorias).length + 2;
+          const paginaAtualTabelas = paginaAtualDonut + 1;
+          const totalPaginasCalc = Object.keys(dados.categorias).length + 2 + (dados.acessos ? 2 : 0);
+          return (
+            <>
+              <div className="rel-pagina">
+                <div className="rel-sec-cabecalho">
+                  <div><div className="rel-titulo">Acessos à internet</div><div className="rel-sub">Resumo de navegação capturado no período</div></div>
+                  <span className="rel-badge-sec">{paginaAtualDonut} de {totalPaginasCalc}</span>
+                </div>
+                <div className="rel-kpi-grade">
+                  <div className="rel-kpi">
+                    <div className="rel-rot">Volume total trafegado</div>
+                    <div className="rel-val">{formatarBytesRel(ac.resumo.volume_total_bytes)}</div>
+                  </div>
+                  <div className="rel-kpi">
+                    <div className="rel-rot">Categoria mais acessada</div>
+                    <div className="rel-val">{ac.resumo.categoria_mais_acessada || '—'}</div>
+                  </div>
+                  <div className="rel-kpi">
+                    <div className="rel-rot">Dispositivos monitorados</div>
+                    <div className="rel-val">{ac.resumo.dispositivos_monitorados}</div>
+                  </div>
+                </div>
+                <div className="rel-caixa">
+                  <div className="rel-titulo-mini">Top categorias acessadas na rede</div>
+                  <div className="rel-donut-wrap">
+                    <svg viewBox="0 0 100 100" style={{ width: '90px', flexShrink: 0 }}>
+                      <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,.06)" strokeWidth="14" />
+                      {donutAc.map((seg, i) => (
+                        <circle key={i} cx="50" cy="50" r="38" fill="none" stroke={seg.cor} strokeWidth="14"
+                          strokeDasharray={`${seg.comprimento} ${seg.circunferencia}`} strokeDashoffset={seg.offset}
+                          transform="rotate(-90 50 50)" />
+                      ))}
+                      <text x="50" y="47" textAnchor="middle" fontSize={formatarBytesRel(ac.resumo.volume_total_bytes).length <= 7 ? '13' : '10'} fontWeight="700" fill="var(--rel-tinta)">
+                        {formatarBytesRel(ac.resumo.volume_total_bytes)}
+                      </text>
+                      <text x="50" y="59" textAnchor="middle" fontSize="6" fill="var(--rel-fraca)">tráfego</text>
+                    </svg>
+                    <div className="rel-donut-legenda">
+                      {(ac.top_sites || []).map((s, i) => (
+                        <div className="rel-item" key={i}>
+                          <i style={{ background: paletaAc[i % paletaAc.length] }} />
+                          {s.categoria}<b>{s.percentual}%</b>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="rel-num-pagina">Página {paginaAtualDonut}</div>
+              </div>
+              <div className="rel-pagina">
+                <div className="rel-sec-cabecalho">
+                  <div><div className="rel-titulo">Acessos à internet — rankings</div><div className="rel-sub">Dispositivos com maior volume trafegado no período</div></div>
+                  <span className="rel-badge-sec">{paginaAtualTabelas} de {totalPaginasCalc}</span>
+                </div>
+                <div style={{ marginTop: '4px', overflowX: 'auto' }}>
+                  <div className="rel-titulo-mini" style={{ marginBottom: '6px' }}>Top 10 dispositivos por volume</div>
+                  <table className="rel-tabela-anexo">
+                    <thead><tr><th>Dispositivo</th><th>Volume</th><th>Categoria principal</th></tr></thead>
+                    <tbody>{ac.ranking_geral.map(linhaDispositivo)}</tbody>
+                  </table>
+                </div>
+                <div style={{ marginTop: '18px', overflowX: 'auto' }}>
+                  <div className="rel-titulo-mini" style={{ marginBottom: '6px' }}>Top 10 — uso não corporativo (lazer)</div>
+                  <table className="rel-tabela-anexo">
+                    <thead><tr><th>Dispositivo</th><th>Volume</th><th>Categoria principal</th></tr></thead>
+                    <tbody>{ac.ranking_pessoal.map(linhaDispositivo)}</tbody>
+                  </table>
+                </div>
+                <div className="rel-num-pagina">Página {paginaAtualTabelas}</div>
+              </div>
+            </>
+          );
+        })()}
 
         {/* ANEXO */}
         <div className="rel-pagina">
           <div className="rel-sec-cabecalho">
             <div><div className="rel-titulo">Anexo — todos os eventos do período</div><div className="rel-sub">{totalEventos} eventos, ordenados cronologicamente</div></div>
-            <span className="rel-badge-sec">{Object.keys(dados.categorias).length + 2} de {Object.keys(dados.categorias).length + 2}</span>
+            <span className="rel-badge-sec">{(Object.keys(dados.categorias).length + 2 + (dados.acessos ? 2 : 0))} de {(Object.keys(dados.categorias).length + 2 + (dados.acessos ? 2 : 0))}</span>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table className="rel-tabela-anexo">

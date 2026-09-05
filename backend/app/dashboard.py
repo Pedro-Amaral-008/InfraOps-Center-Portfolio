@@ -1060,7 +1060,7 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
             <path d="{path}" fill="none" stroke="{cor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>'''
 
-    def gerar_donut(itens, raio=42):
+    def gerar_donut(itens, raio=42, rotulo_central="eventos", valor_central=None):
         total = sum(i["valor"] for i in itens) or 1
         circunferencia = 2 * 3.14159265 * raio
         acumulado = 0
@@ -1078,11 +1078,16 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
             for cor, comp, circ, off in arcos
         )
         total_real = sum(i["valor"] for i in itens)
+        texto_central_html = ""
+        if rotulo_central:
+            valor_exibido = valor_central if valor_central is not None else str(total_real)
+            tamanho_valor = 18 if len(str(valor_exibido)) <= 3 else (14 if len(str(valor_exibido)) <= 7 else 11)
+            texto_central_html = f'''<text x="55" y="51" text-anchor="middle" font-size="{tamanho_valor}" font-weight="700" fill="{CORES['tinta']}">{valor_exibido}</text>
+            <text x="55" y="65" text-anchor="middle" font-size="7" fill="{CORES['suave']}">{rotulo_central}</text>'''
         return f'''<svg viewBox="0 0 110 110" style="width:100px;height:100px;flex-shrink:0;">
             <circle cx="55" cy="55" r="{raio}" fill="none" stroke="{CORES['linha']}" stroke-width="14"/>
             {circulos}
-            <text x="55" y="52" text-anchor="middle" font-size="18" font-weight="700" fill="{CORES['tinta']}">{total_real}</text>
-            <text x="55" y="66" text-anchor="middle" font-size="8" fill="{CORES['suave']}">eventos</text>
+            {texto_central_html}
         </svg>'''
 
     css = f'''
@@ -1110,11 +1115,12 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
     .cat-media .rot {{ font-size: 10px; color: {CORES['suave']}; }}
     .donut-wrap {{ display: flex; align-items: center; }}
     .donut-wrap svg {{ margin-right: 14px; }}
-    .donut-legenda {{ flex: 1; }}
-    .donut-legenda .item {{ display: flex; align-items: center; font-size: 11px; margin-bottom: 6px; }}
-    .donut-legenda .item .dot {{ margin-right: 6px; }}
-    .donut-legenda .item span:not(.dot) {{ margin-right: 6px; }}
-    .donut-legenda .item b {{ margin-left: auto; }}
+    .donut-legenda {{ flex: 1; min-width: 0; }}
+    .donut-legenda .item {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px; margin-bottom: 7px; }}
+    .donut-legenda .item .dot {{ margin-right: 6px; flex-shrink: 0; }}
+    .donut-legenda .item .nome {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 6px; }}
+    .donut-legenda .item span:not(.dot):not(.nome) {{ margin-right: 6px; }}
+    .donut-legenda .item b {{ flex-shrink: 0; white-space: nowrap; }}
     .dot {{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }}
     table.anexo {{ width: 100%; border-collapse: collapse; font-size: 10.5px; }}
     table.anexo th {{ text-align: left; font-size: 9.5px; color: {CORES['fraca']}; padding: 6px 8px; border-bottom: 1px solid {CORES['borda']}; }}
@@ -1137,7 +1143,7 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
         seta = "▲" if delta_geral >= 0 else "▼"
         delta_geral_html = f'<div style="font-size:10px;color:{cor_delta};margin-top:4px;">{seta} {abs(delta_geral):.1f}% vs. período anterior</div>'
 
-    total_paginas = 2 + len(dados["categorias"]) + 1  # capa + resumo + categorias + anexo
+    total_paginas = 2 + len(dados["categorias"]) + (2 if dados.get("acessos") else 0) + 1  # capa + resumo + categorias + acessos (2 paginas, opcional) + anexo
 
     kpis_html = f'''
     <div class="kpi-linha">
@@ -1315,12 +1321,81 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
       </table>
     </div>'''
 
+    def _fmt_bytes_relatorio(n):
+        n = n or 0
+        for unidade in ["B", "KB", "MB", "GB", "TB"]:
+            if n < 1024:
+                return f"{n:.1f} {unidade}"
+            n /= 1024
+        return f"{n:.1f} PB"
+
+    pagina_acessos = ""
+    if dados.get("acessos"):
+        ac = dados["acessos"]
+        paleta_ac = [CORES["marca"], CORES["verde"], CORES["ambar"], CORES["vermelho"], CORES["suave"]]
+        top_sites_ac = ac.get("top_sites") or []
+        donut_sites = gerar_donut([
+            {"valor": s["volume_bytes"], "cor": paleta_ac[i % len(paleta_ac)]}
+            for i, s in enumerate(top_sites_ac)
+        ], raio=42, rotulo_central="tráfego", valor_central=_fmt_bytes_relatorio(ac['resumo']['volume_total_bytes'])) if top_sites_ac else ""
+        legenda_sites = "".join(
+            f'<div class="item"><span class="dot" style="background:{paleta_ac[i % len(paleta_ac)]}"></span><span class="nome">{escapar(s["categoria"])}</span><b>{s["percentual"]}%</b></div>'
+            for i, s in enumerate(top_sites_ac)
+        )
+
+        def _linhas_ranking_ac(ranking):
+            return "".join(
+                f'''<tr>
+                  <td>{escapar(r["hostname"])}</td>
+                  <td>{_fmt_bytes_relatorio(r["volume_bytes"])}</td>
+                  <td>{escapar(r.get("categoria_principal") or "—")}</td>
+                </tr>'''
+                for r in ranking
+            )
+
+        pagina_acessos = f'''
+        <div class="pagina">
+          <div class="titulo">Acessos à internet</div>
+          <div class="sub">Resumo de navegação capturado no período</div>
+          <div class="kpi-grade">
+            <div class="kpi"><div class="rot">Volume total trafegado</div><div class="val" style="font-size:16px;">{_fmt_bytes_relatorio(ac['resumo']['volume_total_bytes'])}</div></div>
+            <div class="kpi"><div class="rot">Categoria mais acessada</div><div class="val" style="font-size:16px;">{escapar(ac['resumo']['categoria_mais_acessada'] or '—')}</div></div>
+            <div class="kpi"><div class="rot">Dispositivos monitorados</div><div class="val" style="font-size:16px;">{ac['resumo']['dispositivos_monitorados']}</div></div>
+          </div>
+          <div class="caixa">
+            <div class="caixa-titulo">Top categorias acessadas na rede</div>
+            <div class="donut-wrap">
+              {donut_sites}
+              <div class="donut-legenda">{legenda_sites}</div>
+            </div>
+          </div>
+        </div>
+        <div class="pagina">
+          <div class="titulo" style="font-size:15px;">Acessos à internet — rankings</div>
+          <div class="sub">Dispositivos com maior volume trafegado no período</div>
+          <div>
+            <div class="caixa-titulo" style="margin-bottom:6px;">Top 10 dispositivos por volume</div>
+            <table class="anexo">
+              <thead><tr><th>Dispositivo</th><th>Volume</th><th>Categoria principal</th></tr></thead>
+              <tbody>{_linhas_ranking_ac(ac['ranking_geral'])}</tbody>
+            </table>
+          </div>
+          <div style="margin-top:18px;">
+            <div class="caixa-titulo" style="margin-bottom:6px;">Top 10 — uso não corporativo (lazer)</div>
+            <table class="anexo">
+              <thead><tr><th>Dispositivo</th><th>Volume</th><th>Categoria principal</th></tr></thead>
+              <tbody>{_linhas_ranking_ac(ac['ranking_pessoal'])}</tbody>
+            </table>
+          </div>
+        </div>'''
+
     html_final = f'''<!doctype html>
 <html><head><meta charset="utf-8"><style>{css}</style></head>
 <body>
 {pagina_capa}
 {pagina_resumo}
 {''.join(paginas_categorias)}
+{pagina_acessos}
 {pagina_anexo}
 </body></html>'''
 

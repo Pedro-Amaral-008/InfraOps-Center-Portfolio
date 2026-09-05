@@ -170,3 +170,47 @@ class ConsumoRedeAmostra(Base):
     upload_mbps = Column(Float, nullable=False)
     ap = Column(String, nullable=True)
     coletado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ConsumoPicoRegistrado(Base):
+    __tablename__ = "consumo_pico_registrado"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mac = Column(String, nullable=False, index=True)
+    inicio = Column(DateTime(timezone=True), nullable=False)
+    fim = Column(DateTime(timezone=True), nullable=False)
+    registrado_em = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AcessoDominio(Base):
+    __tablename__ = "acesso_dominio"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mac = Column(String, nullable=False, index=True)
+    ip = Column(String, nullable=False)
+    hostname = Column(String, nullable=True)
+    ap = Column(String, nullable=True)
+    dominio = Column(String, nullable=False, index=True)
+    categoria = Column(String, nullable=True, index=True)
+    inicio = Column(DateTime(timezone=True), nullable=False, index=True)
+    fim = Column(DateTime(timezone=True), nullable=False)
+    duracao_segundos = Column(Integer, nullable=False, default=0)
+    bytes_download = Column(Integer, nullable=False, default=0)
+    bytes_upload = Column(Integer, nullable=False, default=0)
+    criado_em = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SuricataSyncEstado(Base):
+    __tablename__ = "suricata_sync_estado"
+
+    id = Column(Integer, primary_key=True, index=True)
+    offset_bytes = Column(BigInteger, nullable=False, default=0)
+    atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class SuricataFlowSni(Base):
+    __tablename__ = "suricata_flow_sni"
+
+    flow_id = Column(String, primary_key=True)
+    sni = Column(String, nullable=False)
+    criado_em = Column(DateTime(timezone=True), server_default=func.now())

@@ -1,0 +1,196 @@
+.rel-app {
+  --rel-bg-secundario: var(--bg-secondary, #151b24);
+  --rel-bg-elevado: var(--bg-elevated, #1b2330);
+  --rel-bg-elevado2: #212b3a;
+  --rel-linha: rgba(255,255,255,.08);
+  --rel-borda: rgba(255,255,255,.10);
+  --rel-tinta: var(--text-primary, #eef2f8);
+  --rel-suave: var(--text-secondary, #97a3b5);
+  --rel-fraca: var(--text-tertiary, #64707f);
+  --rel-marca: #6172f3;
+  --rel-verde: #22c55e;
+  --rel-ambar: #f59e0b;
+  --rel-vermelho: #ef4444;
+  --rel-s1: #3987e5;
+  --rel-s2: #d95926;
+  --rel-s3: #199e70;
+  --rel-s4: #c98500;
+  --rel-s5: #d55181;
+  --rel-s6: #7c3aed;
+  font-family: inherit;
+}
+
+.rel-faixa-nav {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--rel-bg-secundario);
+  border: 1px solid var(--rel-borda);
+  border-radius: 12px;
+  padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.rel-faixa-nav b { font-size: 13px; color: var(--rel-tinta); }
+.rel-pill {
+  font-size: 11.5px; color: var(--rel-suave); background: var(--rel-bg-elevado);
+  border: 1px solid var(--rel-borda); border-radius: 999px; padding: 5px 12px; cursor: pointer;
+  user-select: none;
+}
+.rel-pill.ativa { background: rgba(97,114,243,.15); border-color: var(--rel-marca); color: var(--rel-marca); }
+.rel-faixa-nav .rel-acoes { margin-left: auto; display: flex; gap: 8px; }
+
+.rel-periodo-select {
+  font: 600 12px inherit; background: var(--rel-bg-elevado); color: var(--rel-suave);
+  border: 1px solid var(--rel-borda); border-radius: 8px; padding: 7px 10px; cursor: pointer;
+}
+
+.rel-btn { font: 600 12.5px inherit; border-radius: 8px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--rel-borda); display: inline-flex; align-items: center; gap: 6px; }
+.rel-btn svg { width: 14px; height: 14px; }
+.rel-btn-primario { background: var(--rel-marca); border-color: var(--rel-marca); color: #fff; }
+.rel-btn-secundario { background: var(--rel-bg-elevado); color: var(--rel-tinta); }
+
+.rel-doc { max-width: 980px; margin: 0 auto; }
+
+.rel-pagina {
+  background: var(--rel-bg-secundario); border: 1px solid var(--rel-borda); border-radius: 18px;
+  padding: 40px 44px; margin-bottom: 22px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.25);
+  color: var(--rel-tinta);
+}
+.rel-num-pagina { text-align: right; font-size: 11px; color: var(--rel-fraca); margin-top: 18px; }
+
+.rel-capa { min-height: 480px; display: flex; flex-direction: column; justify-content: space-between; }
+.rel-capa .rel-selo-marca { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 15px; letter-spacing: -0.02em; }
+.rel-capa .rel-quadrado { width: 30px; height: 30px; border-radius: 9px; background: var(--rel-marca); display: grid; place-items: center; color: #fff; font-size: 13px; }
+.rel-capa .rel-meio { margin: auto 0; }
+.rel-capa .rel-tag { display: inline-block; font-size: 12px; font-weight: 700; color: var(--rel-marca); background: rgba(97,114,243,.15); border: 1px solid rgba(97,114,243,.3); border-radius: 7px; padding: 5px 12px; margin-bottom: 18px; text-transform: uppercase; letter-spacing: .04em; }
+.rel-capa h1 { font-size: 30px; margin: 0 0 12px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; max-width: 620px; }
+.rel-capa .rel-periodo { font-size: 15px; color: var(--rel-suave); margin-bottom: 4px; }
+.rel-capa .rel-cliente { font-size: 13px; color: var(--rel-fraca); }
+.rel-capa .rel-rodape-capa { display: flex; justify-content: space-between; font-size: 12px; color: var(--rel-fraca); border-top: 1px solid var(--rel-linha); padding-top: 18px; }
+
+.rel-sec-cabecalho { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 26px; border-bottom: 1px solid var(--rel-linha); padding-bottom: 16px; }
+.rel-sec-cabecalho .rel-titulo { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+.rel-sec-cabecalho .rel-sub { font-size: 12.5px; color: var(--rel-suave); margin-top: 4px; }
+.rel-badge-sec { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--rel-suave); background: var(--rel-bg-elevado); border: 1px solid var(--rel-borda); border-radius: 7px; padding: 5px 10px; }
+
+.rel-kpi-grade { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 26px; }
+@media (max-width: 800px) { .rel-kpi-grade { grid-template-columns: repeat(2,1fr); } }
+.rel-kpi { background: var(--rel-bg-elevado); border: 1px solid var(--rel-borda); border-radius: 12px; padding: 16px 18px; }
+.rel-kpi .rel-rot { font-size: 12px; color: var(--rel-suave); margin-bottom: 8px; }
+.rel-kpi .rel-val { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.rel-kpi .rel-val.bom { color: var(--rel-verde); } .rel-kpi .rel-val.ruim { color: var(--rel-vermelho); } .rel-kpi .rel-val.mid { color: var(--rel-ambar); }
+.rel-kpi .rel-delta { font-size: 11.5px; margin-top: 7px; color: var(--rel-suave); display: flex; align-items: center; gap: 4px; }
+.rel-kpi .rel-delta.melhorou { color: var(--rel-verde); } .rel-kpi .rel-delta.piorou { color: var(--rel-vermelho); }
+.rel-kpi .rel-delta svg { width: 10px; height: 10px; }
+
+.rel-graf-grid-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-bottom: 22px; }
+.rel-graf-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 22px; }
+@media (max-width: 800px) { .rel-graf-grid-2, .rel-graf-grid-3 { grid-template-columns: 1fr; } }
+.rel-caixa { background: var(--rel-bg-elevado); border: 1px solid var(--rel-borda); border-radius: 12px; padding: 16px 18px; }
+.rel-caixa .rel-titulo-mini { font-size: 12.5px; font-weight: 600; color: var(--rel-tinta); margin-bottom: 2px; }
+.rel-caixa .rel-sub-mini { font-size: 11px; color: var(--rel-fraca); margin-bottom: 12px; }
+.rel-caixa svg { width: 100%; display: block; }
+
+.rel-legenda { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 10px; font-size: 11.5px; color: var(--rel-suave); }
+.rel-legenda span { display: inline-flex; align-items: center; gap: 6px; }
+.rel-legenda i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+
+.rel-donut-wrap { display: flex; align-items: center; gap: 18px; }
+.rel-donut-legenda { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.rel-donut-legenda .rel-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.rel-donut-legenda .rel-item b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.rel-donut-legenda i { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+.rel-ranking-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 13px; border-bottom: 1px solid var(--rel-linha); }
+.rel-ranking-item:last-child { border-bottom: none; padding-bottom: 0; }
+.rel-ranking-item .rel-pos { width: 19px; height: 19px; border-radius: 5px; background: var(--rel-linha); color: var(--rel-suave); font-size: 10.5px; font-weight: 700; display: grid; place-items: center; flex-shrink: 0; }
+.rel-ranking-item .rel-eq { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rel-ranking-item .rel-qtd { font-weight: 700; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.rel-texto-auto { font-size: 13.5px; line-height: 1.6; color: var(--rel-suave); background: var(--rel-bg-elevado); border: 1px solid var(--rel-borda); border-left: 3px solid var(--faixa, var(--rel-marca)); border-radius: 8px; padding: 14px 16px; margin: 20px 0; }
+.rel-texto-auto b { color: var(--rel-tinta); }
+
+.rel-cat-header { display: flex; align-items: center; gap: 16px; margin-bottom: 26px; padding-bottom: 20px; border-bottom: 1px solid var(--rel-linha); }
+.rel-cat-icone { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; flex-shrink: 0; background: color-mix(in srgb, var(--faixa) 16%, transparent); color: var(--faixa); }
+.rel-cat-icone svg { width: 24px; height: 24px; }
+.rel-cat-header .rel-nomes .rel-nome { font-size: 20px; font-weight: 800; }
+.rel-cat-header .rel-nomes .rel-sub { font-size: 12.5px; color: var(--rel-suave); margin-top: 2px; }
+.rel-cat-header .rel-media { margin-left: auto; text-align: right; }
+.rel-cat-header .rel-media .rel-num { font-size: 28px; font-weight: 800; color: var(--faixa); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.rel-cat-header .rel-media .rel-rot { font-size: 11.5px; color: var(--rel-suave); }
+.rel-cat-header .rel-media .rel-delta { font-size: 11.5px; margin-top: 3px; }
+.rel-cat-header .rel-media .rel-delta.melhorou { color: var(--rel-verde); } .rel-cat-header .rel-media .rel-delta.piorou { color: var(--rel-vermelho); }
+
+.rel-evt-linha { display: grid; grid-template-columns: 88px 18px 1fr auto; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--rel-linha); font-size: 12.5px; }
+.rel-evt-linha:last-child { border-bottom: none; }
+.rel-evt-hora { color: var(--rel-suave); font-variant-numeric: tabular-nums; }
+.rel-evt-ponto { width: 8px; height: 8px; border-radius: 50%; background: var(--faixa); }
+.rel-evt-texto b { font-weight: 700; }
+.rel-evt-texto span.rel-meta { display: block; font-size: 11px; color: var(--rel-suave); }
+.rel-badge-evt { font-size: 10.5px; font-weight: 700; padding: 4px 9px; border-radius: 6px; white-space: nowrap; }
+.rel-badge-evt.critico { color: var(--rel-vermelho); background: rgba(239,68,68,.15); }
+.rel-badge-evt.atencao { color: var(--rel-ambar); background: rgba(245,158,11,.15); }
+.rel-badge-evt.bom { color: var(--rel-verde); background: rgba(34,197,94,.15); }
+
+.rel-tabela-anexo { width: 100%; border-collapse: collapse; font-size: 12px; }
+.rel-tabela-anexo th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--rel-fraca); padding: 8px 10px; border-bottom: 1px solid var(--rel-borda); }
+.rel-tabela-anexo td { padding: 9px 10px; border-bottom: 1px solid var(--rel-linha); }
+.rel-tabela-anexo tr:last-child td { border-bottom: none; }
+.rel-tabela-anexo tr { page-break-inside: avoid; break-inside: avoid; }
+.rel-pt-faixa { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.rel-pt-faixa i { width: 8px; height: 8px; border-radius: 50%; }
+
+.rel-oculta-tela { display: none; }
+
+@media print {
+  .rel-oculta-tela { display: block !important; }
+  .rel-faixa-nav, .sidebar, .app-content > *:not(.relatorios-pagina):not(.rel-app) { display: none !important; }
+  html, body { background: #0b0f16 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .rel-app, .rel-doc { max-width: none; background: #0b0f16 !important; }
+  .rel-pagina {
+    break-after: page;
+    box-shadow: none;
+    background: var(--rel-bg-secundario, #151b24) !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    color: var(--rel-tinta, #eef2f8) !important;
+  }
+  .rel-caixa, .rel-kpi {
+    background: var(--rel-bg-elevado, #1b2330) !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+  /* Reseta qualquer limite de altura/rolagem que existe so para a tela,
+     e evita que blocos sejam cortados no meio entre uma pagina e outra. */
+  html, body, .app-content, .rel-app, .rel-doc {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .rel-pagina {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    overflow: visible !important;
+    max-height: none !important;
+  }
+  .rel-kpi-grade, .rel-graf-grid-2, .rel-graf-grid-3, .rel-caixa, .rel-kpi,
+  .rel-cat-header, .rel-donut-wrap, .rel-texto-auto, .rel-evt-linha, .rel-ranking-item {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Bug conhecido do Chrome: itens dentro de display:grid as vezes ignoram
+     break-inside/page-break-inside. Solucao mais confiavel: forcar esses
+     grids a virarem coluna unica (bloco normal) so na impressao, onde
+     break-inside funciona de forma consistente. */
+  .rel-kpi-grade, .rel-graf-grid-2, .rel-graf-grid-3 {
+    display: block !important;
+  }
+  .rel-kpi-grade > *, .rel-graf-grid-2 > *, .rel-graf-grid-3 > * {
+    margin-bottom: 14px;
+    width: 100% !important;
+  }
+
+  @page { margin: 14mm; }
+}
