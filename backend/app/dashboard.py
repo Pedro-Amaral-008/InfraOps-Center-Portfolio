@@ -1400,3 +1400,149 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
 </body></html>'''
 
     return html_final
+
+
+def gerar_html_relatorio_dispositivo(detalhe: dict, periodo_label: str) -> str:
+    """Monta o HTML do relatorio de acessos de UM dispositivo especifico,
+    reaproveitando a mesma paleta visual do relatorio geral. Retorna uma
+    string HTML pronta pra converter em PDF (WeasyPrint) ou baixar como
+    HTML avulso."""
+    CORES = {
+        "verde": "#22c55e", "ambar": "#f59e0b", "vermelho": "#ef4444",
+        "marca": "#6172f3", "fundo": "#151b24", "elevado": "#1b2330",
+        "tinta": "#eef2f8", "suave": "#97a3b5", "fraca": "#64707f",
+        "linha": "rgba(255,255,255,0.08)", "borda": "rgba(255,255,255,0.10)",
+    }
+
+    def escapar(texto):
+        if texto is None:
+            return ""
+        return str(texto).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def formatar_data_hora(iso_str):
+        if not iso_str:
+            return "—"
+        try:
+            dt = datetime.fromisoformat(str(iso_str).replace("Z", "+00:00"))
+            return dt.strftime("%d/%m %H:%M")
+        except Exception:
+            return str(iso_str)
+
+    def fmt_bytes(n):
+        n = n or 0
+        for unidade in ["B", "KB", "MB", "GB", "TB"]:
+            if n < 1024:
+                return f"{n:.1f} {unidade}"
+            n /= 1024
+        return f"{n:.1f} PB"
+
+    def gerar_donut_dispositivo(itens, raio=42, rotulo_central=None, valor_central=None):
+        total = sum(i["valor"] for i in itens) or 1
+        circunferencia = 2 * 3.14159265 * raio
+        offset = 0
+        circulos = ""
+        for item in itens:
+            fracao = item["valor"] / total
+            comprimento = fracao * circunferencia
+            circulos += (
+                f'<circle cx="55" cy="55" r="{raio}" fill="none" stroke="{item["cor"]}" '
+                f'stroke-width="14" stroke-dasharray="{comprimento:.2f} {circunferencia:.2f}" '
+                f'stroke-dashoffset="{-offset:.2f}" transform="rotate(-90 55 55)"/>'
+            )
+            offset += comprimento
+        texto_central_html = ""
+        if rotulo_central:
+            valor_exibido = valor_central if valor_central is not None else str(round(total))
+            tamanho_valor = 18 if len(str(valor_exibido)) <= 3 else (14 if len(str(valor_exibido)) <= 7 else 11)
+            texto_central_html = f'''<text x="55" y="51" text-anchor="middle" font-size="{tamanho_valor}" font-weight="700" fill="{CORES['tinta']}">{valor_exibido}</text>
+            <text x="55" y="65" text-anchor="middle" font-size="7" fill="{CORES['suave']}">{rotulo_central}</text>'''
+        return f'''<svg viewBox="0 0 110 110" style="width:100px;height:100px;flex-shrink:0;">
+            <circle cx="55" cy="55" r="{raio}" fill="none" stroke="{CORES['linha']}" stroke-width="14"/>
+            {circulos}
+            {texto_central_html}
+        </svg>'''
+
+    css = f'''
+    @page {{ margin: 14mm; }}
+    * {{ box-sizing: border-box; }}
+    body {{ font-family: Arial, Helvetica, sans-serif; background: #0b0f16; color: {CORES['tinta']}; margin: 0; padding: 0; }}
+    .pagina {{ background: {CORES['fundo']}; border: 1px solid {CORES['borda']}; border-radius: 14px; padding: 22px 26px; margin-bottom: 16px; page-break-inside: avoid; }}
+    .titulo {{ font-size: 18px; font-weight: 800; margin: 0 0 4px; }}
+    .sub {{ font-size: 11.5px; color: {CORES['suave']}; margin-bottom: 14px; }}
+    .kpi-linha {{ display: flex; margin-bottom: 16px; }}
+    .kpi-linha .kpi {{ margin-right: 10px; }}
+    .kpi-linha .kpi:last-child {{ margin-right: 0; }}
+    .kpi {{ background: {CORES['elevado']}; border: 1px solid {CORES['borda']}; border-radius: 10px; padding: 12px 14px; flex: 1; page-break-inside: avoid; }}
+    .kpi .rot {{ font-size: 10.5px; color: {CORES['suave']}; margin-bottom: 6px; }}
+    .kpi .val {{ font-size: 20px; font-weight: 800; }}
+    .caixa {{ background: {CORES['elevado']}; border: 1px solid {CORES['borda']}; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; page-break-inside: avoid; }}
+    .caixa-titulo {{ font-size: 11.5px; font-weight: 600; margin-bottom: 8px; }}
+    .donut-wrap {{ display: flex; align-items: center; }}
+    .donut-wrap svg {{ margin-right: 14px; }}
+    .donut-legenda {{ flex: 1; min-width: 0; }}
+    .donut-legenda .item {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px; margin-bottom: 7px; }}
+    .donut-legenda .item .nome {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 6px; }}
+    .dot {{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-right: 6px; }}
+    table.anexo {{ width: 100%; border-collapse: collapse; font-size: 10.5px; }}
+    table.anexo th {{ text-align: left; font-size: 9.5px; color: {CORES['fraca']}; padding: 6px 8px; border-bottom: 1px solid {CORES['borda']}; }}
+    table.anexo td {{ padding: 6px 8px; border-bottom: 1px solid {CORES['linha']}; }}
+    table.anexo tr {{ page-break-inside: avoid; }}
+    '''
+
+    nome_dispositivo = detalhe.get("hostname") or detalhe.get("ip") or detalhe.get("mac") or "Dispositivo"
+    top_sites = detalhe.get("top_sites") or []
+    paleta = [CORES["marca"], CORES["verde"], CORES["ambar"], CORES["vermelho"], CORES["suave"]]
+
+    donut_categorias = gerar_donut_dispositivo(
+        [{"valor": s["volume_bytes"], "cor": paleta[i % len(paleta)]} for i, s in enumerate(top_sites)],
+        raio=42, rotulo_central="tráfego", valor_central=fmt_bytes(detalhe.get("volume_total_bytes")),
+    ) if top_sites else ""
+
+    legenda_categorias = "".join(
+        f'<div class="item"><span class="dot" style="background:{paleta[i % len(paleta)]};"></span>'
+        f'<span class="nome">{escapar(s["categoria"])}</span><b>{s["percentual"]}%</b></div>'
+        for i, s in enumerate(top_sites)
+    )
+
+    linhas_timeline = "".join(
+        f'<tr><td>{formatar_data_hora(s.get("inicio"))} – {formatar_data_hora(s.get("fim"))}</td>'
+        f'<td>{escapar(s.get("categoria"))}</td>'
+        f'<td>{escapar(", ".join((s.get("dominios") or [])[:3]))}</td>'
+        f'<td>{fmt_bytes((s.get("bytes_download") or 0) + (s.get("bytes_upload") or 0))}</td></tr>'
+        for s in (detalhe.get("linha_do_tempo") or [])[:150]
+    ) or f'<tr><td colspan="4" style="text-align:center;color:{CORES["fraca"]};">Sem sessões registradas no período</td></tr>'
+
+    pagina_capa = f'''
+    <div class="pagina">
+      <div class="titulo">Relatório de Acessos — {escapar(nome_dispositivo)}</div>
+      <div class="sub">{escapar(detalhe.get("ip") or "")} · {escapar(periodo_label)}</div>
+      <div class="kpi-linha">
+        <div class="kpi"><div class="rot">Volume total</div><div class="val">{fmt_bytes(detalhe.get("volume_total_bytes"))}</div></div>
+        <div class="kpi"><div class="rot">Sites diferentes</div><div class="val">{detalhe.get("sites_diferentes", 0)}</div></div>
+        <div class="kpi"><div class="rot">Última atividade</div><div class="val" style="font-size:14px;">{formatar_data_hora(detalhe.get("ultima_atividade"))}</div></div>
+      </div>
+      <div class="caixa">
+        <div class="caixa-titulo">Categorias mais acessadas</div>
+        <div class="donut-wrap">
+          {donut_categorias}
+          <div class="donut-legenda">{legenda_categorias}</div>
+        </div>
+      </div>
+    </div>'''
+
+    pagina_timeline = f'''
+    <div class="pagina">
+      <div class="titulo" style="font-size:15px;">Linha do tempo de acessos</div>
+      <div class="sub">Sessões registradas no período (mais recentes primeiro)</div>
+      <table class="anexo">
+        <thead><tr><th>Período</th><th>Categoria</th><th>Domínios</th><th>Volume</th></tr></thead>
+        <tbody>{linhas_timeline}</tbody>
+      </table>
+    </div>'''
+
+    return f'''<!doctype html>
+<html><head><meta charset="utf-8"><style>{css}</style></head>
+<body>
+{pagina_capa}
+{pagina_timeline}
+</body></html>'''

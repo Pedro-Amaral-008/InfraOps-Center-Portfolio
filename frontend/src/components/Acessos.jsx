@@ -145,6 +145,21 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
       .catch(() => setNomeRevelado('Erro ao consultar'))
       .finally(() => setCarregandoNome(false));
   };
+  const periodoAtual = PERIODOS.find((p) => p.horas === horas) || PERIODOS[0];
+  const baixarRelatorioDispositivo = async (formato) => {
+    const resp = await axios.get(`${API_URL}/dashboard/acessos/dispositivo/${encodeURIComponent(mac)}/relatorio.${formato}`, {
+      params: { horas, periodo_label: periodoAtual.label },
+      headers: { Authorization: `Bearer ${token}` },
+      responseType: 'blob',
+    });
+    const mime = formato === 'pdf' ? 'application/pdf' : 'text/html';
+    const url = window.URL.createObjectURL(new Blob([resp.data], { type: mime }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio-${detalhe.hostname || mac}.${formato}`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
 
   return (
     <div>
@@ -185,6 +200,15 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
             )}
           </>
         )}
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <button className="btn btn-secondary" onClick={() => baixarRelatorioDispositivo('pdf')}>
+          Baixar relatório (PDF) — {periodoAtual.label}
+        </button>
+        <button className="btn btn-secondary" onClick={() => baixarRelatorioDispositivo('html')}>
+          Baixar relatório (HTML) — {periodoAtual.label}
+        </button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '20px' }}>
