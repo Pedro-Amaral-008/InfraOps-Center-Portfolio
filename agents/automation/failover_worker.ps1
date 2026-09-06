@@ -1,29 +1,19 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$apiUrl = "IP_INTERNO_AQUI:8000"
+$apiUrl = "http://IP_INTERNO_AQUI:8000"
 $apiKey = "SUA_API_KEY_AQUI"
-$telegramToken = "SEU_TOKEN_TELEGRAM_AQUI"
-$telegramChatId = "SEU_CHAT_ID_AQUI"
+$telegramChatId = "-1003927527414"
 
 $interface = "Ethernet"
-$ipAtual = "IP_SERVIDOR_REDUNDANTE"
-$ipNovo = "IP_SERVIDOR_PRINCIPAL"
+$ipAtual = "IP_ATUAL_AQUI"
+$ipNovo = "IP_NOVO_AQUI"
 $prefixo = 24
 $gateway = "IP_GATEWAY_AQUI"
 
 function Enviar-Telegram($mensagem) {
     try {
-        $body = @{
-            chat_id    = $telegramChatId
-            text       = $mensagem
-            parse_mode = "Markdown"
-        } | ConvertTo-Json -Compress
-
-        Invoke-RestMethod `
-            -Uri ("https://api.telegram.org/bot" + $telegramToken + "/sendMessage") `
-            -Method POST `
-            -ContentType "application/json; charset=utf-8" `
-            -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+        $mensagemEncoded = [uri]::EscapeDataString($mensagem)
+        Invoke-RestMethod -Uri "$apiUrl/automations/notificar-telegram?mensagem=$mensagemEncoded" -Method Post -Headers @{ "x-api-key" = $apiKey }
     }
     catch {
         Write-Host "Erro ao enviar Telegram: $_"
@@ -102,8 +92,8 @@ if ($tipo -eq "failover_srv_arquivos") {
     }
 }
 elseif ($tipo -eq "desfazer_failover_srv_arquivos") {
-    $ipReversao = "IP_SERVIDOR_PRINCIPAL"
-    $ipOriginalReversao = "IP_SERVIDOR_REDUNDANTE"
+    $ipReversao = "IP_REVERSAO_AQUI"
+    $ipOriginalReversao = "IP_ORIGINAL_REVERSAO_AQUI"
 
     Enviar-Telegram "🔔 *Monitoramento InfraOps Center*`n`n*REVERSÃO DE FAILOVER INICIADA* 🔄`n`nTrocando IP do SrvArqRed de $ipReversao de volta para $ipOriginalReversao..."
 

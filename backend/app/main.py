@@ -697,6 +697,18 @@ from app.models import AgentMetric
 from app.schemas import AgentMetricCreate
 
 
+@app.post("/automations/notificar-telegram")
+async def automations_notificar_telegram(
+    mensagem: str,
+    x_api_key: str = Header(...),
+):
+    if x_api_key != settings.backup_api_key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API Key invalida")
+    from app.agent_alerts import enviar_telegram
+    await enviar_telegram(mensagem)
+    return {"status": "enviado"}
+
+
 @app.post("/agents/metrics")
 async def registrar_metrica_agente(
     dados: AgentMetricCreate,

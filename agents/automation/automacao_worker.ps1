@@ -2,8 +2,7 @@
 
 $apiUrl = "http://IP_INTERNO_AQUI:8000"
 $apiKey = "SUA_API_KEY_AQUI"
-$telegramToken = "SEU_TELEGRAM_BOT_TOKEN_AQUI"
-$telegramChatId = "SEU_TELEGRAM_CHAT_ID_AQUI"
+$telegramChatId = "-1003927527414"
 
 $fluigIP = "10.10.0.5"
 $userFluig = Get-Content "C:\Script\fluig_user.txt"
@@ -12,17 +11,8 @@ $credFluig = New-Object System.Management.Automation.PSCredential($userFluig, $p
 
 function Enviar-Telegram($mensagem) {
     try {
-        $body = @{
-            chat_id    = $telegramChatId
-            text       = $mensagem
-            parse_mode = "Markdown"
-        } | ConvertTo-Json -Compress
-
-        Invoke-RestMethod `
-            -Uri ("https://api.telegram.org/bot" + $telegramToken + "/sendMessage") `
-            -Method POST `
-            -ContentType "application/json; charset=utf-8" `
-            -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+        $mensagemEncoded = [uri]::EscapeDataString($mensagem)
+        Invoke-RestMethod -Uri "$apiUrl/automations/notificar-telegram?mensagem=$mensagemEncoded" -Method Post -Headers @{ "x-api-key" = $apiKey }
     }
     catch {
         Write-Host "Erro ao enviar Telegram: $_"
