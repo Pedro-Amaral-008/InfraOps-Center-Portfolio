@@ -169,6 +169,24 @@ class AmeacaDetectada(Base):
     detectado_em = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class AlertaSuricata(Base):
+    __tablename__ = "alertas_suricata"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mac = Column(String, nullable=True, index=True)
+    ip = Column(String, nullable=True)
+    hostname = Column(String, nullable=True)
+    categoria = Column(String, nullable=False)
+    assinatura = Column(String, nullable=False)
+    sid = Column(String, nullable=True)
+    severidade = Column(Integer, nullable=True)
+    dominio = Column(String, nullable=True)
+    ip_destino = Column(String, nullable=True)
+    acao = Column(String, nullable=True)
+    detectado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    revisao = Column(String, nullable=False, default="pendente")
+
+
 class ConsumoRedeAmostra(Base):
     __tablename__ = "unifi_consumo_amostras"
 

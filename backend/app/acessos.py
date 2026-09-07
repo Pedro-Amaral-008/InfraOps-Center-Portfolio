@@ -11,7 +11,7 @@ import re
 from sqlalchemy import delete, func, select, update
 
 from app.config import settings
-from app.models import AcessoDominio, SuricataFlowSni, SuricataSyncEstado, ApelidoDispositivo, EventoSistema, AmeacaDetectada
+from app.models import AcessoDominio, SuricataFlowSni, SuricataSyncEstado, ApelidoDispositivo, EventoSistema, AmeacaDetectada, AlertaSuricata
 
 PFSENSE_SSH_USER = "infraops-readonly"
 PFSENSE_SSH_KEY_PATH = "/home/appuser/.ssh/pfsense_readonly"
@@ -527,6 +527,7 @@ async def sincronizar_acessos_suricata(db):
         (a.mac, a.dominio) for a in (await db.execute(select(AmeacaDetectada))).scalars().all()
     }
     ameacas_novas = []
+    alertas_novos = []
 
     for linha in dados.decode("utf-8", errors="ignore").splitlines():
         linha = linha.strip()
@@ -538,6 +539,44 @@ async def sincronizar_acessos_suricata(db):
             continue
 
         tipo = evento.get("event_type")
+        if tipo == "alert":
+            alerta_info = evento.get("alert") or {}
+            categoria_regra = alerta_info.get("category") or "Desconhecida"
+            assinatura = alerta_info.get("signature") or ""
+            sid_bruto = alerta_info.get("signature_id")
+            sid = str(sid_bruto) if sid_bruto else None
+            severidade = alerta_info.get("severity")
+            acao = alerta_info.get("action")
+            src_ip_alerta = evento.get("src_ip", "")
+            dest_ip_alerta = evento.get("dest_ip", "")
+            if _eh_ip_lan(src_ip_alerta):
+                ip_disp_alerta, ip_destino_alerta = src_ip_alerta, dest_ip_alerta
+            elif _eh_ip_lan(dest_ip_alerta):
+                ip_disp_alerta, ip_destino_alerta = dest_ip_alerta, src_ip_alerta
+            else:
+                ip_disp_alerta, ip_destino_alerta = None, (dest_ip_alerta or src_ip_alerta)
+            dominio_alerta = (evento.get("tls") or {}).get("sni") or (evento.get("http") or {}).get("hostname")
+            cliente_alerta = mapa_clientes.get(ip_disp_alerta) if ip_disp_alerta else None
+            if cliente_alerta and cliente_alerta.get("mac"):
+                mac_alerta = cliente_alerta["mac"]
+            elif ip_disp_alerta:
+                mac_alerta = f"desconhecido-{ip_disp_alerta}"
+            else:
+                mac_alerta = None
+            hostname_alerta = cliente_alerta["hostname"] if cliente_alerta else "Desconhecido"
+            alertas_novos.append(AlertaSuricata(
+                mac=mac_alerta,
+                ip=ip_disp_alerta,
+                hostname=hostname_alerta,
+                categoria=categoria_regra,
+                assinatura=assinatura,
+                sid=sid,
+                severidade=severidade,
+                dominio=dominio_alerta,
+                ip_destino=ip_destino_alerta,
+                acao=acao,
+            ))
+            continue
         flow_id = evento.get("flow_id")
         if flow_id is None:
             continue
@@ -606,6 +645,8 @@ async def sincronizar_acessos_suricata(db):
 
     for evento in eventos_para_gravar:
         db.add(evento)
+    for alerta in alertas_novos:
+        db.add(alerta)
 
     for flow_id in flow_ids_consumidos:
         await db.execute(delete(SuricataFlowSni).where(SuricataFlowSni.flow_id == flow_id))
