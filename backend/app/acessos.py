@@ -11,7 +11,7 @@ import re
 from sqlalchemy import delete, func, select, update
 
 from app.config import settings
-from app.models import AcessoDominio, SuricataFlowSni, SuricataSyncEstado, ApelidoDispositivo
+from app.models import AcessoDominio, SuricataFlowSni, SuricataSyncEstado, ApelidoDispositivo, EventoSistema, AmeacaDetectada
 
 PFSENSE_SSH_USER = "infraops-readonly"
 PFSENSE_SSH_KEY_PATH = "/home/appuser/.ssh/pfsense_readonly"
@@ -83,6 +83,77 @@ async def atualizar_lista_ads_se_necessario():
             with open(CAMINHO_LISTA_ADS, "w", encoding="utf-8") as f:
                 f.write(resp.text)
         _lista_ads_dominios = None
+    except Exception:
+        pass
+
+
+CAMINHO_LISTA_AMEACAS = "/app/app/dados/lista_ameacas_publica.txt"
+URL_LISTA_AMEACAS = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/tif.txt"
+INTERVALO_ATUALIZACAO_LISTA_AMEACAS_SEGUNDOS = 24 * 60 * 60  # 1 dia - lista de ameacas muda mais rapido que a de ads
+
+_lista_ameacas_dominios = None
+
+
+def _carregar_lista_ameacas() -> set:
+    global _lista_ameacas_dominios
+    if _lista_ameacas_dominios is not None:
+        return _lista_ameacas_dominios
+    dominios = set()
+    try:
+        with open(CAMINHO_LISTA_AMEACAS, "r", encoding="utf-8", errors="ignore") as f:
+            for linha in f:
+                linha = linha.strip()
+                if not linha or linha.startswith("#"):
+                    continue
+                if linha.startswith("*."):
+                    linha = linha[2:]
+                dominios.add(linha)
+    except FileNotFoundError:
+        pass
+    _lista_ameacas_dominios = dominios
+    return dominios
+
+
+def _bate_lista_ameacas(dominio: str) -> bool:
+    lista = _carregar_lista_ameacas()
+    if not lista:
+        return False
+    partes = dominio.split(".")
+    for i in range(len(partes)):
+        candidato = ".".join(partes[i:])
+        if candidato in lista:
+            return True
+    return False
+
+
+async def atualizar_lista_ameacas_se_necessario():
+    global _lista_ameacas_dominios
+    try:
+        precisa_baixar = True
+        if os.path.exists(CAMINHO_LISTA_AMEACAS):
+            idade = time.time() - os.path.getmtime(CAMINHO_LISTA_AMEACAS)
+            if idade < INTERVALO_ATUALIZACAO_LISTA_AMEACAS_SEGUNDOS:
+                precisa_baixar = False
+        if not precisa_baixar:
+            return
+        os.makedirs(os.path.dirname(CAMINHO_LISTA_AMEACAS), exist_ok=True)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(URL_LISTA_AMEACAS)
+            resp.raise_for_status()
+            with open(CAMINHO_LISTA_AMEACAS, "w", encoding="utf-8") as f:
+                f.write(resp.text)
+        _lista_ameacas_dominios = None
+    except Exception:
+        pass
+
+
+async def _enviar_telegram(texto: str):
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+                json={"chat_id": settings.telegram_chat_id, "text": texto},
+            )
     except Exception:
         pass
 
@@ -452,6 +523,10 @@ async def sincronizar_acessos_suricata(db):
     ips_excluidos = await _obter_ips_excluidos()
 
     eventos_para_gravar = []
+    ameacas_ja_alertadas = {
+        (a.mac, a.dominio) for a in (await db.execute(select(AmeacaDetectada))).scalars().all()
+    }
+    ameacas_novas = []
 
     for linha in dados.decode("utf-8", errors="ignore").splitlines():
         linha = linha.strip()
@@ -510,6 +585,9 @@ async def sincronizar_acessos_suricata(db):
         mac = cliente["mac"] if cliente and cliente.get("mac") else f"desconhecido-{ip_dispositivo}"
         hostname = cliente["hostname"] if cliente else "Desconhecido"
         ap = cliente.get("ap") if cliente else None
+        if _bate_lista_ameacas(sni) and (mac, sni) not in ameacas_ja_alertadas:
+            ameacas_ja_alertadas.add((mac, sni))
+            ameacas_novas.append((mac, hostname, ip_dispositivo, sni))
 
         eventos_para_gravar.append(AcessoDominio(
             mac=mac,
@@ -542,8 +620,20 @@ async def sincronizar_acessos_suricata(db):
     limite_retencao = datetime.now(timezone.utc) - timedelta(days=60)
     await db.execute(delete(AcessoDominio).where(AcessoDominio.inicio < limite_retencao))
 
+    for mac_a, hostname_a, ip_a, dominio_a in ameacas_novas:
+        db.add(AmeacaDetectada(mac=mac_a, dominio=dominio_a))
+        db.add(EventoSistema(
+            tipo="critico",
+            mensagem=f"Possivel ameaca: {hostname_a} acessou dominio suspeito ({dominio_a})",
+            detalhes=ip_a,
+            mac_dispositivo=mac_a,
+        ))
     estado.offset_bytes = novo_offset
     await db.commit()
+    for mac_a, hostname_a, ip_a, dominio_a in ameacas_novas:
+        await _enviar_telegram(
+            f"\u26a0\ufe0f Possivel ameaca detectada\n\nDispositivo: {hostname_a} ({ip_a})\nDominio suspeito: {dominio_a}\n\nVerificar na tela de Acessos."
+        )
 
 
 GAP_SESSAO_SEGUNDOS = 300  # flows do mesmo dispositivo+servico com menos que isso entre eles viram uma sessao so

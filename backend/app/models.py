@@ -160,6 +160,15 @@ class EventoSistema(Base):
     criado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class AmeacaDetectada(Base):
+    __tablename__ = "ameacas_detectadas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mac = Column(String, nullable=False, index=True)
+    dominio = Column(String, nullable=False)
+    detectado_em = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class ConsumoRedeAmostra(Base):
     __tablename__ = "unifi_consumo_amostras"
 

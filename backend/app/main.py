@@ -881,13 +881,17 @@ async def loop_acessos_suricata():
                 print(f"ERRO em sincronizar_acessos_suricata: {e}")
         await asyncio.sleep(60)
 async def loop_recategorizacao_diaria():
-    from app.acessos import recategorizar_dominios_outros, atualizar_lista_ads_se_necessario
+    from app.acessos import recategorizar_dominios_outros, atualizar_lista_ads_se_necessario, atualizar_lista_ameacas_se_necessario
     while True:
         await asyncio.sleep(86400)
         try:
             await atualizar_lista_ads_se_necessario()
         except Exception as e:
             print(f"ERRO em atualizar_lista_ads_se_necessario: {e}")
+        try:
+            await atualizar_lista_ameacas_se_necessario()
+        except Exception as e:
+            print(f"ERRO em atualizar_lista_ameacas_se_necessario: {e}")
         async with AsyncSessionLocal() as db:
             try:
                 atualizados = await recategorizar_dominios_outros(db)
