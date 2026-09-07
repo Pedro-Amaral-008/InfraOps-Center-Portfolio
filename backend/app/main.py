@@ -413,6 +413,8 @@ async def dashboard_estabilidade_14_dias(
 async def dashboard_relatorio(
     dias: int = 15,
     categorias: str = "",
+    categoria_geral: str = "",
+    categoria_pessoal: str = "",
     usuario: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -423,12 +425,14 @@ async def dashboard_relatorio(
     dados = await get_dados_relatorio(db, dias, categorias_uptime)
     if incluir_acessos:
         from app.acessos import get_relatorio_acessos
-        dados["acessos"] = await get_relatorio_acessos(db, dias)
+        dados["acessos"] = await get_relatorio_acessos(db, dias, categoria_geral or None, categoria_pessoal or None)
     return dados
 @app.get("/dashboard/relatorio/pdf")
 async def dashboard_relatorio_pdf(
     dias: int = 15,
     categorias: str = "",
+    categoria_geral: str = "",
+    categoria_pessoal: str = "",
     periodo_label: str = "",
     usuario: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -443,7 +447,7 @@ async def dashboard_relatorio_pdf(
     dados = await get_dados_relatorio(db, dias, categorias_uptime)
     if incluir_acessos:
         from app.acessos import get_relatorio_acessos
-        dados["acessos"] = await get_relatorio_acessos(db, dias)
+        dados["acessos"] = await get_relatorio_acessos(db, dias, categoria_geral or None, categoria_pessoal or None)
     html_str = gerar_html_relatorio_pdf(dados, periodo_label or f"Últimos {dias} dias")
 
     pdf_bytes = HTML(string=html_str).write_pdf()
@@ -990,6 +994,14 @@ async def dashboard_acessos_dispositivos(
 ):
     from app.acessos import get_dispositivos_acessos
     return await get_dispositivos_acessos(db, horas)
+@app.get("/dashboard/acessos/categorias")
+async def dashboard_acessos_categorias(
+    dias: int = 15,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_categorias_disponiveis
+    return await get_categorias_disponiveis(db, dias)
 @app.get("/dashboard/acessos/top-sites")
 async def dashboard_acessos_top_sites(
     horas: float = 1440,

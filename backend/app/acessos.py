@@ -722,11 +722,14 @@ CATEGORIAS_NAO_CORPORATIVAS = {
 }
 
 
-async def get_relatorio_acessos(db, dias: int = 15) -> dict:
+async def get_relatorio_acessos(db, dias: int = 15, categoria_geral: str = None, categoria_pessoal: str = None) -> dict:
     """Monta o resumo de Acessos (internet) pro modulo de relatorios: resumo
     geral (volume total, categoria mais acessada, dispositivos monitorados),
-    top sites da rede, ranking de dispositivos por volume total e ranking de
-    dispositivos por uso de categorias nao-corporativas (lazer)."""
+    top sites da rede, ranking de dispositivos por volume total (ou por uma
+    categoria especifica, se categoria_geral for informado) e ranking de
+    dispositivos por uso de categorias nao-corporativas/lazer (ou por uma
+    categoria especifica, se categoria_pessoal for informado). Os dois
+    filtros sao independentes entre si."""
     horas = dias * 24
     desde = datetime.now(timezone.utc) - timedelta(hours=horas)
 
@@ -758,8 +761,10 @@ async def get_relatorio_acessos(db, dias: int = 15) -> dict:
         )
         return resultado.all()
 
-    ranking_geral_bruto = await _ranking_por_filtro()
-    ranking_pessoal_bruto = await _ranking_por_filtro(CATEGORIAS_NAO_CORPORATIVAS)
+    filtro_geral = [categoria_geral] if categoria_geral else None
+    filtro_pessoal = [categoria_pessoal] if categoria_pessoal else CATEGORIAS_NAO_CORPORATIVAS
+    ranking_geral_bruto = await _ranking_por_filtro(filtro_geral)
+    ranking_pessoal_bruto = await _ranking_por_filtro(filtro_pessoal)
 
     macs_necessarios = {m for m, _ in ranking_geral_bruto} | {m for m, _ in ranking_pessoal_bruto}
     mapa_dispositivo = {}
@@ -787,6 +792,9 @@ async def get_relatorio_acessos(db, dias: int = 15) -> dict:
     ranking_pessoal = [_montar_linha(m, v) for m, v in ranking_pessoal_bruto]
 
     for linha in ranking_geral:
+        if categoria_geral:
+            linha["categoria_principal"] = categoria_geral
+            continue
         resultado_top_cat_geral = await db.execute(
             select(
                 AcessoDominio.categoria,
@@ -804,6 +812,9 @@ async def get_relatorio_acessos(db, dias: int = 15) -> dict:
         linha["categoria_principal"] = linha_top_geral[0] if linha_top_geral else None
 
     for linha in ranking_pessoal:
+        if categoria_pessoal:
+            linha["categoria_principal"] = categoria_pessoal
+            continue
         resultado_top_cat = await db.execute(
             select(
                 AcessoDominio.categoria,
@@ -833,6 +844,18 @@ async def get_relatorio_acessos(db, dias: int = 15) -> dict:
     }
 
 
+async def get_categorias_disponiveis(db, dias: int = 15) -> list:
+    """Lista as categorias de acesso distintas registradas no periodo,
+    ordenadas alfabeticamente - usada pra popular os seletores de filtro
+    por categoria no relatorio geral."""
+    desde = datetime.now(timezone.utc) - timedelta(hours=dias * 24)
+    resultado = await db.execute(
+        select(AcessoDominio.categoria)
+        .where(AcessoDominio.inicio >= desde)
+        .distinct()
+    )
+    categorias = sorted({c for (c,) in resultado.all() if c})
+    return categorias
 async def get_detalhe_dispositivo(db, mac: str, horas: float = 1440):
     """Detalhe de um dispositivo: stats gerais, top sites (categoria) por
     volume/duracao e a linha do tempo (sessoes) - alimenta a tela de detalhe

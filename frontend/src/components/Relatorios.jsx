@@ -106,6 +106,21 @@ function Relatorios({ token, role }) {
   const [carregando, setCarregando] = useState(false);
   const [abaVisivel, setAbaVisivel] = useState('geral');
   const [nomesRevelados, setNomesRevelados] = useState({});
+  const [categoriaGeralFiltro, setCategoriaGeralFiltro] = useState('');
+  const [categoriaPessoalFiltro, setCategoriaPessoalFiltro] = useState('');
+  const [categoriasParaFiltro, setCategoriasParaFiltro] = useState([]);
+  const atualizarRelatorioComFiltros = (novoCategoriaGeral, novoCategoriaPessoal) => {
+    if (!token) return;
+    axios.get(`${API_URL}/dashboard/relatorio`, {
+      params: {
+        dias: periodoSelecionado,
+        categorias: categoriasSelecionadas.join(','),
+        categoria_geral: novoCategoriaGeral,
+        categoria_pessoal: novoCategoriaPessoal,
+      },
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => setDados(r.data)).catch(() => {});
+  };
   const podeRevelarIdentidade = role === 'admin' || role === 'super_admin';
   const revelarIdentidadeAcessos = (mac, ip) => {
     if (!podeRevelarIdentidade || nomesRevelados[mac] || !ip) return;
@@ -123,10 +138,16 @@ function Relatorios({ token, role }) {
   const gerarRelatorio = () => {
     if (!token || categoriasSelecionadas.length === 0) return;
     setCarregando(true);
+    setCategoriaGeralFiltro('');
+    setCategoriaPessoalFiltro('');
     axios.get(`${API_URL}/dashboard/relatorio`, {
       params: { dias: periodoSelecionado, categorias: categoriasSelecionadas.join(',') },
       headers: { Authorization: `Bearer ${token}` },
     }).then((r) => setDados(r.data)).catch(() => setDados(null)).finally(() => setCarregando(false));
+    axios.get(`${API_URL}/dashboard/acessos/categorias`, {
+      params: { dias: periodoSelecionado },
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => setCategoriasParaFiltro(r.data)).catch(() => setCategoriasParaFiltro([]));
   };
 
   const periodoLabel = PERIODOS.find((p) => p.id === periodoSelecionado)?.label || '';
@@ -452,7 +473,7 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
           <div className="rel-btn rel-btn-secundario" onClick={() => setDados(null)}>← Voltar aos filtros</div>
           <div className="rel-btn rel-btn-primario" onClick={async () => {
             const resp = await axios.get(`${API_URL}/dashboard/relatorio/pdf`, {
-              params: { dias: periodoSelecionado, categorias: categoriasSelecionadas.join(','), periodo_label: periodoLabel },
+              params: { dias: periodoSelecionado, categorias: categoriasSelecionadas.join(','), categoria_geral: categoriaGeralFiltro, categoria_pessoal: categoriaPessoalFiltro, periodo_label: periodoLabel },
               headers: { Authorization: `Bearer ${token}` },
               responseType: 'blob',
             });
@@ -819,14 +840,34 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
                   <span className="rel-badge-sec">{paginaAtualTabelas} de {totalPaginasCalc}</span>
                 </div>
                 <div style={{ marginTop: '4px', overflowX: 'auto' }}>
-                  <div className="rel-titulo-mini" style={{ marginBottom: '6px' }}>Top 10 dispositivos por volume</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
+                    <div className="rel-titulo-mini">{categoriaGeralFiltro ? `Top 10 dispositivos — ${categoriaGeralFiltro}` : 'Top 10 dispositivos por volume'}</div>
+                    <select
+                      value={categoriaGeralFiltro}
+                      onChange={(e) => { setCategoriaGeralFiltro(e.target.value); atualizarRelatorioComFiltros(e.target.value, categoriaPessoalFiltro); }}
+                      style={{ fontSize: '12px' }}
+                    >
+                      <option value="">Todas as categorias</option>
+                      {categoriasParaFiltro.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
                   <table className="rel-tabela-anexo">
                     <thead><tr><th>Dispositivo</th><th>Volume</th><th>Categoria principal</th></tr></thead>
                     <tbody>{ac.ranking_geral.map(linhaDispositivo)}</tbody>
                   </table>
                 </div>
                 <div style={{ marginTop: '18px', overflowX: 'auto' }}>
-                  <div className="rel-titulo-mini" style={{ marginBottom: '6px' }}>Top 10 — uso não corporativo (lazer)</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
+                    <div className="rel-titulo-mini">{categoriaPessoalFiltro ? `Top 10 dispositivos — ${categoriaPessoalFiltro}` : 'Top 10 — uso não corporativo (lazer)'}</div>
+                    <select
+                      value={categoriaPessoalFiltro}
+                      onChange={(e) => { setCategoriaPessoalFiltro(e.target.value); atualizarRelatorioComFiltros(categoriaGeralFiltro, e.target.value); }}
+                      style={{ fontSize: '12px' }}
+                    >
+                      <option value="">Uso não corporativo (padrão)</option>
+                      {categoriasParaFiltro.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
                   <table className="rel-tabela-anexo">
                     <thead><tr><th>Dispositivo</th><th>Volume</th><th>Categoria principal</th></tr></thead>
                     <tbody>{ac.ranking_pessoal.map(linhaDispositivo)}</tbody>
