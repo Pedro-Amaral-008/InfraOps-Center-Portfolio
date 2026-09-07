@@ -35,3 +35,4 @@ prometheus_data/
 .DS_Store
 Thumbs.db
 security/
+backend/dados/

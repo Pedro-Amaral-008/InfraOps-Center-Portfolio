@@ -1,8 +1,11 @@
 import asyncio
 import ipaddress
 import json
+import os
+import time
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import paramiko
 import re
 from sqlalchemy import delete, func, select, update
@@ -22,6 +25,68 @@ _cache_ip_dinamico_excluido = {"ip": None}
 # decide o rotulo amigavel (campo "categoria") usado pra agrupar visualmente
 # no grafico de top sites. O que nao bate com nada aqui cai em "Outros", mas
 # continua gravado com o dominio real.
+CAMINHO_LISTA_ADS = "/app/app/dados/lista_ads_publica.txt"
+URL_LISTA_ADS = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/pro.txt"
+INTERVALO_ATUALIZACAO_LISTA_ADS_SEGUNDOS = 7 * 24 * 60 * 60  # 7 dias
+
+_lista_ads_dominios = None
+
+
+def _carregar_lista_ads() -> set:
+    global _lista_ads_dominios
+    if _lista_ads_dominios is not None:
+        return _lista_ads_dominios
+    dominios = set()
+    try:
+        with open(CAMINHO_LISTA_ADS, "r", encoding="utf-8", errors="ignore") as f:
+            for linha in f:
+                linha = linha.strip()
+                if not linha or linha.startswith("#"):
+                    continue
+                if linha.startswith("*."):
+                    linha = linha[2:]
+                dominios.add(linha)
+    except FileNotFoundError:
+        pass
+    _lista_ads_dominios = dominios
+    return dominios
+
+
+def _bate_lista_ads(dominio: str) -> bool:
+    lista = _carregar_lista_ads()
+    if not lista:
+        return False
+    partes = dominio.split(".")
+    for i in range(len(partes)):
+        candidato = ".".join(partes[i:])
+        if candidato in lista:
+            return True
+    return False
+
+
+async def atualizar_lista_ads_se_necessario():
+    """Baixa a lista publica de anuncios/rastreadores (HaGeZi) se o arquivo local
+    nao existir ou tiver mais de 7 dias. Chamada dentro do loop diario existente."""
+    global _lista_ads_dominios
+    try:
+        precisa_baixar = True
+        if os.path.exists(CAMINHO_LISTA_ADS):
+            idade = time.time() - os.path.getmtime(CAMINHO_LISTA_ADS)
+            if idade < INTERVALO_ATUALIZACAO_LISTA_ADS_SEGUNDOS:
+                precisa_baixar = False
+        if not precisa_baixar:
+            return
+        os.makedirs(os.path.dirname(CAMINHO_LISTA_ADS), exist_ok=True)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(URL_LISTA_ADS)
+            resp.raise_for_status()
+            with open(CAMINHO_LISTA_ADS, "w", encoding="utf-8") as f:
+                f.write(resp.text)
+        _lista_ads_dominios = None
+    except Exception:
+        pass
+
+
 CATEGORIAS = [
     # --- Google / infraestrutura Google ---
     (["youtube.com", "googlevideo.com", "ytimg.com", "youtu.be"], "YouTube"),
@@ -43,7 +108,7 @@ CATEGORIAS = [
     # --- Redes sociais / mensageria ---
     (["whatsapp.com", "whatsapp.net"], "WhatsApp"),
     (["instagram.com", "cdninstagram.com"], "Instagram"),
-    (["facebook.com", "fbcdn.net", "fbsbx.com", "messenger.com"], "Facebook / Messenger"),
+    (["facebook.com", "fbcdn.net", "fbsbx.com", "facebook.net", "messenger.com"], "Facebook / Messenger"),
     (["tiktok.com", "tiktokcdn.com", "tiktokv.com", "byteoversea.com", "musical.ly", "ttwstatic.com"], "TikTok"),
     (["twitter.com", "x.com", "twimg.com"], "X (Twitter)"),
     (["linkedin.com", "licdn.com"], "LinkedIn"),
@@ -144,6 +209,25 @@ CATEGORIAS = [
     # --- Infraestrutura interna da Elcop - por ultimo de proposito, so pega
     # o que sobrar e nao bateu em nenhuma categoria mais especifica acima ---
     (["elcop.eng"], "Sistemas internos Elcop"),
+
+    # --- Novas categorias adicionadas para reduzir "Outros" (revisao periodica) ---
+    (["downloads.claude.ai", "api.anthropic.com", "anthropic.gallerycdn.vsassets.io"], "Claude / Anthropic"),
+    (["downloads.dell.com", "saupdates.dell.com", "dellupdater.dell.com",
+      "download-installer.cdn.mozilla.net", "cdn.fwupd.org"], "Atualizacoes de Software"),
+    (["aka-dn.gw.samsungapps.com"], "Samsung Apps"),
+    (["heytapimg.com"], "OPPO/Heytap"),
+    (["chatgpt.com"], "ChatGPT / OpenAI"),
+    (["fev.fyber.com", "mediation.fyber.com", "telemetry.sdk.inmobi.com",
+      "inner-active.mobi", "dsp-api.moloco.com", "pangle.io", "tiktokpangle.us",
+      "pubmatic.com", "bidmachine.io", "amazon-adsystem.com", "app-measurement.com",
+      "singular.net", "mobilefuse.com", "cloudx.io", "risesome.com"], "Anuncios em Apps (mobile ads)"),
+    (["registry.npmjs.org"], "NPM / Pacotes Node.js"),
+    (["ipify.org"], "Verificacao de IP (utilitario)"),
+    (["dns.google", "cloudflare-dns.com", "dns.alidns.com", "one.one.one.one"], "DNS Publico"),
+    (["trace.svc.ui.com", "static.ui.com", "fw-update.ubnt.com"], "Ubiquiti / UniFi"),
+    (["samsungcloud.com"], "Samsung Cloud"),
+    (["grafana.com"], "Observabilidade"),
+    (["mspbackups.com"], "Backup MSP"),
 ]
 
 
@@ -152,6 +236,8 @@ def categorizar_dominio(dominio: str) -> str:
     for termos, nome in CATEGORIAS:
         if any(t in d for t in termos):
             return nome
+    if _bate_lista_ads(d):
+        return "Anuncios / Rastreadores (lista publica)"
     return "Outros"
 
 

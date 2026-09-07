@@ -35,6 +35,7 @@ services:
     volumes:
       - CAMINHO_CHAVE_SSH_AQUI:/root/.ssh/pfsense_readonly:ro
       - /etc/localtime:/etc/localtime:ro
+      - ../../backend/dados:/app/app/dados
     ports:
       - "${API_PORT}:8000"
     depends_on:

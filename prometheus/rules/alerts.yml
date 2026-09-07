@@ -27,3 +27,12 @@ groups:
         annotations:
           summary: "Uso de memoria alto"
           description: "Memoria em uso acima de 90%"
+
+      - alert: CpuAlta
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100) > 90
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Uso de CPU alto"
+          description: "CPU em uso acima de 90% por mais de 2 minutos"
