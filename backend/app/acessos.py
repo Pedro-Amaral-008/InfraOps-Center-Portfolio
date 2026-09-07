@@ -946,6 +946,15 @@ async def get_categorias_disponiveis(db, dias: int = 15) -> list:
     )
     categorias = sorted({c for (c,) in resultado.all() if c})
     return categorias
+async def get_ameacas_dispositivo(db, mac: str) -> list:
+    """Lista os dominios de ameaca ja detectados para esse dispositivo -
+    usado pra destacar em vermelho na linha do tempo de Acessos."""
+    resultado = await db.execute(
+        select(AmeacaDetectada.dominio).where(AmeacaDetectada.mac == mac).distinct()
+    )
+    return [d for (d,) in resultado.all()]
+
+
 async def get_detalhe_dispositivo(db, mac: str, horas: float = 1440):
     """Detalhe de um dispositivo: stats gerais, top sites (categoria) por
     volume/duracao e a linha do tempo (sessoes) - alimenta a tela de detalhe

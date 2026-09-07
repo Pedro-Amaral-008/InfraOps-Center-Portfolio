@@ -1033,6 +1033,14 @@ async def dashboard_acessos_identidade_vpn(
     from app.acessos import buscar_nome_vpn_por_ip
     nome = await buscar_nome_vpn_por_ip(ip)
     return {"nome": nome}
+@app.get("/dashboard/acessos/dispositivo/{mac}/ameacas")
+async def dashboard_acessos_dispositivo_ameacas(
+    mac: str,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_ameacas_dispositivo
+    return await get_ameacas_dispositivo(db, mac)
 @app.get("/dashboard/acessos/dispositivo/{mac}/apelido")
 async def dashboard_acessos_obter_apelido(
     mac: str,

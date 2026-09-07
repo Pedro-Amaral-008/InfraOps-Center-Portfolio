@@ -122,6 +122,15 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
     }).then((r) => setDetalhe(r.data)).catch(() => {});
   }, [token, mac, horas]);
 
+  const [dominiosAmeaca, setDominiosAmeaca] = useState([]);
+  useEffect(() => {
+    if (!token || !mac) return;
+    setDominiosAmeaca([]);
+    axios.get(`${API_URL}/dashboard/acessos/dispositivo/${encodeURIComponent(mac)}/ameacas`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => setDominiosAmeaca(r.data || [])).catch(() => {});
+  }, [token, mac]);
+
   useEffect(() => {
     if (subAba !== 'por_hora' || !token || !mac) return;
     setPorHora(null);
@@ -324,14 +333,19 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
             <tr><th>Início</th><th>Domínio</th><th>Duração</th><th>Volume</th></tr>
           </thead>
           <tbody>
-            {detalhe.linha_do_tempo.map((s, i) => (
-              <tr key={i}>
-                <td style={{ fontSize: '12px', opacity: 0.7 }}>{fmtHora(s.inicio)}</td>
-                <td>{s.dominio_principal}{s.dominios.length > 1 ? ` (+${s.dominios.length - 1})` : ''}</td>
-                <td style={{ fontSize: '12px' }}>{fmtDuracao(s.duracao_segundos)}</td>
-                <td style={{ fontSize: '12px', opacity: 0.7 }}>{fmtBytes(s.bytes_download + s.bytes_upload)}</td>
-              </tr>
-            ))}
+            {detalhe.linha_do_tempo.map((s, i) => {
+              const ehAmeaca = s.dominios.some((d) => dominiosAmeaca.includes(d));
+              return (
+                <tr key={i} style={ehAmeaca ? { background: 'rgba(220,50,50,0.12)' } : undefined}>
+                  <td style={{ fontSize: '12px', opacity: 0.7 }}>{fmtHora(s.inicio)}</td>
+                  <td style={ehAmeaca ? { color: '#ff5555', fontWeight: 600 } : undefined}>
+                    {ehAmeaca && '⚠️ '}{s.dominio_principal}{s.dominios.length > 1 ? ` (+${s.dominios.length - 1})` : ''}
+                  </td>
+                  <td style={{ fontSize: '12px' }}>{fmtDuracao(s.duracao_segundos)}</td>
+                  <td style={{ fontSize: '12px', opacity: 0.7 }}>{fmtBytes(s.bytes_download + s.bytes_upload)}</td>
+                </tr>
+              );
+            })}
             {detalhe.linha_do_tempo.length === 0 && (
               <tr><td colSpan="4" style={{ textAlign: 'center', opacity: 0.6 }}>Sem acessos no período selecionado.</td></tr>
             )}
