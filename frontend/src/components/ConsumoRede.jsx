@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import GraficoHistoricoConsumo from './GraficoHistoricoConsumo';
 
-const API_URL = 'http://192.168.1.26:8000';
+const API_URL = 'http://IP_AQUI:8000';
 const JANELA_GRAFICO = 40;
 
 function fmtMbps(v) {

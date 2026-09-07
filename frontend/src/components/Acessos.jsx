@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://192.168.1.26:8000';
+const API_URL = 'http://IP_AQUI:8000';
 
 const PERIODOS = [
   { label: '1 hora', horas: 1 },

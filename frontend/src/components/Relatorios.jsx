@@ -2,7 +2,7 @@ import { useState } from 'react';
 import axios from 'axios';
 import './Relatorios.css';
 
-const API_URL = 'http://192.168.1.26:8000';
+const API_URL = 'http://IP_AQUI:8000';
 
 const PERIODOS = [
   { id: '1', label: 'Últimas 24h' },

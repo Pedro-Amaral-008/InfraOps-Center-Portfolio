@@ -18,7 +18,7 @@ async def query_prometheus(query: str):
             return []
 
 
-INSTANCIAS_REMOVIDAS = ["192.168.1.71:445", "192.168.1.71"]
+INSTANCIAS_REMOVIDAS = ["IP_AQUI:445", "IP_AQUI"]
 async def get_uptime_por_job(job: str, dias: int = 30):
     """Calcula o uptime percentual de cada instance de um job, usando o
     historico armazenado pelo proprio Prometheus (avg_over_time)."""

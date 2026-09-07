@@ -21,7 +21,7 @@ import ConsumoRede from './components/ConsumoRede';
 import Acessos from './components/Acessos';
 import './App.css';
 
-const API_URL = 'http://192.168.1.26:8000';
+const API_URL = 'http://IP_AQUI:8000';
 
 const ABAS = [
   { id: 'controller', label: 'Controller' },
