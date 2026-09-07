@@ -36,3 +36,4 @@ prometheus_data/
 Thumbs.db
 security/
 backend/dados/
+backend/create_users.py
