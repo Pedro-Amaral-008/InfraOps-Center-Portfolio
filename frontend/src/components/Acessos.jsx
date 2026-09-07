@@ -401,12 +401,18 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
   );
 }
 
-function Acessos({ token, role }) {
+function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
   const [horas, setHoras] = useState(1440);
   const [dispositivos, setDispositivos] = useState([]);
   const [topSites, setTopSites] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [macSelecionado, setMacSelecionado] = useState(null);
+  useEffect(() => {
+    if (macInicial) {
+      setMacSelecionado(macInicial);
+      if (onMacInicialConsumido) onMacInicialConsumido();
+    }
+  }, [macInicial]);
 
   useEffect(() => {
     if (!token) return;

@@ -365,6 +365,7 @@ async def dashboard_eventos_recentes(
             "tipo": e.tipo,
             "mensagem": e.mensagem,
             "detalhes": e.detalhes,
+            "mac_dispositivo": e.mac_dispositivo,
             "criado_em": e.criado_em.isoformat(),
         }
         for e in eventos

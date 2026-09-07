@@ -287,6 +287,7 @@ async def verificar_consumo_excessivo(db):
             tipo="atencao",
             mensagem=f"Consumo de rede {evento['hostname']} ficou acima de {LIMITE_MBPS_CONSUMO} Mbps por {_formatar_duracao(duracao_total)} (pico {evento['direcao']}: {evento['pico_mbps']:.1f} Mbps)",
             detalhes=f"{ip}" if ip else None,
+            mac_dispositivo=evento["mac"],
         ))
         db.add(ConsumoPicoRegistrado(mac=evento["mac"], inicio=inicio, fim=fim))
 

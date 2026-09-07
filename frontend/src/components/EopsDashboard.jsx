@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './EopsDashboard.css';
+import Estabilidade from './Estabilidade';
 
 const API_URL = 'IP_INTERNO_AQUI:8000';
 
@@ -59,7 +60,7 @@ function tempoRelativo(isoString) {
   return `há ${diffD}d`;
 }
 
-function EopsDashboard({ token, dados }) {
+function EopsDashboard({ token, dados, onAbrirDispositivo }) {
   const [eventos24h, setEventos24h] = useState(0);
   const [eventosRecentes, setEventosRecentes] = useState([]);
   const [tendencia, setTendencia] = useState([]);
@@ -227,37 +228,7 @@ function EopsDashboard({ token, dados }) {
         </div>
 
         <div className="bottom-grid">
-          <div className="card panel-card">
-            <div className="panel-title">Estabilidade · últimos 7 dias</div>
-            <div className="panel-note">Uptime diário por categoria — quanto mais vermelho, mais instável o dia.</div>
-            <div className="heatmap">
-              <div></div>
-              {['S', 'T', 'Q', 'Q', 'S', 'S', 'D'].map((c, idx) => <div className="col-head" key={idx}>{c}</div>)}
-              <div></div>
-              {ORDEM_CATEGORIAS.map((nome) => {
-                const diasArrOriginal = estabilidadePorNome[nome] || [];
-                const media = diasArrOriginal.length ? diasArrOriginal.reduce((a, b) => a + b, 0) / diasArrOriginal.length : 0;
-                // Garante sempre exatamente 7 colunas, preenchendo com null (celula vazia) a esquerda
-                // quando a categoria tiver menos de 7 dias de historico (ex: impressoras so tem dias uteis).
-                const faltam = Math.max(0, 7 - diasArrOriginal.length);
-                const diasArr = [...Array(faltam).fill(null), ...diasArrOriginal.slice(-7)];
-                return (
-                  <>
-                    <div className="cat-name" key={`${nome}-nome`}>{nome}</div>
-                    {diasArr.map((v, idx) => (
-                      <div className="cell" key={`${nome}-${idx}`} style={{ background: v === null ? 'var(--card-border)' : corDoDia(v), opacity: v === null ? 0.3 : 1 }} />
-                    ))}
-                    <div className={`pct ${classePercentSemana(media)}`} key={`${nome}-pct`}>{media.toFixed(1)}%</div>
-                  </>
-                );
-              })}
-            </div>
-            <div className="legend-row">
-              <div className="legend-item"><span className="sw" style={{ background: '#22c55e' }} />≥99%</div>
-              <div className="legend-item"><span className="sw" style={{ background: '#f5a524' }} />90–98.9%</div>
-              <div className="legend-item"><span className="sw" style={{ background: '#ef4444' }} />&lt;90%</div>
-            </div>
-          </div>
+          <Estabilidade token={token} />
 
           <div className="card panel-card">
             <div className="panel-title"><span className="dot warn" />Feed de alertas</div>
@@ -277,7 +248,12 @@ function EopsDashboard({ token, dados }) {
               {listaFeed.map((ev) => {
                 const cor = ev.tipo === 'bom' ? 'good' : ev.tipo === 'atencao' ? 'warn' : 'bad';
                 return (
-                  <div key={ev.id} className={`feed-item ${cor}`}>
+                  <div
+                    key={ev.id}
+                    className={`feed-item ${cor}`}
+                    style={ev.mac_dispositivo ? { cursor: 'pointer' } : undefined}
+                    onClick={() => { if (ev.mac_dispositivo && onAbrirDispositivo) onAbrirDispositivo(ev.mac_dispositivo); }}
+                  >
                     <div className="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{ICONE_TIPO[cor]}</svg></div>
                     <div className="feed-body">
                       <div className="msg-row">
@@ -286,6 +262,7 @@ function EopsDashboard({ token, dados }) {
                       <div className="meta">
                         {ev.detalhes && <><span>{ev.detalhes}</span><span>·</span></>}
                         <span>{tempoRelativo(ev.criado_em)}</span>
+                        {ev.mac_dispositivo && <span style={{ marginLeft: '6px', opacity: 0.8 }}>· Ver dispositivo →</span>}
                       </div>
                     </div>
                   </div>

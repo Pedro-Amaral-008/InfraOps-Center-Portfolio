@@ -156,6 +156,7 @@ class EventoSistema(Base):
     tipo = Column(String, nullable=False)
     mensagem = Column(String, nullable=False)
     detalhes = Column(String, nullable=True)
+    mac_dispositivo = Column(String, nullable=True)
     criado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 

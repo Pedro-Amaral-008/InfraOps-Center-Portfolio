@@ -73,6 +73,13 @@ function App() {
   const [pfsenseVpns, setPfsenseVpns] = useState([]);
   const [pfsenseVlans, setPfsenseVlans] = useState([]);
   const [subAbaRede, setSubAbaRede] = useState('links');
+  const [macAcessosAlvo, setMacAcessosAlvo] = useState(null);
+  const abrirDispositivoAcessos = (mac) => {
+    setNavPrincipal('metricas');
+    setAbaAtiva('links_internet');
+    setSubAbaRede('acessos');
+    setMacAcessosAlvo(mac);
+  };
   const [vpnsUptime, setVpnsUptime] = useState([]);
   const [vlansUptime, setVlansUptime] = useState([]);
   const [restartandoFluig, setRestartandoFluig] = useState(false);
@@ -690,7 +697,7 @@ function App() {
                 </>
               )}
               {subAbaRede === 'consumo' && <ConsumoRede token={token} />}
-              {subAbaRede === 'acessos' && <Acessos token={token} role={usuario?.role} />}
+              {subAbaRede === 'acessos' && <Acessos token={token} role={usuario?.role} macInicial={macAcessosAlvo} onMacInicialConsumido={() => setMacAcessosAlvo(null)} />}
             </div>
           )}
           {abaAtiva === 'backups' && (
@@ -799,7 +806,7 @@ function App() {
           )}
 
 
-          <EopsDashboard token={token} dados={dados} />
+          <EopsDashboard token={token} dados={dados} onAbrirDispositivo={abrirDispositivoAcessos} />
 
           {detalheAberto && dados[`${detalheAberto}_detalhe`] && (
             <div className="detail-table">
