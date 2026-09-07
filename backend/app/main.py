@@ -458,7 +458,7 @@ async def dashboard_acessos_dispositivo_relatorio_pdf(
     mac: str,
     horas: float = 24,
     periodo_label: str = "",
-    usuario: User = Depends(get_current_user),
+    usuario: User = Depends(exigir_papel("admin", "super_admin")),
     db: AsyncSession = Depends(get_db),
 ):
     from app.acessos import get_detalhe_dispositivo
@@ -480,7 +480,7 @@ async def dashboard_acessos_dispositivo_relatorio_html(
     mac: str,
     horas: float = 24,
     periodo_label: str = "",
-    usuario: User = Depends(get_current_user),
+    usuario: User = Depends(exigir_papel("admin", "super_admin")),
     db: AsyncSession = Depends(get_db),
 ):
     from app.acessos import get_detalhe_dispositivo
@@ -1016,6 +1016,26 @@ async def dashboard_acessos_identidade_vpn(
     from app.acessos import buscar_nome_vpn_por_ip
     nome = await buscar_nome_vpn_por_ip(ip)
     return {"nome": nome}
+@app.get("/dashboard/acessos/dispositivo/{mac}/apelido")
+async def dashboard_acessos_obter_apelido(
+    mac: str,
+    usuario: User = Depends(exigir_papel("admin", "super_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_apelido_dispositivo
+    apelido = await get_apelido_dispositivo(db, mac)
+    return {"apelido": apelido}
+@app.put("/dashboard/acessos/dispositivo/{mac}/apelido")
+async def dashboard_acessos_definir_apelido(
+    mac: str,
+    apelido: str,
+    usuario: User = Depends(exigir_papel("admin", "super_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import definir_apelido_dispositivo
+    await definir_apelido_dispositivo(db, mac, apelido, usuario.username)
+    await registrar_log(db, usuario.username, "definir_apelido_dispositivo", "sucesso", detalhes=f"mac={mac} apelido={apelido}")
+    return {"status": "ok", "apelido": apelido}
 @app.get("/dashboard/acessos/dispositivo/{mac}/por-hora")
 async def dashboard_acessos_por_hora(
     mac: str,

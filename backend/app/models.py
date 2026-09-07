@@ -200,6 +200,16 @@ class AcessoDominio(Base):
     criado_em = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class ApelidoDispositivo(Base):
+    __tablename__ = "apelido_dispositivo"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mac = Column(String, nullable=False, unique=True, index=True)
+    apelido = Column(String, nullable=False)
+    atualizado_por = Column(String, nullable=True)
+    atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class SuricataSyncEstado(Base):
     __tablename__ = "suricata_sync_estado"
 

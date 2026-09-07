@@ -11,7 +11,7 @@ import re
 from sqlalchemy import delete, func, select, update
 
 from app.config import settings
-from app.models import AcessoDominio, SuricataFlowSni, SuricataSyncEstado
+from app.models import AcessoDominio, SuricataFlowSni, SuricataSyncEstado, ApelidoDispositivo
 
 PFSENSE_SSH_USER = "infraops-readonly"
 PFSENSE_SSH_KEY_PATH = "/home/appuser/.ssh/pfsense_readonly"
@@ -229,6 +229,25 @@ CATEGORIAS = [
     (["grafana.com"], "Observabilidade"),
     (["mspbackups.com"], "Backup MSP"),
 ]
+
+
+async def get_apelido_dispositivo(db, mac: str) -> str | None:
+    resultado = await db.execute(select(ApelidoDispositivo).where(ApelidoDispositivo.mac == mac))
+    registro = resultado.scalar_one_or_none()
+    return registro.apelido if registro else None
+
+
+async def definir_apelido_dispositivo(db, mac: str, apelido: str, usuario: str) -> None:
+    resultado = await db.execute(select(ApelidoDispositivo).where(ApelidoDispositivo.mac == mac))
+    registro = resultado.scalar_one_or_none()
+    apelido = (apelido or "").strip()
+    if registro:
+        registro.apelido = apelido
+        registro.atualizado_por = usuario
+    else:
+        registro = ApelidoDispositivo(mac=mac, apelido=apelido, atualizado_por=usuario)
+        db.add(registro)
+    await db.commit()
 
 
 def categorizar_dominio(dominio: str) -> str:

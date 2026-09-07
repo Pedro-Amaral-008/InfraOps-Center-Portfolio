@@ -106,6 +106,12 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
   const [nomeRevelado, setNomeRevelado] = useState(null);
   const [carregandoNome, setCarregandoNome] = useState(false);
   const [porHora, setPorHora] = useState(null);
+  const [apelido, setApelido] = useState(null);
+  const [apelidoVisivel, setApelidoVisivel] = useState(false);
+  const [carregandoApelido, setCarregandoApelido] = useState(false);
+  const [editandoApelido, setEditandoApelido] = useState(false);
+  const [rascunhoApelido, setRascunhoApelido] = useState('');
+  const [salvandoApelido, setSalvandoApelido] = useState(false);
 
   useEffect(() => {
     if (!token || !mac) return;
@@ -124,6 +130,11 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
       headers: { Authorization: `Bearer ${token}` },
     }).then((r) => setPorHora(r.data)).catch(() => {});
   }, [subAba, token, mac, horas]);
+  useEffect(() => {
+    setApelido(null);
+    setApelidoVisivel(false);
+    setEditandoApelido(false);
+  }, [mac]);
 
   if (!detalhe) {
     return <div className="loading-message">Carregando detalhe do dispositivo...</div>;
@@ -144,6 +155,33 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
     }).then((r) => setNomeRevelado(r.data.nome || 'Nao encontrado'))
       .catch(() => setNomeRevelado('Erro ao consultar'))
       .finally(() => setCarregandoNome(false));
+  };
+  const mostrarApelido = () => {
+    if (carregandoApelido) return;
+    if (apelido !== null) {
+      setApelidoVisivel(true);
+      return;
+    }
+    setCarregandoApelido(true);
+    axios.get(`${API_URL}/dashboard/acessos/dispositivo/${encodeURIComponent(mac)}/apelido`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => {
+      setApelido(r.data.apelido || '');
+      setApelidoVisivel(true);
+    }).catch(() => {})
+      .finally(() => setCarregandoApelido(false));
+  };
+  const salvarApelido = () => {
+    if (salvandoApelido) return;
+    setSalvandoApelido(true);
+    axios.put(`${API_URL}/dashboard/acessos/dispositivo/${encodeURIComponent(mac)}/apelido`, null, {
+      params: { apelido: rascunhoApelido },
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => {
+      setApelido(r.data.apelido);
+      setEditandoApelido(false);
+    }).catch(() => {})
+      .finally(() => setSalvandoApelido(false));
   };
   const periodoAtual = PERIODOS.find((p) => p.horas === horas) || PERIODOS[0];
   const baixarRelatorioDispositivo = async (formato) => {
@@ -169,6 +207,49 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '4px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <h3 className="detail-table-title" style={{ margin: 0 }}>{detalhe.hostname || 'Desconhecido'}</h3>
+          {podeRevelarIdentidade && (
+            editandoApelido ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  type="text"
+                  value={rascunhoApelido}
+                  onChange={(e) => setRascunhoApelido(e.target.value)}
+                  placeholder="apelido do dispositivo"
+                  style={{ fontSize: '12.5px', padding: '3px 8px', borderRadius: '6px' }}
+                  autoFocus
+                />
+                <button className="btn btn-secondary" disabled={salvandoApelido} onClick={salvarApelido}>
+                  {salvandoApelido ? 'salvando...' : 'salvar'}
+                </button>
+                <span style={{ cursor: 'pointer', opacity: 0.6, fontSize: '12px' }} onClick={() => setEditandoApelido(false)}>
+                  cancelar
+                </span>
+              </span>
+            ) : apelidoVisivel ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12.5px', opacity: 0.85 }}>{apelido ? apelido : '(sem apelido)'}</span>
+                <span
+                  style={{ cursor: 'pointer', textDecoration: 'underline dotted', opacity: 0.6, fontSize: '12px' }}
+                  onClick={() => { setRascunhoApelido(apelido || ''); setEditandoApelido(true); }}
+                >
+                  editar
+                </span>
+                <span
+                  style={{ cursor: 'pointer', textDecoration: 'underline dotted', opacity: 0.6, fontSize: '12px' }}
+                  onClick={() => setApelidoVisivel(false)}
+                >
+                  ocultar
+                </span>
+              </span>
+            ) : (
+              <span
+                style={{ fontSize: '12.5px', opacity: 0.7, cursor: 'pointer', textDecoration: 'underline dotted' }}
+                onClick={mostrarApelido}
+              >
+                {carregandoApelido ? 'consultando...' : 'mostrar apelido'}
+              </span>
+            )
+          )}
           {ativoAgora && (
             <span style={{ fontSize: '11px', padding: '3px 9px', borderRadius: '999px', background: 'rgba(58, 185, 122, 0.18)', color: '#3ab97a' }}>
               ● ativo agora
@@ -202,14 +283,16 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <button className="btn btn-secondary" onClick={() => baixarRelatorioDispositivo('pdf')}>
-          Baixar relatório (PDF) — {periodoAtual.label}
-        </button>
-        <button className="btn btn-secondary" onClick={() => baixarRelatorioDispositivo('html')}>
-          Baixar relatório (HTML) — {periodoAtual.label}
-        </button>
-      </div>
+      {podeRevelarIdentidade && (
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={() => baixarRelatorioDispositivo('pdf')}>
+            Baixar relatório (PDF) — {periodoAtual.label}
+          </button>
+          <button className="btn btn-secondary" onClick={() => baixarRelatorioDispositivo('html')}>
+            Baixar relatório (HTML) — {periodoAtual.label}
+          </button>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '20px' }}>
         <div className="metric-card">
