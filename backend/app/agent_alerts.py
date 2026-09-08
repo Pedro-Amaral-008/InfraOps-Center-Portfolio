@@ -214,6 +214,15 @@ async def verificar_failover_srv_arquivos(db: AsyncSession):
     tempo_sem_reportar = agora - ultima_coleta.coletado_em
 
     if tempo_sem_reportar < timedelta(minutes=LIMITE_MINUTOS_QUEDA):
+        registro_estado = await obter_estado(db, "srv-arq", "Failover")
+        if registro_estado and registro_estado.em_alerta:
+            await definir_estado(db, "srv-arq", "Failover", False)
+            msg = (
+                f"\U0001F514 *Monitoramento InfraOps Center*\n\n"
+                f"*SRV-ARQ VOLTOU A RESPONDER* \u2705\n\n"
+                f"\U0001F550 *Hor\u00e1rio:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+            )
+            await enviar_telegram(msg)
         return
 
     result = await db.execute(select(AutomationJob).where(
@@ -231,11 +240,18 @@ async def verificar_failover_srv_arquivos(db: AsyncSession):
     if ultimo_job and (agora - ultimo_job.criado_em) < timedelta(hours=1):
         return
 
+    registro_estado = await obter_estado(db, "srv-arq", "Failover")
+    ja_alertado = registro_estado.em_alerta if registro_estado else False
+    if ja_alertado:
+        return  # ja avisamos dessa queda, nao repete a cada ciclo
+
     result = await db.execute(select(ConfiguracaoSistema).where(ConfiguracaoSistema.chave == "failover_automatico"))
     config = result.scalar_one_or_none()
     automatico_ativo = config.valor == "ligado" if config else False
 
     minutos_sem_reportar = int(tempo_sem_reportar.total_seconds() / 60)
+
+    await definir_estado(db, "srv-arq", "Failover", True)
 
     if automatico_ativo:
         job = AutomationJob(
