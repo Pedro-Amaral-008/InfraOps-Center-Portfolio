@@ -346,9 +346,22 @@ def _parse_timestamp(valor):
         return None
 
 
+MAX_BYTES_POR_CICLO = 20_000_000  # 20 MB por ciclo - nunca tenta puxar um backlog inteiro de uma vez
+LIMITE_BACKLOG_DESCARTAVEL = 500_000_000  # 500 MB - acima disso, pula pro fim e descarta backlog velho
+
+
 def _puxar_novas_linhas_sync(offset: int):
     """Conecta via SSH no pfSense e retorna (bytes_novos, novo_offset, tamanho_atual).
-    E sincrono (paramiko) - rodar sempre via asyncio.to_thread."""
+    E sincrono (paramiko) - rodar sempre via asyncio.to_thread.
+
+    Le no maximo MAX_BYTES_POR_CICLO por chamada, pra nunca mais travar
+    tentando ler um volume gigante de uma vez so (ja aconteceu: o Suricata
+    gerou ~33GB de alerta em menos de 2h e o sync ficou preso indefinidamente
+    tentando puxar tudo numa unica chamada SSH). Se o backlog acumulado
+    passar de LIMITE_BACKLOG_DESCARTAVEL (por exemplo apos o servidor ficar
+    fora do ar por um tempo), pula direto pro fim do arquivo e descarta o
+    backlog antigo - nao vale a pena gastar horas reprocessando alerta velho
+    aos poucos."""
     cliente = paramiko.SSHClient()
     cliente.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     cliente.connect(
@@ -365,11 +378,23 @@ def _puxar_novas_linhas_sync(offset: int):
         if tamanho_atual < offset:
             offset_efetivo = 0
 
+        backlog = tamanho_atual - offset_efetivo
+        if backlog > LIMITE_BACKLOG_DESCARTAVEL:
+            print(f"AVISO sync suricata: backlog de {backlog} bytes excede o limite, pulando pro fim do arquivo")
+            offset_efetivo = tamanho_atual
+
         if tamanho_atual <= offset_efetivo:
             return b"", offset_efetivo, tamanho_atual
 
-        _, stdout, _ = cliente.exec_command(f"tail -c +{offset_efetivo + 1} {EVE_JSON_REMOTE_PATH}")
+        bytes_a_ler = min(tamanho_atual - offset_efetivo, MAX_BYTES_POR_CICLO)
+        _, stdout, _ = cliente.exec_command(
+            f"tail -c +{offset_efetivo + 1} {EVE_JSON_REMOTE_PATH} | head -c {bytes_a_ler}"
+        )
         dados = stdout.read()
+        if len(dados) == bytes_a_ler and tamanho_atual - offset_efetivo > bytes_a_ler:
+            ultimo_nl = dados.rfind(b"\n")
+            if ultimo_nl != -1:
+                dados = dados[:ultimo_nl + 1]
         return dados, offset_efetivo + len(dados), tamanho_atual
     finally:
         cliente.close()
