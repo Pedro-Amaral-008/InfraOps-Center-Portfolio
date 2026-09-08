@@ -736,7 +736,7 @@ async def registrar_metrica_agente(
         uptime_horas=dados.uptime_horas,
         discos_json=discos_lista,
         latencia_ms=dados.latencia_ms,
-        coletado_em=datetime.fromisoformat(dados.coletado_em),
+        coletado_em=datetime.fromisoformat(dados.coletado_em).replace(tzinfo=timezone.utc),
     )
     db.add(metrica)
     await db.commit()
