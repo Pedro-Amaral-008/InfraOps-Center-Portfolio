@@ -898,8 +898,35 @@ async def loop_recategorizacao_diaria():
                 print(f"recategorizacao diaria: {atualizados} linhas atualizadas")
             except Exception as e:
                 print(f"ERRO em recategorizar_dominios_outros: {e}")
+_conexao_lock_loops_de_fundo = None
+
+
 @app.on_event("startup")
 async def iniciar_verificacao_agentes():
+    global _conexao_lock_loops_de_fundo
+    import asyncpg
+    conexao = None
+    obteve_lock = False
+    try:
+        conexao = await asyncpg.connect(
+            user=settings.postgres_user,
+            password=settings.postgres_password,
+            host=settings.postgres_host,
+            port=settings.postgres_port,
+            database=settings.postgres_db,
+        )
+        obteve_lock = await conexao.fetchval("SELECT pg_try_advisory_lock(918273645)")
+    except Exception as e:
+        print(f"ERRO ao tentar obter lock dos loops de fundo: {e}")
+
+    if not obteve_lock:
+        print("loops de fundo: outro worker ja detem o lock, nao vou duplicar aqui")
+        if conexao is not None:
+            await conexao.close()
+        return
+
+    _conexao_lock_loops_de_fundo = conexao  # mantem a conexao aberta pra segurar o lock enquanto o worker viver
+    print("loops de fundo: lock obtido, iniciando tarefas periodicas neste worker")
     asyncio.create_task(loop_verificacao_agentes())
     asyncio.create_task(loop_trafego_pfsense())
     asyncio.create_task(loop_resumo_diario())
