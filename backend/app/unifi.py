@@ -429,7 +429,29 @@ async def get_historico_consumo_agregado(db, minutos: float = 60, num_baldes: in
     return resultado
 
 
+_CACHE_PICOS_SUSTENTADOS = {}
+_CACHE_PICOS_TTL_SEGUNDOS = 120
+
+
 async def get_picos_sustentados(db, minutos: float = 60, limiar_mbps: float = 60, duracao_minima_segundos: int = 60):
+    """Camada de cache: o calculo abaixo varre toda a janela de amostras (pode
+    ser dias inteiros) e reprocessa amostra a amostra em Python, entao e caro
+    demais pra rodar a cada poll do frontend (a cada ~15s). Resultado fica em
+    cache por _CACHE_PICOS_TTL_SEGUNDOS."""
+    import time
+    chave = (round(minutos), limiar_mbps, duracao_minima_segundos)
+    agora = time.monotonic()
+    cache_hit = _CACHE_PICOS_SUSTENTADOS.get(chave)
+    if cache_hit is not None:
+        calculado_em, resultado = cache_hit
+        if agora - calculado_em < _CACHE_PICOS_TTL_SEGUNDOS:
+            return resultado
+    resultado = await _get_picos_sustentados_impl(db, minutos, limiar_mbps, duracao_minima_segundos)
+    _CACHE_PICOS_SUSTENTADOS[chave] = (agora, resultado)
+    return resultado
+
+
+async def _get_picos_sustentados_impl(db, minutos: float = 60, limiar_mbps: float = 60, duracao_minima_segundos: int = 60):
     """Analisa o historico POR DISPOSITIVO (nao a rede toda somada) e
     encontra trechos onde o download OU o upload de UM UNICO dispositivo
     ficou >= limiar_mbps de forma continua por pelo menos
