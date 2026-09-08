@@ -1,4 +1,5 @@
 import httpx
+import asyncio
 from app.config import settings
 
 SITE_ID = "88f7af54-98f8-306a-a1c7-c9349722b1f6"
@@ -390,6 +391,8 @@ async def _get_historico_consumo_agregado_impl(db, minutos: float = 60, num_bald
 
     if not amostras:
         return []
+    return await asyncio.to_thread(_calcular_historico_agregado, amostras, num_baldes)
+def _calcular_historico_agregado(amostras, num_baldes):
 
     rodadas = {}
     for a in amostras:
@@ -451,6 +454,8 @@ async def _get_historico_consumo_agregado_impl(db, minutos: float = 60, num_bald
     return resultado
 
 
+
+
 _CACHE_PICOS_SUSTENTADOS = {}
 _CACHE_PICOS_TTL_SEGUNDOS = 120
 
@@ -492,6 +497,10 @@ async def _get_picos_sustentados_impl(db, minutos: float = 60, limiar_mbps: floa
     )
     amostras = result.scalars().all()
 
+    return await asyncio.to_thread(_calcular_picos_sustentados, amostras, limiar_mbps, duracao_minima_segundos)
+
+
+def _calcular_picos_sustentados(amostras, limiar_mbps, duracao_minima_segundos):
     por_mac = {}
     for a in amostras:
         por_mac.setdefault(a.mac, []).append(a)
