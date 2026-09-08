@@ -340,7 +340,29 @@ async def get_top_consumo_semanal(db, dias: int = 7, minimo: int = 5):
     return resultado[:max(minimo, len(resultado))] if len(resultado) >= minimo else resultado
 
 
+_CACHE_HISTORICO_AGREGADO = {}
+_CACHE_HISTORICO_TTL_SEGUNDOS = 60
+
+
 async def get_historico_consumo_agregado(db, minutos: float = 60, num_baldes: int = 150):
+    """Camada de cache: o calculo abaixo carrega todas as amostras cruas da
+    janela e reprocessa em Python (agrupamento em rodadas e depois em
+    baldes), entao e caro demais pra rodar a cada poll do frontend. Resultado
+    fica em cache por _CACHE_HISTORICO_TTL_SEGUNDOS."""
+    import time
+    chave = (round(minutos), num_baldes)
+    agora = time.monotonic()
+    cache_hit = _CACHE_HISTORICO_AGREGADO.get(chave)
+    if cache_hit is not None:
+        calculado_em, resultado = cache_hit
+        if agora - calculado_em < _CACHE_HISTORICO_TTL_SEGUNDOS:
+            return resultado
+    resultado = await _get_historico_consumo_agregado_impl(db, minutos, num_baldes)
+    _CACHE_HISTORICO_AGREGADO[chave] = (agora, resultado)
+    return resultado
+
+
+async def _get_historico_consumo_agregado_impl(db, minutos: float = 60, num_baldes: int = 150):
     """Agrega as amostras do periodo em ate 'num_baldes' pontos no tempo.
 
     IMPORTANTE: o "total da rede" de cada ponto e a MEDIA das rodadas de
