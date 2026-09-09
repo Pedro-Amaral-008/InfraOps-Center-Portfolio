@@ -18,6 +18,42 @@ from app.schemas import LoginRequest, LoginResponse, TrocarSenhaRequest, BackupE
 from app.auth import verificar_senha, criar_token, hash_senha
 from app.deps import get_current_user, exigir_papel
 from app.audit import registrar_log
+import time
+from functools import wraps
+
+
+def cache_ttl(segundos: float = 5):
+    """Cacheia em memoria o retorno de uma rota assincrona por alguns segundos.
+
+    Usado nas rotas de uptime/historico/trafego, que fazem agregacoes pesadas
+    no banco e sao chamadas repetidamente por multiplos clientes com o painel
+    aberto ao mesmo tempo (ex: TV de monitoramento + notebook). O TTL e igual
+    ao menor intervalo de atualizacao selecionavel no painel (5s), entao nao
+    atrasa nenhuma atualizacao que o usuario configurar - so evita que
+    requisicoes quase simultaneas recalculem a mesma coisa em paralelo.
+    Cache e por processo (cada worker do uvicorn tem o seu).
+    """
+    def decorador(func):
+        cache = {}
+
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            chave_kwargs = tuple(sorted(
+                (k, v) for k, v in kwargs.items() if k not in ("usuario", "db")
+            ))
+            chave = (args, chave_kwargs)
+            agora = time.monotonic()
+            if chave in cache:
+                valor, expira_em = cache[chave]
+                if agora < expira_em:
+                    return valor
+            resultado = await func(*args, **kwargs)
+            cache[chave] = (resultado, agora + segundos)
+            return resultado
+
+        return wrapper
+    return decorador
+
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -558,6 +594,7 @@ async def dashboard_metrics_latencia(
 
 
 @app.get("/dashboard/servidores/uptime")
+@cache_ttl(5)
 async def dashboard_servidores_uptime(
     dias: int = 30,
     usuario: User = Depends(get_current_user),
@@ -565,6 +602,7 @@ async def dashboard_servidores_uptime(
     from app.dashboard import get_uptime_por_job
     return await get_uptime_por_job("blackbox-servidores-tcp|blackbox-servidor-backup-principal", dias)
 @app.get("/dashboard/access-points/uptime")
+@cache_ttl(5)
 async def dashboard_access_points_uptime(
     dias: int = 30,
     usuario: User = Depends(get_current_user),
@@ -576,6 +614,7 @@ async def dashboard_backups(usuario: User = Depends(get_current_user), db: Async
     from app.dashboard import get_backups_detalhado
     return await get_backups_detalhado(db)
 @app.get("/dashboard/backups/uptime")
+@cache_ttl(5)
 async def dashboard_backups_uptime(
     dias: int = 30,
     usuario: User = Depends(get_current_user),
@@ -1003,6 +1042,7 @@ async def dashboard_unifi_top_consumo_semanal(
     from app.unifi import get_top_consumo_semanal
     return await get_top_consumo_semanal(db, dias, minimo)
 @app.get("/dashboard/unifi/consumo/historico")
+@cache_ttl(5)
 async def dashboard_unifi_consumo_historico(
     minutos: float = 60,
     usuario: User = Depends(get_current_user),
@@ -1119,6 +1159,7 @@ async def dashboard_pfsense_vlans(
     from app.pfsense import get_vlans_status_trafego
     return await get_vlans_status_trafego()
 @app.get("/dashboard/pfsense/vpns/uptime")
+@cache_ttl(5)
 async def dashboard_pfsense_vpns_uptime(
     dias: int = 30,
     usuario: User = Depends(get_current_user),
@@ -1127,6 +1168,7 @@ async def dashboard_pfsense_vpns_uptime(
     from app.dashboard import get_vpn_vlan_uptime
     return await get_vpn_vlan_uptime(db, "vpn", dias)
 @app.get("/dashboard/pfsense/vlans/uptime")
+@cache_ttl(5)
 async def dashboard_pfsense_vlans_uptime(
     dias: int = 30,
     usuario: User = Depends(get_current_user),
@@ -1137,6 +1179,7 @@ async def dashboard_pfsense_vlans_uptime(
 
 
 @app.get("/dashboard/pfsense/links/uptime")
+@cache_ttl(5)
 async def dashboard_pfsense_uptime(
     dias: int = 30,
     usuario: User = Depends(get_current_user),
@@ -1172,6 +1215,7 @@ async def dashboard_pfsense_uptime(
 
 
 @app.get("/dashboard/pfsense/trafego/history")
+@cache_ttl(5)
 async def dashboard_pfsense_trafego_history(
     minutos: int = 60,
     usuario: User = Depends(get_current_user),
