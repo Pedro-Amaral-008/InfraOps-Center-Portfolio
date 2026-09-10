@@ -449,8 +449,8 @@ async def verificar_protheus(db):
 
             msg_confirmado = (
                 f"🔴🔴 *InfraOps Center — QUEDA CONFIRMADA DO PROTHEUS*\n\n"
-                f"🖥️ *Servidor Protheus está offline há mais de {MINUTOS_PARA_ALERTA_CONFIRMADO} minutos* — "
-                f"{motivo_curto}, confirmado por *E-Ops*, *porta do serviço* e *{texto_origens}* ao mesmo tempo.\n\n"
+                f"🖥️ *Protheus offline há {MINUTOS_PARA_ALERTA_CONFIRMADO}+ min* — *{motivo_curto}*\n"
+                f"Confirmado por: E-Ops, porta do serviço, {texto_origens}\n\n"
                 f"{nota_google}\n\n"
                 f"*Diagnóstico:*\n{diagnostico}\n\n"
                 f"*Pings no momento da confirmação:*\n"
