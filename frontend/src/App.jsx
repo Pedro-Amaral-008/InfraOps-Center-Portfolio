@@ -367,13 +367,16 @@ function App() {
             </div>
           )}
 
-          {abaAtiva === 'servidores' && agentes.length > 0 && (
+          {abaAtiva === 'servidores' && (agentes.length > 0 || protheusStatus) && (
             <>
               <h3 className="detail-table-title" style={{ marginBottom: '16px' }}>Recursos dos Servidores</h3>
               <div className="metrics-grid" style={{ marginBottom: '32px' }}>
                 {agentes.map((agente) => (
                   <ServerResourceCard key={agente.instance} agente={agente} />
                 ))}
+                {protheusStatus && (
+                  <ProtheusCard status={protheusStatus} historico={protheusHistorico} eventos={protheusEventos} />
+                )}
               </div>
               {servidoresUptime.length > 0 && (
                 <div className="detail-table" style={{ marginBottom: '32px' }}>
@@ -400,15 +403,6 @@ function App() {
                 </div>
               )}
               <h3 className="detail-table-title" style={{ marginBottom: '16px' }}>Latência</h3>
-            </>
-          )}
-
-          {abaAtiva === 'servidores' && protheusStatus && (
-            <>
-              <h3 className="detail-table-title" style={{ marginBottom: '16px' }}>Servidor Protheus (ERP)</h3>
-              <div className="metrics-grid" style={{ marginBottom: '32px', maxWidth: '420px' }}>
-                <ProtheusCard status={protheusStatus} historico={protheusHistorico} eventos={protheusEventos} />
-              </div>
             </>
           )}
 
