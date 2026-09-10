@@ -104,6 +104,65 @@
   flex-shrink: 0;
 }
 
+.uptime-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.uptime-chip {
+  background-color: var(--bg-elevated, var(--bg-secondary));
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.uptime-chip-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.uptime-chip-pct {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.uptime-chip-execs {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.uptime-chip-track {
+  height: 3px;
+  background-color: var(--border-default);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.uptime-chip-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.hist-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 11px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
 .status-tag-online {
   background-color: rgba(46, 204, 113, 0.15);
   color: var(--status-online);

@@ -722,28 +722,25 @@ function App() {
                   )}
                 </tbody>
               </table>
-              <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Disponibilidade — Últimos 30 dias</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Backup</th>
-                    <th>Uptime</th>
-                    <th>Execuções</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {backupsUptime.map((u) => (
-                    <tr key={`${u.instance}-${u.backup_type}`}>
-                      <td>{u.nome}</td>
-                      <td>{u.uptime_percent !== null ? `${u.uptime_percent}%` : '—'}</td>
-                      <td>{u.execucoes_com_sucesso} de {u.total_execucoes} execuções bem-sucedidas</td>
-                    </tr>
-                  ))}
-                  {backupsUptime.length === 0 && (
-                    <tr><td colSpan="3">Carregando...</td></tr>
-                  )}
-                </tbody>
-              </table>
+                            <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Disponibilidade — Últimos 30 dias</h3>
+              <div className="uptime-chip-grid">
+                {backupsUptime.map((u) => {
+                  const cor = u.uptime_percent === null ? 'var(--text-tertiary)' : u.uptime_percent >= 90 ? 'var(--status-online)' : u.uptime_percent >= 70 ? 'var(--status-warning)' : 'var(--status-offline)';
+                  return (
+                    <div className="uptime-chip" key={`${u.instance}-${u.backup_type}`}>
+                      <div className="uptime-chip-label">{u.nome}</div>
+                      <span className="uptime-chip-pct" style={{ color: cor }}>{u.uptime_percent !== null ? `${u.uptime_percent}%` : '—'}</span>
+                      <div className="uptime-chip-execs">{u.execucoes_com_sucesso} de {u.total_execucoes} execuções</div>
+                      <div className="uptime-chip-track">
+                        <div className="uptime-chip-fill" style={{ width: `${u.uptime_percent ?? 0}%`, backgroundColor: cor }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {backupsUptime.length === 0 && (
+                  <div className="loading-message">Carregando...</div>
+                )}
+              </div>
 
               <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Histórico — Últimos 30 dias</h3>
               <table>
@@ -759,7 +756,7 @@ function App() {
                 <tbody>
                   {backupsHistorico.map((h) => (
                     <tr key={h.id}>
-                      <td>{h.job_name}</td>
+                      <td><span className="hist-icon" style={{ color: h.status === 'Success' ? 'var(--status-online)' : h.status === 'Warning' ? 'var(--status-warning)' : 'var(--status-offline)', backgroundColor: h.status === 'Success' ? 'rgba(46, 204, 113, 0.15)' : h.status === 'Warning' ? 'rgba(243, 156, 18, 0.15)' : 'rgba(231, 76, 60, 0.15)' }}>⛁</span>{h.job_name}</td>
                       <td>{h.backup_type || '—'}</td>
                       <td>{formatarTamanho(h.tamanho_transferido_gb)}</td>
                       <td>{new Date(h.executado_em).toLocaleString('pt-BR')}</td>
