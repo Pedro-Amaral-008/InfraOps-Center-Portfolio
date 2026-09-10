@@ -13,6 +13,7 @@ REFERENCIA_IP = "8.8.8.8"  # Google DNS, usado so pra comparacao/validacao
 PFSENSE_SSH_USER = "infraops-readonly"
 PFSENSE_SSH_KEY = "/home/appuser/.ssh/pfsense_readonly"
 MINUTOS_PARA_ALERTA_CONFIRMADO = 5
+PROTHEUS_PORTA_SERVICO = 443  # HTTPS - porta do servico/portal do Protheus
 
 
 async def fazer_ping(ip: str, quantidade: int = QUANTIDADE_PINGS):
@@ -91,6 +92,27 @@ async def fazer_ping_duplo_via_pfsense(ip1: str, ip2: str, quantidade: int = QUA
         return (None, None), (None, None)
 
 
+async def testar_porta_protheus(host: str, porta: int = PROTHEUS_PORTA_SERVICO, timeout: float = 5.0):
+    """Testa se a porta do servico Protheus aceita conexao TCP - mais preciso
+    que ICMP pra saber se o SERVICO esta de pe: ICMP pode estar bloqueado ou
+    deprorizado pelo servidor mesmo com o servico normal, e vice-versa (o
+    servidor pode responder ping e o servico estar travado). Retorna True se
+    conectou, False se recusou/deu timeout - nunca None, porque aqui a falta
+    de resposta ja significa que ninguem atendeu a conexao."""
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, porta), timeout=timeout
+        )
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
 def classificar_estado(perda_percentual: float) -> str:
     if perda_percentual >= 100:
         return "offline"
@@ -164,6 +186,17 @@ async def houve_problema_na_rede_local() -> bool:
     return False
 
 
+def _fmt_ping(perda, latencia):
+    """Formata um resultado de ping pra mensagem: '12% perda (14.5ms)' ou
+    'sem dado (SSH falhou)' quando a origem nem conseguiu medir."""
+    if perda is None:
+        return "sem dado (SSH falhou)"
+    texto = f"{perda:.0f}% perda"
+    if latencia is not None:
+        texto += f" ({latencia:.1f}ms)"
+    return texto
+
+
 _confirmado_offline_desde = None
 _alerta_confirmado_enviado = False
 
@@ -171,10 +204,16 @@ _alerta_confirmado_enviado = False
 async def verificar_protheus(db):
     global _confirmado_offline_desde, _alerta_confirmado_enviado
 
-    (perda, latencia), (perda_ref, latencia_ref), ((perda_pfsense, latencia_pfsense), (perda_pfsense_ref, latencia_pfsense_ref)) = await asyncio.gather(
+    (
+        (perda, latencia),
+        (perda_ref, latencia_ref),
+        ((perda_pfsense, latencia_pfsense), (perda_pfsense_ref, latencia_pfsense_ref)),
+        porta_servico_ok,
+    ) = await asyncio.gather(
         fazer_ping(settings.protheus_ip),
         fazer_ping(REFERENCIA_IP),
         fazer_ping_duplo_via_pfsense(settings.protheus_ip, REFERENCIA_IP),
+        testar_porta_protheus(settings.protheus_ip),
     )
     novo_estado = classificar_estado(perda)
     agora = datetime.now(timezone.utc)
@@ -205,50 +244,16 @@ async def verificar_protheus(db):
         pfsense_latencia_ms=latencia_pfsense,
         pfsense_referencia_perda_percentual=perda_pfsense_ref,
         pfsense_referencia_latencia_ms=latencia_pfsense_ref,
+        porta_servico_ok=porta_servico_ok,
     ))
     await db.commit()
 
-    if mudou_estado and not rede_ok:
-        # So alerta na hora quando a queda coincide com problema na nossa
-        # propria rede/AP. Sem isso, fica so registrado e entra no resumo
-        # periodico das 08h/18h.
-        result = await db.execute(
-            select(ProtheusStatus.verificado_em)
-            .where(ProtheusStatus.estado != estado_anterior, ProtheusStatus.verificado_em < agora)
-            .order_by(ProtheusStatus.verificado_em.desc())
-            .limit(1)
-        )
-        marco_diferente = result.scalar_one_or_none()
-
-        inicio_do_estado = None
-        if marco_diferente:
-            result = await db.execute(
-                select(func.min(ProtheusStatus.verificado_em))
-                .where(ProtheusStatus.estado == estado_anterior, ProtheusStatus.verificado_em > marco_diferente)
-            )
-            inicio_do_estado = result.scalar_one_or_none()
-
-        duracao_str = _formatar_duracao((agora - inicio_do_estado).total_seconds()) if inicio_do_estado else "algum tempo"
-
-        emojis = {"online": "🟢", "intermitente": "🟡", "offline": "🔴"}
-
-        resumo_rede = await formatar_resumo_rede()
-
-        msg = (
-            f"🔔 *Monitoramento InfraOps Center*\n\n"
-            f"*PROTHEUS MUDOU DE ESTADO* {emojis.get(novo_estado, '⚪')} _(coincide com instabilidade na nossa rede)_\n\n"
-            f"🖥️ *Servidor:* Protheus ({settings.protheus_hostname})\n"
-            f"🔁 *{estado_anterior.upper()} → {novo_estado.upper()}*\n"
-            f"⏱️ *Ficou {estado_anterior} por:* {duracao_str}\n"
-        )
-        if latencia is not None:
-            msg += f"📶 *Latência atual:* {latencia:.1f}ms\n"
-        msg += f"📉 *Perda de pacotes:* {perda:.0f}%\n"
-        msg += f"📡 *Perda pro Google (8.8.8.8) no mesmo instante:* {perda_ref:.0f}%\n"
-        msg += f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
-        msg += f"*Estado da nossa rede no momento:*\n{resumo_rede}"
-
-        await enviar_telegram(msg)
+    # Alertas instantaneos por "mudou de estado" foram removidos de proposito.
+    # Toda queda isolada (mesmo as que coincidem com nossa rede) fica so
+    # registrada no banco (campo rede_ok) e aparece no resumo das 08h/18h.
+    # O unico alerta que dispara na hora, fora desses horarios, e o de queda
+    # confirmada por duas origens ao mesmo tempo, logo abaixo - e ele traz o
+    # detalhamento completo (Google e Protheus, pelas duas origens).
 
     # Alerta separado dos dois de cima: dispara so quando as DUAS origens
     # (E-Ops e pfSense) confirmarem o Protheus offline ao mesmo tempo, por
@@ -257,6 +262,7 @@ async def verificar_protheus(db):
         classificar_estado(perda) == "offline"
         and perda_pfsense is not None
         and classificar_estado(perda_pfsense) == "offline"
+        and porta_servico_ok is False
     )
 
     if confirmado_offline_agora:
@@ -267,17 +273,52 @@ async def verificar_protheus(db):
         duracao_confirmada = (agora - _confirmado_offline_desde).total_seconds()
 
         if duracao_confirmada >= MINUTOS_PARA_ALERTA_CONFIRMADO * 60 and not _alerta_confirmado_enviado:
+            google_pi_ok = perda_ref < 50
+            google_pfsense_ok = perda_pfsense_ref is not None and perda_pfsense_ref < 50
+
+            if not google_pi_ok or not google_pfsense_ok:
+                diagnostico = (
+                    "⚠️ *Culpa provável: nossa rede/internet.* O Google também está com "
+                    "perda agora (medido por nós e/ou pelo pfSense) — não dá pra confirmar "
+                    "que o problema é exclusivo do Protheus."
+                )
+            else:
+                diagnostico = (
+                    "✅ *Culpa provável: Protheus.* O Google respondeu normalmente nos dois "
+                    "lados (E-Ops e pfSense) no mesmo instante — a rede/internet está ok, "
+                    "o problema parece ser do próprio servidor Protheus."
+                )
+
             msg_confirmado = (
                 f"🔴🔴 *InfraOps Center — QUEDA CONFIRMADA DO PROTHEUS*\n\n"
                 f"🖥️ *Servidor:* Protheus ({settings.protheus_hostname})\n"
-                f"⏱️ *Offline há mais de {MINUTOS_PARA_ALERTA_CONFIRMADO} minutos*, confirmado por *E-Ops* e *pfSense* ao mesmo tempo\n"
-                f"📉 *Perda (E-Ops):* {perda:.0f}% | *Perda (pfSense):* {perda_pfsense:.0f}%\n"
+                f"⏱️ *Offline há mais de {MINUTOS_PARA_ALERTA_CONFIRMADO} minutos*, confirmado por *E-Ops*, *pfSense* e *porta do serviço* ao mesmo tempo\n\n"
+                f"*Pings no momento da confirmação:*\n"
+                f"📍 E-Ops → Protheus: {_fmt_ping(perda, latencia)}\n"
+                f"📍 E-Ops → Google: {_fmt_ping(perda_ref, latencia_ref)}\n"
+                f"📍 pfSense → Protheus: {_fmt_ping(perda_pfsense, latencia_pfsense)}\n"
+                f"📍 pfSense → Google: {_fmt_ping(perda_pfsense_ref, latencia_pfsense_ref)}\n"
+                f"🔌 Porta {PROTHEUS_PORTA_SERVICO} (serviço): {'aberta' if porta_servico_ok else 'FECHADA/recusada'}\n\n"
+                f"{diagnostico}\n\n"
                 f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
                 f"_Este alerta é independente dos resumos das 08h/18h — dispara só quando confirmado por duas origens._"
             )
             await enviar_telegram(msg_confirmado)
             _alerta_confirmado_enviado = True
     else:
+        if _alerta_confirmado_enviado:
+            duracao_total_str = (
+                _formatar_duracao((agora - _confirmado_offline_desde).total_seconds())
+                if _confirmado_offline_desde else "tempo desconhecido"
+            )
+            msg_recuperado = (
+                f"🟢 *InfraOps Center — Protheus voltou*\n\n"
+                f"🖥️ *Servidor:* Protheus ({settings.protheus_hostname})\n"
+                f"✅ Voltou a responder, confirmado por *E-Ops*, *pfSense* e *porta do serviço*\n"
+                f"⏱️ *Ficou offline por:* {duracao_total_str} (queda confirmada por duas origens)\n"
+                f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+            )
+            await enviar_telegram(msg_recuperado)
         _confirmado_offline_desde = None
         _alerta_confirmado_enviado = False
 
@@ -327,7 +368,8 @@ def _formatar_lista_quedas(quedas, max_listadas=15):
             f"({_formatar_duracao(q['duracao_segundos'])})"
         )
         if q.get("google_pct") is not None:
-            linha += f" | Google no mesmo instante: {q['google_pct']:.0f}% perda"
+            culpa = "Protheus" if q["google_pct"] < 50 else "rede/internet"
+            linha += f" | Google: {q['google_pct']:.0f}% perda → culpa provável: {culpa}"
         linhas.append(linha)
     if len(quedas) > max_listadas:
         linhas.append(f"_(+ {len(quedas) - max_listadas} outra(s) queda(s) não listada(s))_")
@@ -377,6 +419,9 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
     tempo_total_pfsense = sum(q["duracao_segundos"] for q in quedas_pfsense)
     coincidiu_com_rede = any(_coincidiu_eops(q) for q in quedas_eops)
 
+    checagens_porta = [r.porta_servico_ok for r in registros if r.porta_servico_ok is not None]
+    falhas_porta = sum(1 for ok in checagens_porta if not ok)
+
     status_atual = await get_protheus_status_atual(db)
 
     msg = f"🔔 *InfraOps Center — Resumo Protheus ({rotulo})*\n\n"
@@ -398,6 +443,9 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
             msg += f"⏱️ Tempo total (pfSense): {_formatar_duracao(tempo_total_pfsense)}\n"
         else:
             msg += "✅ Nenhuma queda vista pelo pfSense\n"
+
+        if checagens_porta:
+            msg += f"\n🔌 *Porta {PROTHEUS_PORTA_SERVICO} (serviço):* falhou em {falhas_porta}/{len(checagens_porta)} verificações no período\n"
 
         msg += "\n"
         if coincidiu_com_rede:

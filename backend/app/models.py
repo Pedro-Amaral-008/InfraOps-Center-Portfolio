@@ -175,6 +175,10 @@ class ProtheusStatus(Base):
     # e do Protheus especifico ou da rede/rota dele ate a internet.
     pfsense_referencia_perda_percentual = Column(Numeric(5, 2), nullable=True)
     pfsense_referencia_latencia_ms = Column(Numeric(10, 3), nullable=True)
+    # Teste de conexao TCP na porta do servico/portal do Protheus (nao so
+    # ICMP) - confirma que o SERVICO esta aceitando conexao, nao so que o
+    # servidor responde ping.
+    porta_servico_ok = Column(Boolean, nullable=True)
 
 
 class EventoSistema(Base):
