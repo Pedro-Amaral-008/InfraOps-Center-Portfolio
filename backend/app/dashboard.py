@@ -58,6 +58,17 @@ def _agrupar_eventos_probe(pontos):
     return eventos
 
 
+MAPA_NOME_PROMETHEUS_PARA_INSTANCE_AGENTE = {
+    "Srv Impressao": "srvprint",
+    "Srv Backup Principal": "srv-bkp",
+    "Srv Monitoramento": "srv-monitoramento",
+    "Srv Arquivos": "srv-arq",
+    "Srv Proxy Veeam": "srv-proxy",
+    "Srv SysAdmin": "srv-sysadmin",
+    "Srv Arquivos Espelho": "srvarqred",
+}
+
+
 async def get_servidores_status_completo(job: str, dias_eventos: int = 30):
     """Status completo por servidor (estado, latencia, uptime, historico e
     ocorrencias), no mesmo formato usado pelo card do Protheus - casado pelo
@@ -116,7 +127,9 @@ async def get_servidores_status_completo(job: str, dias_eventos: int = 30):
             if pontos:
                 desde = pontos[0][0]
 
-        resultado[nome] = {
+        chave = MAPA_NOME_PROMETHEUS_PARA_INSTANCE_AGENTE.get(nome, nome)
+        resultado[chave] = {
+            "nome_prometheus": nome,
             "estado": estado_atual_str,
             "latencia_ms": duracao_por_instance.get(instance),
             "perda_pacotes_percentual": 0 if online_agora else 100,
