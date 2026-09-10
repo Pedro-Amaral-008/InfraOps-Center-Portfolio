@@ -12,6 +12,14 @@
   border-color: var(--border-default);
 }
 
+.metric-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
 /* Titulo de painel, e nao rotulo de apoio: vai em branco, como o nome do
    servidor no cartao de recursos. Era cinza porque o cartao antigo, no
    #3f3f3f, ja era claro o bastante para o branco pesar. */
@@ -20,7 +28,16 @@
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 0.1px;
-  margin-bottom: 18px;
+}
+
+.metric-chart-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* Os graficos entram depois dos cartoes, fechando a sequencia da tela. */

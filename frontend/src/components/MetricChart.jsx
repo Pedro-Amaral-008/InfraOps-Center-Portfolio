@@ -13,10 +13,27 @@ function MetricChart({ titulo, dados, cor = '#3B9FD1', unidade = '%', altura = 2
   }));
 
   const gradientId = `grad-${titulo.replace(/[^a-zA-Z0-9]/g, '')}`;
+  const ultimoPonto = dadosFormatados[dadosFormatados.length - 1];
+  const ultimoValorFormatado = ultimoPonto
+    ? (unidade === '%' ? Math.round(ultimoPonto.valor) : Number(ultimoPonto.valor.toFixed(2)))
+    : null;
+
+  function renderUltimoPonto(props) {
+    const { cx, cy, index } = props;
+    if (index !== dadosFormatados.length - 1) return null;
+    return <circle key="dot-final" cx={cx} cy={cy} r={4} fill={cor} stroke="var(--bg-secondary)" strokeWidth={2} />;
+  }
 
   return (
     <div className="metric-chart-box">
-      <h3 className="metric-chart-title">{titulo}</h3>
+      <div className="metric-chart-header">
+        <h3 className="metric-chart-title">{titulo}</h3>
+        {ultimoPonto && (
+          <span className="metric-chart-value" style={{ color: cor, backgroundColor: `${cor}26` }}>
+            {ultimoValorFormatado}{unidade}
+          </span>
+        )}
+      </div>
       {dadosFormatados.length === 0 ? (
         <div className="metric-chart-empty">Sem dados disponíveis</div>
       ) : (
@@ -64,7 +81,7 @@ function MetricChart({ titulo, dados, cor = '#3B9FD1', unidade = '%', altura = 2
               stroke={cor}
               strokeWidth={2.25}
               fill={`url(#${gradientId})`}
-              dot={false}
+              dot={renderUltimoPonto}
               activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--bg-secondary)' }}
               unit={unidade}
             />
