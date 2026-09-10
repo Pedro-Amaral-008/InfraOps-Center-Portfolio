@@ -27,37 +27,31 @@ function Auditoria({ token }) {
       )}
 
       {!erro && (
-        <table>
-          <thead>
-            <tr>
-              <th>Usuário</th>
-              <th>Ação</th>
-              <th>Detalhes</th>
-              <th>Resultado</th>
-              <th>IP de Origem</th>
-              <th>Data/Hora</th>
-            </tr>
-          </thead>
-          <tbody>
-            {logs.map((log) => (
-              <tr key={log.id}>
-                <td>{log.username}</td>
-                <td>{log.acao}</td>
-                <td>{log.detalhes || '—'}</td>
-                <td>
-                  <span className={`status-tag status-tag-${log.resultado === 'sucesso' ? 'online' : log.resultado === 'solicitado' ? 'warning' : 'offline'}`}>
-                    {log.resultado === 'sucesso' ? 'Sucesso' : log.resultado === 'solicitado' ? 'Solicitado' : 'Falha'}
-                  </span>
-                </td>
-                <td>{log.ip_origem || '—'}</td>
-                <td>{new Date(log.criado_em).toLocaleString('pt-BR')}</td>
-              </tr>
-            ))}
-            {logs.length === 0 && (
-              <tr><td colSpan="6">Nenhum registro encontrado</td></tr>
-            )}
-          </tbody>
-        </table>
+                <div className="list-table">
+          <div className="list-row head" style={{ gridTemplateColumns: '110px 170px 1fr 110px 120px 150px' }}>
+            <span>Usuário</span>
+            <span>Ação</span>
+            <span>Detalhes</span>
+            <span>Resultado</span>
+            <span>IP de Origem</span>
+            <span>Data/Hora</span>
+          </div>
+          {logs.map((log) => (
+            <div className="list-row" style={{ gridTemplateColumns: '110px 170px 1fr 110px 120px 150px' }} key={log.id}>
+              <span className="list-cell-strong">{log.username}</span>
+              <span className="list-cell">{log.acao}</span>
+              <span className="list-cell">{log.detalhes || '—'}</span>
+              <span className={`status-tag status-tag-${log.resultado === 'sucesso' ? 'online' : log.resultado === 'solicitado' ? 'warning' : 'offline'}`}>
+                {log.resultado === 'sucesso' ? 'Sucesso' : log.resultado === 'solicitado' ? 'Solicitado' : 'Falha'}
+              </span>
+              <span className="list-cell-mono">{log.ip_origem || '—'}</span>
+              <span className="list-cell-mono">{new Date(log.criado_em).toLocaleString('pt-BR')}</span>
+            </div>
+          ))}
+          {logs.length === 0 && (
+            <div className="loading-message">Nenhum registro encontrado</div>
+          )}
+        </div>
       )}
     </div>
   );

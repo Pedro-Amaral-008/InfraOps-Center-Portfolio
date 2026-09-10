@@ -140,40 +140,34 @@ function Usuarios({ token, meuUsername, meuRole }) {
             </form>
           )}
 
-          <table>
-            <thead>
-              <tr>
-                <th>Usuário</th>
-                <th>Nome</th>
-                <th>Papel</th>
-                <th>Status</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {usuarios.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.username}</td>
-                  <td>{u.nome_completo}</td>
-                  <td>{u.role}</td>
-                  <td>
-                    <span className={`status-tag status-tag-${u.ativo ? 'online' : 'offline'}`}>
-                      {u.ativo ? 'Ativo' : 'Desativado'}
-                    </span>
-                  </td>
-                  <td>
-                    {u.username !== meuUsername && (meuRole === 'super_admin' || u.role !== 'super_admin') && (
-                      <div className="usuarios-acoes">
-                        <button className="btn btn-secondary" onClick={() => resetarSenha(u.username)}>Resetar Senha</button>
-                        <button className="btn btn-warning" onClick={() => alterarRole(u.username, u.role)}>Alterar Papel</button>
-                        {u.ativo && <button className="btn btn-danger" onClick={() => desativarUsuario(u.username)}>Desativar</button>}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <div className="list-table">
+            <div className="list-row head" style={{ gridTemplateColumns: '130px 170px 110px 100px 1fr' }}>
+              <span>Usuário</span>
+              <span>Nome</span>
+              <span>Papel</span>
+              <span>Status</span>
+              <span>Ações</span>
+            </div>
+            {usuarios.map((u) => (
+              <div className="list-row" style={{ gridTemplateColumns: '130px 170px 110px 100px 1fr' }} key={u.id}>
+                <span className="list-cell-strong">{u.username}</span>
+                <span className="list-cell">{u.nome_completo}</span>
+                <span className="list-cell">{u.role}</span>
+                <span className={`status-tag status-tag-${u.ativo ? 'online' : 'offline'}`}>
+                  {u.ativo ? 'Ativo' : 'Desativado'}
+                </span>
+                <span>
+                  {u.username !== meuUsername && (meuRole === 'super_admin' || u.role !== 'super_admin') && (
+                    <div className="usuarios-acoes">
+                      <button className="btn btn-secondary" onClick={() => resetarSenha(u.username)}>Resetar Senha</button>
+                      <button className="btn btn-warning" onClick={() => alterarRole(u.username, u.role)}>Alterar Papel</button>
+                      {u.ativo && <button className="btn btn-danger" onClick={() => desativarUsuario(u.username)}>Desativar</button>}
+                    </div>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
         </>
       )}
     </div>

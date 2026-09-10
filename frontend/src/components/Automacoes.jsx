@@ -170,38 +170,32 @@ function Automacoes({ token }) {
       </div>
 
       <div className="detail-table">
-        <h3 className="detail-table-title">Histórico de Execuções</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Ação</th>
-              <th>Alvo</th>
-              <th>Solicitado por</th>
-              <th>Status</th>
-              <th>Resultado</th>
-              <th>Data</th>
-            </tr>
-          </thead>
-          <tbody>
-            {historico.map((h) => (
-              <tr key={h.id}>
-                <td>{h.tipo}</td>
-                <td>{h.alvo}</td>
-                <td>{h.solicitado_por}</td>
-                <td>
-                  <span className={`status-tag status-tag-${statusClasse(h.status)}`}>
-                    {statusLabel(h.status)}
-                  </span>
-                </td>
-                <td>{h.resultado || '—'}</td>
-                <td>{new Date(h.criado_em).toLocaleString('pt-BR')}</td>
-              </tr>
-            ))}
-            {historico.length === 0 && (
-              <tr><td colSpan="6">Nenhuma execução registrada</td></tr>
-            )}
-          </tbody>
-        </table>
+                <h3 className="detail-table-title">Histórico de Execuções</h3>
+        <div className="list-table">
+          <div className="list-row head" style={{ gridTemplateColumns: '1fr 110px 130px 110px 1fr 150px' }}>
+            <span>Ação</span>
+            <span>Alvo</span>
+            <span>Solicitado por</span>
+            <span>Status</span>
+            <span>Resultado</span>
+            <span>Data</span>
+          </div>
+          {historico.map((h) => (
+            <div className="list-row" style={{ gridTemplateColumns: '1fr 110px 130px 110px 1fr 150px' }} key={h.id}>
+              <span className="list-cell-strong">{h.tipo}</span>
+              <span className="list-cell">{h.alvo}</span>
+              <span className="list-cell">{h.solicitado_por}</span>
+              <span className={`status-tag status-tag-${statusClasse(h.status)}`}>
+                {statusLabel(h.status)}
+              </span>
+              <span className="list-cell">{h.resultado || '—'}</span>
+              <span className="list-cell-mono">{new Date(h.criado_em).toLocaleString('pt-BR')}</span>
+            </div>
+          ))}
+          {historico.length === 0 && (
+            <div className="loading-message">Nenhuma execução registrada</div>
+          )}
+        </div>
       </div>
     </>
   );

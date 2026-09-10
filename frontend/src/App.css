@@ -327,6 +327,49 @@
   font-variant-numeric: tabular-nums;
 }
 
+.list-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.list-row {
+  display: grid;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+}
+
+.list-row.head {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.list-row:not(.head) + .list-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.list-cell {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.list-cell-strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.list-cell-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
 .status-tag-online {
   background-color: rgba(46, 204, 113, 0.15);
   color: var(--status-online);
