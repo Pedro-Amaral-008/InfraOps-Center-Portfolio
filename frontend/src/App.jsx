@@ -694,34 +694,28 @@ function App() {
           )}
           {abaAtiva === 'backups' && (
             <div className="detail-table">
-              <h3 className="detail-table-title">Backups Veeam</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Nome</th>
-                    <th>Tamanho</th>
-                    <th>Última Execução</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {backups.map((b) => (
-                    <tr key={b.instance}>
-                      <td>{b.nome}</td>
-                      <td>{b.tamanho_gb > 0 ? formatarTamanho(b.tamanho_gb) : '—'}</td>
-                      <td>{b.ultima_execucao ? new Date(b.ultima_execucao).toLocaleString('pt-BR') : '—'}</td>
-                      <td>
-                        <span className={`status-tag status-tag-${b.sucesso ? 'online' : 'offline'}`}>
-                          {b.sucesso ? 'Sucesso' : 'Falhou'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {backups.length === 0 && (
-                    <tr><td colSpan="4">Carregando...</td></tr>
-                  )}
-                </tbody>
-              </table>
+                            <h3 className="detail-table-title">Backups Veeam</h3>
+              <div className="backup-list">
+                <div className="backup-row head">
+                  <span>Nome</span>
+                  <span style={{ textAlign: 'right' }}>Tamanho</span>
+                  <span>Última Execução</span>
+                  <span></span>
+                </div>
+                {backups.map((b) => (
+                  <div className="backup-row" key={b.instance}>
+                    <span className="hist-name">{b.nome}</span>
+                    <span className="hist-size">{b.tamanho_gb > 0 ? formatarTamanho(b.tamanho_gb) : '—'}</span>
+                    <span className="hist-when">{b.ultima_execucao ? new Date(b.ultima_execucao).toLocaleString('pt-BR') : '—'}</span>
+                    <span className={`status-tag status-tag-${b.sucesso ? 'online' : 'offline'}`} style={{ justifySelf: 'end' }}>
+                      {b.sucesso ? 'Sucesso' : 'Falhou'}
+                    </span>
+                  </div>
+                ))}
+                {backups.length === 0 && (
+                  <div className="loading-message">Carregando...</div>
+                )}
+              </div>
                             <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Disponibilidade — Últimos 30 dias</h3>
               <div className="uptime-chip-grid">
                 {backupsUptime.map((u) => {
