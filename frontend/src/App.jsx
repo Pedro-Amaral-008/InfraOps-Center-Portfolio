@@ -561,41 +561,35 @@ function App() {
 
 {subAbaRede === 'access_points' && unifiAps.length > 0 && (
                 <>
-                  <h3 className="detail-table-title">Access Points — Clientes Conectados</h3>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Nome</th>
-                        <th>Modelo</th>
-                        <th>IP</th>
-                        <th>Clientes Conectados</th>
-                        <th>Status</th>
-                        <th>Uptime (30 dias)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {unifiAps
-                        .filter((ap) => ap.modelo !== 'USW 24 PoE')
-                        .sort((a, b) => b.clientes_conectados - a.clientes_conectados)
-                        .map((ap) => {
-                          const uptimeInfo = apsUptime.find((u) => u.instance === ap.ip);
-                          return (
-                          <tr key={ap.mac}>
-                            <td>{ap.nome}</td>
-                            <td>{ap.modelo}</td>
-                            <td>{ap.ip}</td>
-                            <td style={{ fontWeight: 700 }}>{ap.clientes_conectados}</td>
-                            <td>
-                              <span className={`status-tag status-tag-${ap.status === 'ONLINE' ? 'online' : 'offline'}`}>
-                                {ap.status === 'ONLINE' ? 'Online' : 'Offline'}
-                              </span>
-                            </td>
-                            <td>{uptimeInfo ? `${uptimeInfo.uptime_percent}%` : '—'}</td>
-                          </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
+                                    <h3 className="detail-table-title">Access Points — Clientes Conectados</h3>
+                  <div className="ap-list">
+                    <div className="ap-row head">
+                      <span>Nome</span>
+                      <span>Modelo</span>
+                      <span>IP</span>
+                      <span>Clientes</span>
+                      <span>Status</span>
+                      <span style={{ textAlign: 'right' }}>Uptime</span>
+                    </div>
+                    {unifiAps
+                      .filter((ap) => ap.modelo !== 'USW 24 PoE')
+                      .sort((a, b) => b.clientes_conectados - a.clientes_conectados)
+                      .map((ap) => {
+                        const uptimeInfo = apsUptime.find((u) => u.instance === ap.ip);
+                        return (
+                          <div className="ap-row" key={ap.mac}>
+                            <span className="hist-name">{ap.nome}</span>
+                            <span className="ap-text">{ap.modelo}</span>
+                            <span className="ap-mono">{ap.ip}</span>
+                            <span className="ap-clientes">{ap.clientes_conectados}</span>
+                            <span className={`status-tag status-tag-${ap.status === 'ONLINE' ? 'online' : 'offline'}`}>
+                              {ap.status === 'ONLINE' ? 'Online' : 'Offline'}
+                            </span>
+                            <span className="ap-mono" style={{ textAlign: 'right' }}>{uptimeInfo ? `${uptimeInfo.uptime_percent}%` : '—'}</span>
+                          </div>
+                        );
+                      })}
+                  </div>
                   <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Latência</h3>
                   <div className="metrics-grid">
                     {(latencias['access_points'] || []).map((item, idx) => (
