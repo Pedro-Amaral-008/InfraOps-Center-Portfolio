@@ -170,6 +170,11 @@ class ProtheusStatus(Base):
     # se a queda e generalizada ou especifica de uma rota/origem.
     pfsense_perda_percentual = Column(Numeric(5, 2), nullable=True)
     pfsense_latencia_ms = Column(Numeric(10, 3), nullable=True)
+    # Mesma ideia do referencia_perda_percentual (Google), so que medida a
+    # partir do proprio pfSense - serve pra saber se uma queda vista por ele
+    # e do Protheus especifico ou da rede/rota dele ate a internet.
+    pfsense_referencia_perda_percentual = Column(Numeric(5, 2), nullable=True)
+    pfsense_referencia_latencia_ms = Column(Numeric(10, 3), nullable=True)
 
 
 class EventoSistema(Base):

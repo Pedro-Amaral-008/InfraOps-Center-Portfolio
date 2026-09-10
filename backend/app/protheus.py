@@ -39,9 +39,31 @@ async def fazer_ping(ip: str, quantidade: int = QUANTIDADE_PINGS):
         return 100.0, None
 
 
-async def fazer_ping_via_pfsense(ip: str, quantidade: int = QUANTIDADE_PINGS):
-    """Mesma ideia do fazer_ping, mas executado por SSH dentro do proprio
-    pfSense - uma segunda origem, fora do Raspberry Pi, pra comparar."""
+def _extrair_perda_e_latencia(saida: str):
+    """Extrai (perda_percentual, latencia_ms) de uma saida de `ping`. Retorna
+    (None, None) quando nao encontra o padrao de 'packet loss' - sinal de que
+    o ping nem chegou a rodar direito (ex: comando falhou antes de imprimir
+    as estatisticas)."""
+    match_perda = re.search(r"(\d+(?:\.\d+)?)% packet loss", saida)
+    if match_perda is None:
+        return None, None
+    perda = float(match_perda.group(1))
+    match_latencia = re.search(r"= [\d.]+/([\d.]+)/", saida)
+    latencia = float(match_latencia.group(1)) if match_latencia else None
+    return perda, latencia
+
+
+async def fazer_ping_duplo_via_pfsense(ip1: str, ip2: str, quantidade: int = QUANTIDADE_PINGS):
+    """Roda dois pings (Protheus e Google) numa unica conexao SSH pro
+    pfSense, pra comparar as duas origens vistas de la - se so o Protheus
+    cair e o Google nao, o problema e especifico dele; se os dois carem
+    juntos, o problema e da rede/rota do pfSense ate a internet.
+
+    Retorna ((perda1, latencia1), (perda2, latencia2)). Se o proprio SSH
+    falhar/travar (nao conseguiu nem conectar no pfSense), retorna
+    (None, None) pros dois - assim a gente nao confunde "SSH deu problema"
+    com "Protheus (ou Google) caiu", o que geraria falso alarme."""
+    separador = "___SEPARADOR_PING___"
     try:
         proc = await asyncio.create_subprocess_exec(
             "ssh",
@@ -50,22 +72,23 @@ async def fazer_ping_via_pfsense(ip: str, quantidade: int = QUANTIDADE_PINGS):
             "-o", "ConnectTimeout=5",
             "-o", "BatchMode=yes",
             f"{PFSENSE_SSH_USER}@{settings.pfsense_host}",
-            f"ping -c {quantidade} {ip}",
+            f"ping -c {quantidade} {ip1}; echo {separador}; ping -c {quantidade} {ip2}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=quantidade * 3 + 10)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=quantidade * 2 * 3 + 15)
         saida = stdout.decode(errors="ignore")
 
-        match_perda = re.search(r"(\d+(?:\.\d+)?)% packet loss", saida)
-        perda = float(match_perda.group(1)) if match_perda else 100.0
+        if separador not in saida:
+            erro = stderr.decode(errors="ignore").strip()[:200]
+            print(f"AVISO pfSense SSH: nao conseguiu executar os pings (stderr: {erro})")
+            return (None, None), (None, None)
 
-        match_latencia = re.search(r"= [\d.]+/([\d.]+)/", saida)
-        latencia = float(match_latencia.group(1)) if match_latencia else None
-
-        return perda, latencia
-    except Exception:
-        return 100.0, None
+        saida1, saida2 = saida.split(separador, 1)
+        return _extrair_perda_e_latencia(saida1), _extrair_perda_e_latencia(saida2)
+    except Exception as e:
+        print(f"AVISO pfSense SSH: excecao ao executar pings ({e})")
+        return (None, None), (None, None)
 
 
 def classificar_estado(perda_percentual: float) -> str:
@@ -148,10 +171,10 @@ _alerta_confirmado_enviado = False
 async def verificar_protheus(db):
     global _confirmado_offline_desde, _alerta_confirmado_enviado
 
-    (perda, latencia), (perda_ref, latencia_ref), (perda_pfsense, latencia_pfsense) = await asyncio.gather(
+    (perda, latencia), (perda_ref, latencia_ref), ((perda_pfsense, latencia_pfsense), (perda_pfsense_ref, latencia_pfsense_ref)) = await asyncio.gather(
         fazer_ping(settings.protheus_ip),
         fazer_ping(REFERENCIA_IP),
-        fazer_ping_via_pfsense(settings.protheus_ip),
+        fazer_ping_duplo_via_pfsense(settings.protheus_ip, REFERENCIA_IP),
     )
     novo_estado = classificar_estado(perda)
     agora = datetime.now(timezone.utc)
@@ -180,6 +203,8 @@ async def verificar_protheus(db):
         referencia_perda_percentual=perda_ref,
         pfsense_perda_percentual=perda_pfsense,
         pfsense_latencia_ms=latencia_pfsense,
+        pfsense_referencia_perda_percentual=perda_pfsense_ref,
+        pfsense_referencia_latencia_ms=latencia_pfsense_ref,
     ))
     await db.commit()
 
@@ -230,6 +255,7 @@ async def verificar_protheus(db):
     # mais de N minutos seguidos - independente do cooldown/horario fixo.
     confirmado_offline_agora = (
         classificar_estado(perda) == "offline"
+        and perda_pfsense is not None
         and classificar_estado(perda_pfsense) == "offline"
     )
 
@@ -325,6 +351,11 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
     for q in quedas_eops:
         q["google_pct"] = _media_perda_no_intervalo(
             registros, lambda r: r.referencia_perda_percentual, q["inicio"], q["fim"]
+        )
+
+    for q in quedas_pfsense:
+        q["google_pct"] = _media_perda_no_intervalo(
+            registros, lambda r: r.pfsense_referencia_perda_percentual, q["inicio"], q["fim"]
         )
 
     # Correlacao com rede/AP e com o Google, so faz sentido do lado do E-Ops
