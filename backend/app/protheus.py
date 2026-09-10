@@ -213,10 +213,10 @@ def resumir_culpa_traceroute(saida: str, ip_destino: str) -> str:
         return "não foi possível identificar de onde vem o problema"
     chegou_no_destino, ultimo_respondeu, total_saltos = analise
     if chegou_no_destino:
-        return "problema identificado do lado do Protheus (servidor ou rede dele)"
+        return "Problema Protheus"
     if ultimo_respondeu <= 2:
-        return "problema identificado na nossa rede (local ou provedor daqui)"
-    return "problema identificado no caminho até o Protheus (trânsito da internet)"
+        return "Problema rede interna"
+    return "Problema no trajeto"
 
 
 def diagnosticar_traceroute(saida: str, ip_destino: str) -> str:
@@ -228,20 +228,20 @@ def diagnosticar_traceroute(saida: str, ip_destino: str) -> str:
 
     if chegou_no_destino:
         return (
-            "🔴 A rota chegou até o IP do Protheus pelo traceroute — a internet "
-            "até lá está OK. O problema está no ambiente do Protheus (servidor "
-            "ou rede local deles)."
+            "🔴 Problema Protheus — rede até lá está OK, a falha é no "
+            "servidor/aplicação deles."
         )
     if ultimo_respondeu <= 2:
         return (
-            f"🟡 A rota parou de responder logo no início (só foi até o salto "
-            f"{ultimo_respondeu} de {total_saltos}) — isso está perto de nós "
-            f"(roteador/provedor daqui)."
+            f"🟡 Problema rede interna — a conexão já falha logo no início "
+            f"(salto {ultimo_respondeu} de {total_saltos}), do nosso lado "
+            f"(rede ou provedor daqui)."
         )
     return (
-        f"🟠 A rota avançou bastante (salto {ultimo_respondeu} de {total_saltos}) "
-        f"sem alcançar o destino — parou no meio do caminho, mais perto do lado "
-        f"do Protheus do que do nosso."
+        f"🟠 Problema no trajeto — a rota avança bastante (salto "
+        f"{ultimo_respondeu} de {total_saltos}) mas não chega no destino, "
+        f"indicando falha no meio do caminho da internet, mais perto do "
+        f"lado do Protheus."
     )
 
 
@@ -646,13 +646,13 @@ async def loop_resumo_periodico_protheus():
             agora_local = datetime.now()
             marcador = (agora_local.date(), agora_local.hour)
 
-            if agora_local.hour in (8, 18) and _ultimo_resumo_protheus_enviado != marcador:
+            if agora_local.hour in (7, 22) and _ultimo_resumo_protheus_enviado != marcador:
                 fim = datetime.now(timezone.utc)
-                if agora_local.hour == 8:
-                    inicio = fim - timedelta(hours=14)  # 18h de ontem -> 8h de hoje
+                if agora_local.hour == 7:
+                    inicio = fim - timedelta(hours=9)  # 22h de ontem -> 7h de hoje
                     rotulo = "madrugada"
                 else:
-                    inicio = fim - timedelta(hours=10)  # 8h de hoje -> 18h de hoje
+                    inicio = fim - timedelta(hours=15)  # 7h de hoje -> 22h de hoje
                     rotulo = "dia"
 
                 async with AsyncSessionLocal() as db:
