@@ -12,6 +12,7 @@ import EopsDashboard from './components/EopsDashboard';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import Tabs from './components/Tabs';
 import ServerResourceCard from './components/ServerResourceCard';
+import ProtheusCard from './components/ProtheusCard';
 import Auditoria from './components/Auditoria';
 import Automacoes from './components/Automacoes';
 import Usuarios from './components/Usuarios';
@@ -68,6 +69,9 @@ function App() {
   const [pfsenseLinks, setPfsenseLinks] = useState([]);
   const [pfsenseUptime, setPfsenseUptime] = useState([]);
   const [servidoresUptime, setServidoresUptime] = useState([]);
+  const [protheusStatus, setProtheusStatus] = useState(null);
+  const [protheusHistorico, setProtheusHistorico] = useState([]);
+  const [protheusEventos, setProtheusEventos] = useState([]);
   const [apsUptime, setApsUptime] = useState([]);
   const [pfsenseTrafego, setPfsenseTrafego] = useState({});
   const [pfsenseVpns, setPfsenseVpns] = useState([]);
@@ -168,6 +172,16 @@ function App() {
       axios.get(`${API_URL}/dashboard/servidores/uptime?dias=30`, {
         headers: { Authorization: `Bearer ${token}` },
       }).then((response) => setServidoresUptime(response.data)).catch(() => {});
+
+      axios.get(`${API_URL}/dashboard/protheus/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((response) => setProtheusStatus(response.data)).catch(() => {});
+      axios.get(`${API_URL}/dashboard/protheus/historico?horas=24`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((response) => setProtheusHistorico(response.data)).catch(() => {});
+      axios.get(`${API_URL}/dashboard/protheus/eventos?dias=7`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((response) => setProtheusEventos(response.data)).catch(() => {});
     }
     if (abaAtiva === "links_internet") {
       axios.get(`${API_URL}/dashboard/unifi/aps`, {
@@ -386,6 +400,15 @@ function App() {
                 </div>
               )}
               <h3 className="detail-table-title" style={{ marginBottom: '16px' }}>Latência</h3>
+            </>
+          )}
+
+          {abaAtiva === 'servidores' && protheusStatus && (
+            <>
+              <h3 className="detail-table-title" style={{ marginBottom: '16px' }}>Servidor Protheus (ERP)</h3>
+              <div className="metrics-grid" style={{ marginBottom: '32px', maxWidth: '420px' }}>
+                <ProtheusCard status={protheusStatus} historico={protheusHistorico} eventos={protheusEventos} />
+              </div>
             </>
           )}
 
