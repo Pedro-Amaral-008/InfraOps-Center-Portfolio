@@ -1284,6 +1284,38 @@ async def loop_resumo_diario():
 from app.models import AutomationJob
 
 
+@app.get("/dashboard/protheus/status")
+@cache_ttl(5)
+async def dashboard_protheus_status(
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.protheus import get_protheus_status_atual
+    return await get_protheus_status_atual(db)
+
+
+@app.get("/dashboard/protheus/historico")
+@cache_ttl(5)
+async def dashboard_protheus_historico(
+    horas: float = 24,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.protheus import get_protheus_historico
+    return await get_protheus_historico(db, horas)
+
+
+@app.get("/dashboard/protheus/eventos")
+@cache_ttl(5)
+async def dashboard_protheus_eventos(
+    dias: int = 30,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.protheus import get_protheus_eventos
+    return await get_protheus_eventos(db, dias)
+
+
 @app.post("/automations/restart-fluig")
 async def solicitar_restart_fluig(
     usuario: User = Depends(exigir_papel("super_admin", "admin")),

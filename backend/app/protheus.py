@@ -1,7 +1,7 @@
 import asyncio
 import re
-from datetime import datetime, timezone
-from sqlalchemy import select
+from datetime import datetime, timezone, timedelta
+from sqlalchemy import select, func, case
 from app.config import settings
 from app.models import ProtheusStatus
 from app.agent_alerts import enviar_telegram
@@ -141,3 +141,95 @@ async def loop_protheus_icmp():
         except Exception as e:
             print(f"ERRO no loop_protheus_icmp: {e}")
         await asyncio.sleep(INTERVALO_SEGUNDOS)
+
+
+async def get_protheus_status_atual(db):
+    """Estado mais recente, ha quanto tempo esta nesse estado, e uptime% em
+    3 janelas (24h/7d/30d), tudo calculado a partir do historico salvo."""
+    result = await db.execute(
+        select(ProtheusStatus).order_by(ProtheusStatus.verificado_em.desc()).limit(1)
+    )
+    ultima = result.scalar_one_or_none()
+    if not ultima:
+        return {
+            "estado": "desconhecido", "latencia_ms": None, "perda_pacotes_percentual": None,
+            "desde": None, "uptime_24h": None, "uptime_7d": None, "uptime_30d": None,
+        }
+
+    result = await db.execute(
+        select(ProtheusStatus.verificado_em)
+        .where(ProtheusStatus.estado != ultima.estado, ProtheusStatus.verificado_em < ultima.verificado_em)
+        .order_by(ProtheusStatus.verificado_em.desc())
+        .limit(1)
+    )
+    marco = result.scalar_one_or_none()
+    desde = marco if marco else ultima.verificado_em
+
+    async def uptime_em(dias):
+        limite = datetime.now(timezone.utc) - timedelta(days=dias)
+        result = await db.execute(
+            select(
+                func.count(),
+                func.sum(case((ProtheusStatus.estado == "online", 1), else_=0)),
+            ).where(ProtheusStatus.verificado_em >= limite)
+        )
+        total, online = result.one()
+        online = online or 0
+        return round((online / total) * 100, 2) if total else None
+
+    return {
+        "estado": ultima.estado,
+        "latencia_ms": float(ultima.latencia_ms) if ultima.latencia_ms is not None else None,
+        "perda_pacotes_percentual": float(ultima.perda_pacotes_percentual),
+        "desde": desde,
+        "uptime_24h": await uptime_em(1),
+        "uptime_7d": await uptime_em(7),
+        "uptime_30d": await uptime_em(30),
+    }
+
+
+async def get_protheus_historico(db, horas: float = 24):
+    """Serie temporal de latencia/perda pra montar o grafico."""
+    limite = datetime.now(timezone.utc) - timedelta(hours=horas)
+    result = await db.execute(
+        select(ProtheusStatus)
+        .where(ProtheusStatus.verificado_em >= limite)
+        .order_by(ProtheusStatus.verificado_em)
+    )
+    registros = result.scalars().all()
+    return [
+        {
+            "verificado_em": r.verificado_em,
+            "estado": r.estado,
+            "latencia_ms": float(r.latencia_ms) if r.latencia_ms is not None else None,
+            "perda_pacotes_percentual": float(r.perda_pacotes_percentual),
+        }
+        for r in registros
+    ]
+
+
+async def get_protheus_eventos(db, dias: int = 30):
+    """Agrupa o historico bruto em segmentos continuos do mesmo estado
+    (ex: 'offline das 14:02 as 14:15'), mais recente primeiro."""
+    limite = datetime.now(timezone.utc) - timedelta(days=dias)
+    result = await db.execute(
+        select(ProtheusStatus)
+        .where(ProtheusStatus.verificado_em >= limite)
+        .order_by(ProtheusStatus.verificado_em)
+    )
+    registros = result.scalars().all()
+
+    eventos = []
+    atual = None
+    for r in registros:
+        if atual is None or r.estado != atual["estado"]:
+            if atual is not None:
+                atual["fim"] = r.verificado_em
+                atual["duracao_segundos"] = int((atual["fim"] - atual["inicio"]).total_seconds())
+                eventos.append(atual)
+            atual = {"estado": r.estado, "inicio": r.verificado_em, "fim": None, "duracao_segundos": None}
+    if atual is not None:
+        eventos.append(atual)
+
+    eventos.reverse()
+    return eventos
