@@ -281,14 +281,28 @@ def _agrupar_quedas(registros, obter_perda, fim):
     return [e for e in eventos if e["estado"] not in ("online", "desconhecido")]
 
 
+def _media_perda_no_intervalo(registros, obter_perda, inicio, fim):
+    """Media da perda de pacotes (de uma origem qualquer) dentro de uma janela
+    de tempo - usado pra parear a queda do Protheus com o que o Google mediu
+    no mesmo instante."""
+    valores = [
+        obter_perda(r) for r in registros
+        if inicio <= r.verificado_em < fim and obter_perda(r) is not None
+    ]
+    return sum(valores) / len(valores) if valores else None
+
+
 def _formatar_lista_quedas(quedas, max_listadas=15):
     linhas = []
     for q in quedas[:max_listadas]:
-        linhas.append(
+        linha = (
             f"• {q['inicio'].astimezone().strftime('%H:%M:%S')} → "
             f"{q['fim'].astimezone().strftime('%H:%M:%S')} "
             f"({_formatar_duracao(q['duracao_segundos'])})"
         )
+        if q.get("google_pct") is not None:
+            linha += f" | Google no mesmo instante: {q['google_pct']:.0f}% perda"
+        linhas.append(linha)
     if len(quedas) > max_listadas:
         linhas.append(f"_(+ {len(quedas) - max_listadas} outra(s) queda(s) não listada(s))_")
     return "\n".join(linhas)
@@ -307,6 +321,11 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
 
     quedas_eops = _agrupar_quedas(registros, lambda r: r.perda_pacotes_percentual, fim)
     quedas_pfsense = _agrupar_quedas(registros, lambda r: r.pfsense_perda_percentual, fim)
+
+    for q in quedas_eops:
+        q["google_pct"] = _media_perda_no_intervalo(
+            registros, lambda r: r.referencia_perda_percentual, q["inicio"], q["fim"]
+        )
 
     # Correlacao com rede/AP e com o Google, so faz sentido do lado do E-Ops
     # (e o unico que tem essas duas checagens extras).
