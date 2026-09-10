@@ -974,6 +974,8 @@ async def iniciar_verificacao_agentes():
     asyncio.create_task(loop_recategorizacao_diaria())
     from app.protheus import loop_protheus_icmp
     asyncio.create_task(loop_protheus_icmp())
+    from app.protheus import loop_resumo_periodico_protheus
+    asyncio.create_task(loop_resumo_periodico_protheus())
 
 
 @app.get("/dashboard/controller/current")

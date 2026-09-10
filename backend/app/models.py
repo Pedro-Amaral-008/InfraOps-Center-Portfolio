@@ -157,6 +157,10 @@ class ProtheusStatus(Base):
     latencia_ms = Column(Numeric(10, 3), nullable=True)
     perda_pacotes_percentual = Column(Numeric(5, 2), nullable=False, default=0)
     verificado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    # True/False so quando essa linha representa uma mudanca de estado: se
+    # nossa rede/AP estava ok naquele instante. Fica NULL nas linhas de
+    # verificacao normal (sem mudanca de estado).
+    rede_ok = Column(Boolean, nullable=True)
 
 
 class EventoSistema(Base):
@@ -195,6 +199,15 @@ class AlertaSuricata(Base):
     acao = Column(String, nullable=True)
     detectado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     revisao = Column(String, nullable=False, default="pendente")
+
+
+class DispositivoBloqueado(Base):
+    __tablename__ = "dispositivos_bloqueados"
+
+    mac = Column(String, primary_key=True)
+    motivo = Column(String, nullable=True)
+    bloqueado_por = Column(String, nullable=True)
+    bloqueado_em = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class ConsumoRedeAmostra(Base):
