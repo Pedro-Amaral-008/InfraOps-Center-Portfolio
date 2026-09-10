@@ -465,7 +465,7 @@ async def verificar_protheus(db):
                 f"*Traceroute até o Protheus:*\n"
                 f"```\n{traceroute_saida[:1500]}\n```\n\n"
                 f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
-                f"_Este alerta é independente dos resumos das 08h/18h — dispara só quando confirmado por E-Ops + porta + pelo menos uma origem externa._"
+                f"_Este alerta é independente dos resumos das 07h/22h — dispara só quando confirmado por E-Ops + porta + pelo menos uma origem externa._"
             )
             await enviar_telegram(msg_confirmado)
             _alerta_confirmado_enviado = True
@@ -476,10 +476,8 @@ async def verificar_protheus(db):
                 if _confirmado_offline_desde else "tempo desconhecido"
             )
             msg_recuperado = (
-                f"🟢 *InfraOps Center — Protheus voltou*\n\n"
-                f"🖥️ *Servidor:* Protheus ({settings.protheus_hostname})\n"
-                f"✅ Voltou a responder, confirmado por *E-Ops*, *pfSense* e *porta do serviço*\n"
-                f"⏱️ *Ficou offline por:* {duracao_total_str} (queda confirmada por duas origens)\n"
+                f"🟢 *Protheus voltou* — ficou offline por {duracao_total_str}\n"
+                f"Confirmado por: E-Ops, porta do serviço e pelo menos uma origem externa voltando a responder\n\n"
                 f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
             )
             await enviar_telegram(msg_recuperado)
