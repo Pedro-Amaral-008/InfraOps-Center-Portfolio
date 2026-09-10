@@ -142,8 +142,17 @@ async def verificar_protheus(db):
             .order_by(ProtheusStatus.verificado_em.desc())
             .limit(1)
         )
-        marco_anterior = result.scalar_one_or_none()
-        duracao_str = _formatar_duracao((agora - marco_anterior).total_seconds()) if marco_anterior else "algum tempo"
+        marco_diferente = result.scalar_one_or_none()
+
+        inicio_do_estado = None
+        if marco_diferente:
+            result = await db.execute(
+                select(func.min(ProtheusStatus.verificado_em))
+                .where(ProtheusStatus.estado == estado_anterior, ProtheusStatus.verificado_em > marco_diferente)
+            )
+            inicio_do_estado = result.scalar_one_or_none()
+
+        duracao_str = _formatar_duracao((agora - inicio_do_estado).total_seconds()) if inicio_do_estado else "algum tempo"
 
         emojis = {"online": "🟢", "intermitente": "🟡", "offline": "🔴"}
 
