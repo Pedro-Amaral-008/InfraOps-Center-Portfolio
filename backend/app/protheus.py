@@ -113,6 +113,30 @@ async def testar_porta_protheus(host: str, porta: int = PROTHEUS_PORTA_SERVICO, 
         return False
 
 
+async def fazer_traceroute(ip: str, max_saltos: int = 20, timeout: float = 40.0) -> str:
+    """Roda um traceroute ate o IP informado e retorna a saida bruta (ou uma
+    mensagem de erro/aviso). So e chamado quando uma queda ja foi confirmada
+    (nao a cada ciclo, seria pesado demais) - a ideia e dar uma pista de ate
+    onde a rota chega antes de parar: se parar logo no nosso proprio
+    roteador, o problema e local; se passar varios saltos e so parar perto
+    do IP final, o problema esta mais perto do lado do Protheus."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "traceroute", "-n", "-w", "2", "-q", "1", "-m", str(max_saltos), ip,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        saida = stdout.decode(errors="ignore").strip()
+        return saida if saida else "traceroute nao retornou nenhuma saida"
+    except FileNotFoundError:
+        return "traceroute nao esta instalado no container"
+    except asyncio.TimeoutError:
+        return "traceroute nao terminou a tempo (timeout)"
+    except Exception as e:
+        return f"erro ao rodar traceroute: {e}"
+
+
 def classificar_estado(perda_percentual: float) -> str:
     if perda_percentual >= 100:
         return "offline"
@@ -273,6 +297,8 @@ async def verificar_protheus(db):
         duracao_confirmada = (agora - _confirmado_offline_desde).total_seconds()
 
         if duracao_confirmada >= MINUTOS_PARA_ALERTA_CONFIRMADO * 60 and not _alerta_confirmado_enviado:
+            traceroute_saida = await fazer_traceroute(settings.protheus_ip)
+
             google_pi_ok = perda_ref < 50
             google_pfsense_ok = perda_pfsense_ref is not None and perda_pfsense_ref < 50
 
@@ -300,6 +326,8 @@ async def verificar_protheus(db):
                 f"📍 pfSense → Google: {_fmt_ping(perda_pfsense_ref, latencia_pfsense_ref)}\n"
                 f"🔌 Porta {PROTHEUS_PORTA_SERVICO} (serviço): {'aberta' if porta_servico_ok else 'FECHADA/recusada'}\n\n"
                 f"{diagnostico}\n\n"
+                f"*Traceroute até o Protheus (para localizar onde a rota para):*\n"
+                f"```\n{traceroute_saida[:1500]}\n```\n\n"
                 f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
                 f"_Este alerta é independente dos resumos das 08h/18h — dispara só quando confirmado por duas origens._"
             )
