@@ -161,6 +161,10 @@ class ProtheusStatus(Base):
     # nossa rede/AP estava ok naquele instante. Fica NULL nas linhas de
     # verificacao normal (sem mudanca de estado).
     rede_ok = Column(Boolean, nullable=True)
+    # Perda de pacotes (%) pro Google (8.8.8.8) medida no mesmo instante,
+    # em toda verificacao. Serve pra validar se uma queda do Protheus e
+    # isolada (so ele) ou coincide com problema geral na nossa internet.
+    referencia_perda_percentual = Column(Numeric(5, 2), nullable=True)
 
 
 class EventoSistema(Base):

@@ -8,6 +8,7 @@ from app.agent_alerts import enviar_telegram
 
 INTERVALO_SEGUNDOS = 15
 QUANTIDADE_PINGS = 5
+REFERENCIA_IP = "8.8.8.8"  # Google DNS, usado so pra comparacao/validacao
 
 
 async def fazer_ping(ip: str, quantidade: int = QUANTIDADE_PINGS):
@@ -108,7 +109,10 @@ async def houve_problema_na_rede_local() -> bool:
 
 
 async def verificar_protheus(db):
-    perda, latencia = await fazer_ping(settings.protheus_ip)
+    (perda, latencia), (perda_ref, latencia_ref) = await asyncio.gather(
+        fazer_ping(settings.protheus_ip),
+        fazer_ping(REFERENCIA_IP),
+    )
     novo_estado = classificar_estado(perda)
     agora = datetime.now(timezone.utc)
 
@@ -122,13 +126,18 @@ async def verificar_protheus(db):
 
     rede_ok = None
     if mudou_estado:
-        rede_ok = not await houve_problema_na_rede_local()
+        # "Nossa rede ok" agora considera tanto o status de link/AP quanto
+        # se o proprio Google tambem perdeu pacote no mesmo instante - um
+        # sinal bem mais direto de problema de internet geral vs isolado.
+        problema_local = await houve_problema_na_rede_local() or perda_ref >= 50
+        rede_ok = not problema_local
 
     db.add(ProtheusStatus(
         estado=novo_estado,
         latencia_ms=latencia,
         perda_pacotes_percentual=perda,
         rede_ok=rede_ok,
+        referencia_perda_percentual=perda_ref,
     ))
     await db.commit()
 
@@ -168,6 +177,7 @@ async def verificar_protheus(db):
         if latencia is not None:
             msg += f"📶 *Latência atual:* {latencia:.1f}ms\n"
         msg += f"📉 *Perda de pacotes:* {perda:.0f}%\n"
+        msg += f"📡 *Perda pro Google (8.8.8.8) no mesmo instante:* {perda_ref:.0f}%\n"
         msg += f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
         msg += f"*Estado da nossa rede no momento:*\n{resumo_rede}"
 
@@ -202,16 +212,25 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
                 "fim": None,
                 "duracao_segundos": None,
                 "rede_ok": r.rede_ok,
+                "referencia_max_perda": r.referencia_perda_percentual,
             }
+        else:
+            if r.referencia_perda_percentual is not None:
+                maior = atual.get("referencia_max_perda")
+                if maior is None or r.referencia_perda_percentual > maior:
+                    atual["referencia_max_perda"] = r.referencia_perda_percentual
     if atual is not None:
         atual["fim"] = fim
         atual["duracao_segundos"] = (atual["fim"] - atual["inicio"]).total_seconds()
         eventos.append(atual)
 
+    def _coincidiu(e):
+        return e["rede_ok"] is False or (e.get("referencia_max_perda") or 0) >= 50
+
     quedas = [e for e in eventos if e["estado"] != "online"]
     total_quedas = len(quedas)
     tempo_total_offline = sum(e["duracao_segundos"] for e in quedas)
-    coincidiu_com_rede = any(e["rede_ok"] is False for e in quedas)
+    coincidiu_com_rede = any(_coincidiu(e) for e in quedas)
 
     status_atual = await get_protheus_status_atual(db)
 
@@ -222,11 +241,23 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
         msg += "✅ *Nenhuma queda registrada — 100% online no período*\n"
     else:
         pior = max(quedas, key=lambda e: e["duracao_segundos"])
-        msg += f"🔴 *{total_quedas} queda(s) registrada(s)*\n"
-        msg += f"⏱️ *Tempo total offline/intermitente:* {_formatar_duracao(tempo_total_offline)}\n"
+        msg += f"🔴 *{total_quedas} queda(s) registrada(s):*\n"
+
+        MAX_LISTADAS = 15
+        for q in quedas[:MAX_LISTADAS]:
+            marca = " ⚠️" if _coincidiu(q) else ""
+            msg += (
+                f"• {q['inicio'].astimezone().strftime('%H:%M:%S')} → "
+                f"{q['fim'].astimezone().strftime('%H:%M:%S')} "
+                f"({_formatar_duracao(q['duracao_segundos'])}){marca}\n"
+            )
+        if total_quedas > MAX_LISTADAS:
+            msg += f"_(+ {total_quedas - MAX_LISTADAS} outra(s) queda(s) não listada(s))_\n"
+
+        msg += f"\n⏱️ *Tempo total offline/intermitente:* {_formatar_duracao(tempo_total_offline)}\n"
         msg += f"📉 *Maior queda:* {_formatar_duracao(pior['duracao_segundos'])} (às {pior['inicio'].astimezone().strftime('%H:%M')})\n"
         if coincidiu_com_rede:
-            msg += "🌐 *Atenção: pelo menos uma queda coincidiu com problema na nossa rede/AP*\n"
+            msg += "🌐 *Atenção: pelo menos uma queda coincidiu com problema na nossa rede/AP (marcadas com ⚠️ acima)*\n"
         else:
             msg += "🌐 Nenhuma coincidiu com problema na nossa rede\n"
 
