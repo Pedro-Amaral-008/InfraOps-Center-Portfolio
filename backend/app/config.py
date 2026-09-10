@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
     frontend_url: str = "http://localhost:3001"
+    protheus_ip: str = "179.131.10.8"
+    protheus_hostname: str = "protheus.elcop.eng.br"
 
     @property
     def database_url(self) -> str:
