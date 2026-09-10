@@ -1,4 +1,6 @@
 import './ServerResourceCard.css';
+import './ProtheusCard.css';
+import StatusServidor from './StatusServidor';
 
 function formatarTamanho(gb) {
   if (gb >= 1024) {
@@ -32,7 +34,7 @@ function corTemperatura(temp) {
   return 'var(--status-online)';
 }
 
-function ServerResourceCard({ agente }) {
+function ServerResourceCard({ agente, statusRede }) {
   const uptimeDias = Math.floor(agente.uptime_horas / 24);
   const uptimeHorasResto = Math.round(agente.uptime_horas % 24);
 
@@ -71,6 +73,12 @@ function ServerResourceCard({ agente }) {
         ))
       ) : (
         <BarraRecurso label={`Disco (${formatarTamanho(agente.disco_total_gb)})`} percent={agente.disco_percent} />
+      )}
+
+      {statusRede && (
+        <div style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid var(--border-subtle)' }}>
+          <StatusServidor status={statusRede} historico={statusRede.historico} eventos={statusRede.eventos} />
+        </div>
       )}
     </div>
   );

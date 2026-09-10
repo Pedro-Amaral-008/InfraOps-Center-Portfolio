@@ -68,7 +68,7 @@ function App() {
   const [unifiAps, setUnifiAps] = useState([]);
   const [pfsenseLinks, setPfsenseLinks] = useState([]);
   const [pfsenseUptime, setPfsenseUptime] = useState([]);
-  const [servidoresUptime, setServidoresUptime] = useState([]);
+  const [servidoresStatusCompleto, setServidoresStatusCompleto] = useState({});
   const [protheusStatus, setProtheusStatus] = useState(null);
   const [protheusHistorico, setProtheusHistorico] = useState([]);
   const [protheusEventos, setProtheusEventos] = useState([]);
@@ -159,7 +159,7 @@ function App() {
   const buscarDadosDaAbaAtiva = useCallback(() => {
     if (!token || deveTrocarSenha) return;
 
-    if (["servidores", "impressoras"].includes(abaAtiva)) {
+    if (abaAtiva === "impressoras") {
       buscarLatencia(abaAtiva);
     }
     if (abaAtiva === "links_internet" && subAbaRede === "access_points") {
@@ -169,9 +169,9 @@ function App() {
       axios.get(`${API_URL}/dashboard/agents`, {
         headers: { Authorization: `Bearer ${token}` },
       }).then((response) => setAgentes(response.data)).catch(() => {});
-      axios.get(`${API_URL}/dashboard/servidores/uptime?dias=30`, {
+      axios.get(`${API_URL}/dashboard/servidores/status-completo?dias=30`, {
         headers: { Authorization: `Bearer ${token}` },
-      }).then((response) => setServidoresUptime(response.data)).catch(() => {});
+      }).then((response) => setServidoresStatusCompleto(response.data)).catch(() => {});
 
       axios.get(`${API_URL}/dashboard/protheus/status`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -372,37 +372,12 @@ function App() {
               <h3 className="detail-table-title" style={{ marginBottom: '16px' }}>Recursos dos Servidores</h3>
               <div className="metrics-grid" style={{ marginBottom: '32px' }}>
                 {agentes.map((agente) => (
-                  <ServerResourceCard key={agente.instance} agente={agente} />
+                  <ServerResourceCard key={agente.instance} agente={agente} statusRede={servidoresStatusCompleto[agente.instance]} />
                 ))}
                 {protheusStatus && (
                   <ProtheusCard status={protheusStatus} historico={protheusHistorico} eventos={protheusEventos} />
                 )}
               </div>
-              {servidoresUptime.length > 0 && (
-                <div className="detail-table" style={{ marginBottom: '32px' }}>
-                  <h3 className="detail-table-title">Disponibilidade dos Servidores</h3>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Servidor</th>
-                        <th>Uptime (30 dias)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {servidoresUptime
-                        .filter((s) => s.uptime_percent > 0)
-                        .sort((a, b) => a.nome.localeCompare(b.nome))
-                        .map((s) => (
-                          <tr key={s.instance}>
-                            <td>{s.nome}</td>
-                            <td>{s.uptime_percent}%</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <h3 className="detail-table-title" style={{ marginBottom: '16px' }}>Latência</h3>
             </>
           )}
 
@@ -433,7 +408,7 @@ function App() {
               </table>
             </div>
           )}
-          {(abaAtiva === 'servidores' || abaAtiva === 'impressoras') && (
+          {abaAtiva === 'impressoras' && (
             <div className="metrics-grid">
               {(latencias[abaAtiva] || []).map((item, idx) => (
                 <MetricChart
