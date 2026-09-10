@@ -12,8 +12,11 @@ REFERENCIA_IP = "8.8.8.8"  # Google DNS, usado so pra comparacao/validacao
 
 PFSENSE_SSH_USER = "infraops-readonly"
 PFSENSE_SSH_KEY = "/home/appuser/.ssh/pfsense_readonly"
-MINUTOS_PARA_ALERTA_CONFIRMADO = 5
-PROTHEUS_PORTA_SERVICO = 443  # HTTPS - porta do servico/portal do Protheus
+PATIO2_SSH_USER = "e-ops-readonly"  # mesma chave SSH, usuario criado no pfSense do Patio 2
+MINUTOS_PARA_ALERTA_CONFIRMADO = 2
+PROTHEUS_PORTA_SERVICO = 1000  # porta real do webapp do Protheus (nao a 443)
+PROTHEUS_SITE_HOST = "protheus.elcop.eng.br"
+PROTHEUS_SITE_CAMINHO = "/webapp/"
 
 
 async def fazer_ping(ip: str, quantidade: int = QUANTIDADE_PINGS):
@@ -54,16 +57,22 @@ def _extrair_perda_e_latencia(saida: str):
     return perda, latencia
 
 
-async def fazer_ping_duplo_via_pfsense(ip1: str, ip2: str, quantidade: int = QUANTIDADE_PINGS):
-    """Roda dois pings (Protheus e Google) numa unica conexao SSH pro
+async def fazer_ping_duplo_via_pfsense(ip1: str, ip2: str, quantidade: int = QUANTIDADE_PINGS,
+                                        host: str = None, usuario: str = None, apelido: str = "pfSense"):
+    """Roda dois pings (Protheus e Google) numa unica conexao SSH num
     pfSense, pra comparar as duas origens vistas de la - se so o Protheus
     cair e o Google nao, o problema e especifico dele; se os dois carem
-    juntos, o problema e da rede/rota do pfSense ate a internet.
+    juntos, o problema e da rede/rota desse pfSense ate a internet.
+
+    Por padrao usa o pfSense da matriz; passe host/usuario pra rodar contra
+    outro (ex: o do Patio 2).
 
     Retorna ((perda1, latencia1), (perda2, latencia2)). Se o proprio SSH
-    falhar/travar (nao conseguiu nem conectar no pfSense), retorna
-    (None, None) pros dois - assim a gente nao confunde "SSH deu problema"
-    com "Protheus (ou Google) caiu", o que geraria falso alarme."""
+    falhar/travar (nao conseguiu nem conectar), retorna (None, None) pros
+    dois - assim a gente nao confunde "SSH deu problema" com "Protheus (ou
+    Google) caiu", o que geraria falso alarme."""
+    host = host or settings.pfsense_host
+    usuario = usuario or PFSENSE_SSH_USER
     separador = "___SEPARADOR_PING___"
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -72,7 +81,7 @@ async def fazer_ping_duplo_via_pfsense(ip1: str, ip2: str, quantidade: int = QUA
             "-o", "StrictHostKeyChecking=no",
             "-o", "ConnectTimeout=5",
             "-o", "BatchMode=yes",
-            f"{PFSENSE_SSH_USER}@{settings.pfsense_host}",
+            f"{usuario}@{host}",
             f"ping -c {quantidade} {ip1}; echo {separador}; ping -c {quantidade} {ip2}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -82,13 +91,13 @@ async def fazer_ping_duplo_via_pfsense(ip1: str, ip2: str, quantidade: int = QUA
 
         if separador not in saida:
             erro = stderr.decode(errors="ignore").strip()[:200]
-            print(f"AVISO pfSense SSH: nao conseguiu executar os pings (stderr: {erro})")
+            print(f"AVISO {apelido} SSH: nao conseguiu executar os pings (stderr: {erro})")
             return (None, None), (None, None)
 
         saida1, saida2 = saida.split(separador, 1)
         return _extrair_perda_e_latencia(saida1), _extrair_perda_e_latencia(saida2)
     except Exception as e:
-        print(f"AVISO pfSense SSH: excecao ao executar pings ({e})")
+        print(f"AVISO {apelido} SSH: excecao ao executar pings ({e})")
         return (None, None), (None, None)
 
 
@@ -137,13 +146,47 @@ async def fazer_traceroute(ip: str, max_saltos: int = 20, timeout: float = 40.0)
         return f"erro ao rodar traceroute: {e}"
 
 
-def diagnosticar_traceroute(saida: str, ip_destino: str) -> str:
-    """Interpreta a saida do traceroute pra apontar de que lado esta o
-    problema: se a rota chega ate o IP do Protheus (mesmo sem ele responder
-    ping/porta), a internet ate la esta OK e o problema tende a ser do lado
-    dele; se a rota para logo nos primeiros saltos, tende a ser nosso; se
-    avanca bastante mas nao chega, o problema esta no meio do caminho, mais
-    perto do lado do Protheus do que do nosso."""
+async def testar_site_protheus(timeout: float = 8.0) -> str:
+    """Faz uma requisicao HTTPS de verdade no site do Protheus (nao so abre a
+    porta) - confirma que o servico web responde de fato. So e chamado no
+    momento de confirmar uma queda, nao a cada ciclo. Retorna uma string
+    pronta pra mensagem, com check/X visual."""
+    import ssl
+    try:
+        contexto = ssl.create_default_context()
+        contexto.check_hostname = False
+        contexto.verify_mode = ssl.CERT_NONE
+
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(PROTHEUS_SITE_HOST, PROTHEUS_PORTA_SERVICO, ssl=contexto),
+            timeout=timeout,
+        )
+        pedido = (
+            f"GET {PROTHEUS_SITE_CAMINHO} HTTP/1.1\r\n"
+            f"Host: {PROTHEUS_SITE_HOST}\r\nConnection: close\r\n\r\n"
+        )
+        writer.write(pedido.encode())
+        await writer.drain()
+        resposta = await asyncio.wait_for(reader.read(200), timeout=timeout)
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+        primeira_linha = resposta.decode(errors="ignore").splitlines()[0] if resposta else ""
+        if primeira_linha.startswith("HTTP/"):
+            partes = primeira_linha.split(" ")
+            codigo = partes[1] if len(partes) > 1 else "?"
+            return f"✅ Site respondeu (HTTP {codigo})"
+        return "❌ Site não respondeu com um HTTP válido"
+    except Exception as e:
+        return f"❌ Site não respondeu ({type(e).__name__})"
+
+
+def _analisar_traceroute(saida: str, ip_destino: str):
+    """Extrai do traceroute: se chegou no destino e ate qual salto respondeu.
+    Usado tanto pro diagnostico curto quanto pro completo."""
     linhas = [l for l in saida.strip().splitlines() if l.strip()]
     hops = []
     for linha in linhas:
@@ -155,31 +198,50 @@ def diagnosticar_traceroute(saida: str, ip_destino: str) -> str:
         hops.append((numero, ip_hop))
 
     if not hops:
-        return "⚪ Não deu pra interpretar o traceroute (saída vazia ou em formato inesperado)."
+        return None
 
     total_saltos = len(hops)
     chegou_no_destino = any(ip_hop == ip_destino for _, ip_hop in hops)
     ultimo_respondeu = max((n for n, ip_hop in hops if ip_hop), default=0)
+    return chegou_no_destino, ultimo_respondeu, total_saltos
+
+
+def resumir_culpa_traceroute(saida: str, ip_destino: str) -> str:
+    """Frase curta de culpa, pra usar logo no comeco do alerta."""
+    analise = _analisar_traceroute(saida, ip_destino)
+    if analise is None:
+        return "não foi possível identificar de onde vem o problema"
+    chegou_no_destino, ultimo_respondeu, total_saltos = analise
+    if chegou_no_destino:
+        return "problema identificado do lado do Protheus (servidor ou rede dele)"
+    if ultimo_respondeu <= 2:
+        return "problema identificado na nossa rede (local ou provedor daqui)"
+    return "problema identificado no caminho até o Protheus (trânsito da internet)"
+
+
+def diagnosticar_traceroute(saida: str, ip_destino: str) -> str:
+    """Texto completo do diagnostico, pra secao 'Diagnostico' do alerta."""
+    analise = _analisar_traceroute(saida, ip_destino)
+    if analise is None:
+        return "⚪ Não deu pra interpretar o traceroute (saída vazia ou em formato inesperado)."
+    chegou_no_destino, ultimo_respondeu, total_saltos = analise
 
     if chegou_no_destino:
         return (
-            "🔴 *Culpa provável: Protheus.* A rota chegou até o IP dele pelo "
-            "traceroute — a internet até lá está OK, então o problema tende a ser "
-            "do lado do Protheus (rede ou servidor deles), não da nossa rede."
+            "🔴 A rota chegou até o IP do Protheus pelo traceroute — a internet "
+            "até lá está OK. O problema está no ambiente do Protheus (servidor "
+            "ou rede local deles)."
         )
-
     if ultimo_respondeu <= 2:
         return (
-            f"🟡 *Culpa provável: nossa rede.* A rota parou de responder logo no "
-            f"início (só foi até o salto {ultimo_respondeu} de {total_saltos}) — "
-            f"isso aponta pra um problema perto de nós (roteador/provedor nosso)."
+            f"🟡 A rota parou de responder logo no início (só foi até o salto "
+            f"{ultimo_respondeu} de {total_saltos}) — isso está perto de nós "
+            f"(roteador/provedor daqui)."
         )
-
     return (
-        f"🟠 *Culpa provável: lado do Protheus / trânsito da internet.* A rota "
-        f"avançou bastante (salto {ultimo_respondeu} de {total_saltos}) sem "
-        f"alcançar o destino — parou no meio do caminho, mais perto do lado do "
-        f"Protheus do que do nosso."
+        f"🟠 A rota avançou bastante (salto {ultimo_respondeu} de {total_saltos}) "
+        f"sem alcançar o destino — parou no meio do caminho, mais perto do lado "
+        f"do Protheus do que do nosso."
     )
 
 
@@ -278,14 +340,25 @@ async def verificar_protheus(db):
         (perda, latencia),
         (perda_ref, latencia_ref),
         ((perda_pfsense, latencia_pfsense), (perda_pfsense_ref, latencia_pfsense_ref)),
+        ((perda_patio2, latencia_patio2), (perda_patio2_ref, latencia_patio2_ref)),
         porta_servico_ok,
     ) = await asyncio.gather(
         fazer_ping(settings.protheus_ip),
         fazer_ping(REFERENCIA_IP),
         fazer_ping_duplo_via_pfsense(settings.protheus_ip, REFERENCIA_IP),
+        fazer_ping_duplo_via_pfsense(
+            settings.protheus_ip, REFERENCIA_IP,
+            host=settings.pfsense2_host, usuario=PATIO2_SSH_USER, apelido="Patio2",
+        ),
         testar_porta_protheus(settings.protheus_ip),
     )
-    novo_estado = classificar_estado(perda)
+    estado_pelo_ping = classificar_estado(perda)
+    if estado_pelo_ping != "online" and porta_servico_ok:
+        # Ping falhou mas a porta do servico respondeu - isso e sinal de ICMP
+        # instavel/deprorizado, nao de queda real. Nao conta como offline.
+        novo_estado = "online"
+    else:
+        novo_estado = estado_pelo_ping
     agora = datetime.now(timezone.utc)
 
     result = await db.execute(
@@ -315,6 +388,10 @@ async def verificar_protheus(db):
         pfsense_referencia_perda_percentual=perda_pfsense_ref,
         pfsense_referencia_latencia_ms=latencia_pfsense_ref,
         porta_servico_ok=porta_servico_ok,
+        patio2_perda_percentual=perda_patio2,
+        patio2_latencia_ms=latencia_patio2,
+        patio2_referencia_perda_percentual=perda_patio2_ref,
+        patio2_referencia_latencia_ms=latencia_patio2_ref,
     ))
     await db.commit()
 
@@ -328,11 +405,14 @@ async def verificar_protheus(db):
     # Alerta separado dos dois de cima: dispara so quando as DUAS origens
     # (E-Ops e pfSense) confirmarem o Protheus offline ao mesmo tempo, por
     # mais de N minutos seguidos - independente do cooldown/horario fixo.
+    confirmacao_externa = (
+        (perda_pfsense is not None and classificar_estado(perda_pfsense) == "offline")
+        or (perda_patio2 is not None and classificar_estado(perda_patio2) == "offline")
+    )
     confirmado_offline_agora = (
         classificar_estado(perda) == "offline"
-        and perda_pfsense is not None
-        and classificar_estado(perda_pfsense) == "offline"
         and porta_servico_ok is False
+        and confirmacao_externa
     )
 
     if confirmado_offline_agora:
@@ -344,35 +424,48 @@ async def verificar_protheus(db):
 
         if duracao_confirmada >= MINUTOS_PARA_ALERTA_CONFIRMADO * 60 and not _alerta_confirmado_enviado:
             traceroute_saida = await fazer_traceroute(settings.protheus_ip)
+            motivo_curto = resumir_culpa_traceroute(traceroute_saida, settings.protheus_ip)
             diagnostico = diagnosticar_traceroute(traceroute_saida, settings.protheus_ip)
+            site_status = await testar_site_protheus()
+
+            origens_confirmando = []
+            if perda_pfsense is not None and classificar_estado(perda_pfsense) == "offline":
+                origens_confirmando.append("pfSense (matriz)")
+            if perda_patio2 is not None and classificar_estado(perda_patio2) == "offline":
+                origens_confirmando.append("Pátio 2")
+            texto_origens = " e ".join(origens_confirmando) if origens_confirmando else "nenhuma origem externa disponível"
 
             google_pi_ok = perda_ref < 50
             google_pfsense_ok = perda_pfsense_ref is not None and perda_pfsense_ref < 50
+            google_patio2_ok = perda_patio2_ref is not None and perda_patio2_ref < 50
 
-            if not google_pi_ok or not google_pfsense_ok:
+            if not google_pi_ok or not google_pfsense_ok or (perda_patio2_ref is not None and not google_patio2_ok):
                 nota_google = (
-                    "⚠️ Nota: o Google também está com perda agora (medido por nós "
-                    "e/ou pelo pfSense) — sinal extra de instabilidade geral."
+                    "⚠️ O Google também está com perda em pelo menos uma origem agora "
+                    "— sinal extra de instabilidade geral."
                 )
             else:
-                nota_google = "✅ Nota: Google respondendo normal nos dois lados (E-Ops e pfSense)."
+                nota_google = "✅ Google respondendo normal em todas as origens — nossa internet está OK."
 
             msg_confirmado = (
                 f"🔴🔴 *InfraOps Center — QUEDA CONFIRMADA DO PROTHEUS*\n\n"
-                f"🖥️ *Servidor:* Protheus ({settings.protheus_hostname})\n"
-                f"⏱️ *Offline há mais de {MINUTOS_PARA_ALERTA_CONFIRMADO} minutos*, confirmado por *E-Ops*, *pfSense* e *porta do serviço* ao mesmo tempo\n\n"
+                f"🖥️ *Servidor Protheus está offline há mais de {MINUTOS_PARA_ALERTA_CONFIRMADO} minutos* — "
+                f"{motivo_curto}, confirmado por *E-Ops*, *porta do serviço* e *{texto_origens}* ao mesmo tempo.\n\n"
+                f"{nota_google}\n\n"
+                f"*Diagnóstico:*\n{diagnostico}\n\n"
                 f"*Pings no momento da confirmação:*\n"
                 f"📍 E-Ops → Protheus: {_fmt_ping(perda, latencia)}\n"
                 f"📍 E-Ops → Google: {_fmt_ping(perda_ref, latencia_ref)}\n"
-                f"📍 pfSense → Protheus: {_fmt_ping(perda_pfsense, latencia_pfsense)}\n"
-                f"📍 pfSense → Google: {_fmt_ping(perda_pfsense_ref, latencia_pfsense_ref)}\n"
-                f"🔌 Porta {PROTHEUS_PORTA_SERVICO} (serviço): {'aberta' if porta_servico_ok else 'FECHADA/recusada'}\n\n"
-                f"*Diagnóstico (baseado no traceroute):*\n{diagnostico}\n\n"
-                f"{nota_google}\n\n"
+                f"📍 pfSense (matriz) → Protheus: {_fmt_ping(perda_pfsense, latencia_pfsense)}\n"
+                f"📍 pfSense (matriz) → Google: {_fmt_ping(perda_pfsense_ref, latencia_pfsense_ref)}\n"
+                f"📍 Pátio 2 → Protheus: {_fmt_ping(perda_patio2, latencia_patio2)}\n"
+                f"📍 Pátio 2 → Google: {_fmt_ping(perda_patio2_ref, latencia_patio2_ref)}\n"
+                f"🔌 Porta {PROTHEUS_PORTA_SERVICO} (webapp): {'aberta' if porta_servico_ok else 'FECHADA/recusada'}\n"
+                f"🌐 Acesso ao site: {site_status}\n\n"
                 f"*Traceroute até o Protheus:*\n"
                 f"```\n{traceroute_saida[:1500]}\n```\n\n"
                 f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
-                f"_Este alerta é independente dos resumos das 08h/18h — dispara só quando confirmado por duas origens._"
+                f"_Este alerta é independente dos resumos das 08h/18h — dispara só quando confirmado por E-Ops + porta + pelo menos uma origem externa._"
             )
             await enviar_telegram(msg_confirmado)
             _alerta_confirmado_enviado = True
@@ -460,6 +553,7 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
 
     quedas_eops = _agrupar_quedas(registros, lambda r: r.perda_pacotes_percentual, fim)
     quedas_pfsense = _agrupar_quedas(registros, lambda r: r.pfsense_perda_percentual, fim)
+    quedas_patio2 = _agrupar_quedas(registros, lambda r: r.patio2_perda_percentual, fim)
 
     for q in quedas_eops:
         q["google_pct"] = _media_perda_no_intervalo(
@@ -469,6 +563,11 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
     for q in quedas_pfsense:
         q["google_pct"] = _media_perda_no_intervalo(
             registros, lambda r: r.pfsense_referencia_perda_percentual, q["inicio"], q["fim"]
+        )
+
+    for q in quedas_patio2:
+        q["google_pct"] = _media_perda_no_intervalo(
+            registros, lambda r: r.patio2_referencia_perda_percentual, q["inicio"], q["fim"]
         )
 
     # Correlacao com rede/AP e com o Google, so faz sentido do lado do E-Ops
@@ -488,6 +587,7 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
 
     tempo_total_eops = sum(q["duracao_segundos"] for q in quedas_eops)
     tempo_total_pfsense = sum(q["duracao_segundos"] for q in quedas_pfsense)
+    tempo_total_patio2 = sum(q["duracao_segundos"] for q in quedas_patio2)
     coincidiu_com_rede = any(_coincidiu_eops(q) for q in quedas_eops)
 
     checagens_porta = [r.porta_servico_ok for r in registros if r.porta_servico_ok is not None]
@@ -498,7 +598,7 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
     msg = f"🔔 *InfraOps Center — Resumo Protheus ({rotulo})*\n\n"
     msg += f"📅 *Período:* {inicio.astimezone().strftime('%d/%m %H:%M')} → {fim.astimezone().strftime('%d/%m %H:%M')}\n\n"
 
-    if not quedas_eops and not quedas_pfsense:
+    if not quedas_eops and not quedas_pfsense and not quedas_patio2:
         msg += "✅ *Nenhuma queda registrada por nenhuma das origens — 100% online no período*\n"
     else:
         msg += f"📍 *E-Ops — {len(quedas_eops)} queda(s):*\n"
@@ -508,12 +608,19 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
         else:
             msg += "✅ Nenhuma queda vista pelo E-Ops\n"
 
-        msg += f"\n📍 *pfSense — {len(quedas_pfsense)} queda(s):*\n"
+        msg += f"\n📍 *pfSense (matriz) — {len(quedas_pfsense)} queda(s):*\n"
         if quedas_pfsense:
             msg += _formatar_lista_quedas(quedas_pfsense) + "\n"
             msg += f"⏱️ Tempo total (pfSense): {_formatar_duracao(tempo_total_pfsense)}\n"
         else:
             msg += "✅ Nenhuma queda vista pelo pfSense\n"
+
+        msg += f"\n📍 *Pátio 2 — {len(quedas_patio2)} queda(s):*\n"
+        if quedas_patio2:
+            msg += _formatar_lista_quedas(quedas_patio2) + "\n"
+            msg += f"⏱️ Tempo total (Pátio 2): {_formatar_duracao(tempo_total_patio2)}\n"
+        else:
+            msg += "✅ Nenhuma queda vista pelo Pátio 2\n"
 
         if checagens_porta:
             msg += f"\n🔌 *Porta {PROTHEUS_PORTA_SERVICO} (serviço):* falhou em {falhas_porta}/{len(checagens_porta)} verificações no período\n"

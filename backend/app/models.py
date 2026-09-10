@@ -179,6 +179,14 @@ class ProtheusStatus(Base):
     # ICMP) - confirma que o SERVICO esta aceitando conexao, nao so que o
     # servidor responde ping.
     porta_servico_ok = Column(Boolean, nullable=True)
+    # Mesmo par de testes (Protheus + Google) so que rodado via SSH no
+    # pfSense do Patio 2 - uma unidade fisicamente diferente (a ~4km) com
+    # internet propria, servindo de segunda testemunha externa independente
+    # da matriz.
+    patio2_perda_percentual = Column(Numeric(5, 2), nullable=True)
+    patio2_latencia_ms = Column(Numeric(10, 3), nullable=True)
+    patio2_referencia_perda_percentual = Column(Numeric(5, 2), nullable=True)
+    patio2_referencia_latencia_ms = Column(Numeric(10, 3), nullable=True)
 
 
 class EventoSistema(Base):
