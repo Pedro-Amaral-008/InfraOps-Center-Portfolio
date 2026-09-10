@@ -149,6 +149,16 @@ class PfsenseVpnVlanStatus(Base):
     verificado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class ProtheusStatus(Base):
+    __tablename__ = "protheus_status"
+
+    id = Column(Integer, primary_key=True, index=True)
+    estado = Column(String, nullable=False)  # "online", "intermitente" ou "offline"
+    latencia_ms = Column(Numeric(10, 3), nullable=True)
+    perda_pacotes_percentual = Column(Numeric(5, 2), nullable=False, default=0)
+    verificado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class EventoSistema(Base):
     __tablename__ = "eventos_sistema"
 
