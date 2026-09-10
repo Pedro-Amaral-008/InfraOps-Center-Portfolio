@@ -21,7 +21,7 @@ function BarraRecurso({ label, percent, corLimite = 90 }) {
       <div className="resource-bar-track">
         <div
           className="resource-bar-fill"
-          style={{ width: `${percent}%`, backgroundColor: cor }}
+          style={{ width: `${percent}%`, backgroundColor: cor, color: cor }}
         />
       </div>
     </div>
