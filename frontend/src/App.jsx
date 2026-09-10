@@ -742,36 +742,42 @@ function App() {
                 )}
               </div>
 
-              <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Histórico — Últimos 30 dias</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Job</th>
-                    <th>Tipo</th>
-                    <th>Tamanho Transferido</th>
-                    <th>Data/Hora</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {backupsHistorico.map((h) => (
-                    <tr key={h.id}>
-                      <td><span className="hist-icon" style={{ color: h.status === 'Success' ? 'var(--status-online)' : h.status === 'Warning' ? 'var(--status-warning)' : 'var(--status-offline)', backgroundColor: h.status === 'Success' ? 'rgba(46, 204, 113, 0.15)' : h.status === 'Warning' ? 'rgba(243, 156, 18, 0.15)' : 'rgba(231, 76, 60, 0.15)' }}>⛁</span>{h.job_name}</td>
-                      <td>{h.backup_type || '—'}</td>
-                      <td>{formatarTamanho(h.tamanho_transferido_gb)}</td>
-                      <td>{new Date(h.executado_em).toLocaleString('pt-BR')}</td>
-                      <td>
-                        <span className={`status-tag status-tag-${h.status === 'Success' ? 'online' : h.status === 'Warning' ? 'warning' : 'offline'}`}>
-                          {h.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {backupsHistorico.length === 0 && (
-                    <tr><td colSpan="5">Sem execuções registradas ainda</td></tr>
-                  )}
-                </tbody>
-              </table>
+                            <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Histórico — Últimos 30 dias</h3>
+              <div className="hist-list">
+                <div className="hist-row head">
+                  <span></span>
+                  <span>Job</span>
+                  <span>Tipo</span>
+                  <span style={{ textAlign: 'right' }}>Tamanho</span>
+                  <span>Data/Hora</span>
+                  <span></span>
+                </div>
+                {backupsHistorico.map((h) => {
+                  const corStatus = h.status === 'Success' ? 'var(--status-online)' : h.status === 'Warning' ? 'var(--status-warning)' : 'var(--status-offline)';
+                  const bgStatus = h.status === 'Success' ? 'rgba(46, 204, 113, 0.15)' : h.status === 'Warning' ? 'rgba(243, 156, 18, 0.15)' : 'rgba(231, 76, 60, 0.15)';
+                  return (
+                    <div className="hist-row" key={h.id}>
+                      <span className="hist-icon" style={{ color: corStatus, backgroundColor: bgStatus }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <ellipse cx="12" cy="5" rx="8" ry="3" />
+                          <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
+                          <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
+                        </svg>
+                      </span>
+                      <span className="hist-name">{h.job_name}</span>
+                      <span className="hist-type">{h.backup_type || '—'}</span>
+                      <span className="hist-size">{formatarTamanho(h.tamanho_transferido_gb)}</span>
+                      <span className="hist-when">{new Date(h.executado_em).toLocaleString('pt-BR')}</span>
+                      <span className={`status-tag status-tag-${h.status === 'Success' ? 'online' : h.status === 'Warning' ? 'warning' : 'offline'}`} style={{ justifySelf: 'end' }}>
+                        {h.status}
+                      </span>
+                    </div>
+                  );
+                })}
+                {backupsHistorico.length === 0 && (
+                  <div className="loading-message">Sem execuções registradas ainda</div>
+                )}
+              </div>
             </div>
           )}
 
