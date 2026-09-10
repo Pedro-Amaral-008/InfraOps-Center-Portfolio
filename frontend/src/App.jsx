@@ -466,175 +466,100 @@ function App() {
                 </button>
               </div>
 
-              {subAbaRede === 'links' && (
+                            {subAbaRede === 'links' && (
                 <>
                   <h3 className="detail-table-title">Links de Internet</h3>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Link</th>
-                        <th>Status Atual</th>
-                        <th>Uptime (30 dias)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pfsenseLinks.map((link) => {
-                        const uptimeInfo = pfsenseUptime.find((u) => u.nome === link.nome);
-                        return (
-                          <tr key={link.nome}>
-                            <td>{link.nome}</td>
-                            <td>
-                              <span className={`status-tag status-tag-${link.status === 'online' ? 'online' : 'offline'}`}>
-                                {link.status === 'online' ? 'Online' : 'Offline'}
-                              </span>
-                            </td>
-                            <td>{uptimeInfo ? `${uptimeInfo.uptime_percent}%` : '—'}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Tráfego em Tempo Real</h3>
-                  <div className="metrics-grid">
-                    {pfsenseLinks.map((link) => (pfsenseTrafego[link.nome] ? (
-                      <>
-                        <div key={link.nome}>
-                          <MetricChart
-                            titulo={`${link.nome} — Download (Mbps)`}
-                            dados={pfsenseTrafego[link.nome].download}
-                            cor="#2ECC71"
-                            unidade=""
-                          />
-                        </div>
-                        <div key={`${link.nome}-up`}>
-                          <MetricChart
-                            titulo={`${link.nome} — Upload (Mbps)`}
-                            dados={pfsenseTrafego[link.nome].upload}
-                            cor="#E74C3C"
-                            unidade=""
-                          />
-                        </div>
-                      </>
-                    ) : null))}
-                  </div>
-                </>
-              )}
-
-              {subAbaRede === 'vpns' && (
-                <>
-                  <h3 className="detail-table-title">VPNs</h3>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Nome</th>
-                        <th>Status</th>
-                        <th>Uptime (30 dias)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pfsenseVpns.map((vpn) => {
-                        const uptimeInfo = vpnsUptime.find((u) => u.nome === vpn.nome);
-                        return (
-                        <tr key={vpn.nome}>
-                          <td>{vpn.nome}</td>
-                          <td>
-                            <span className={`status-tag status-tag-${vpn.status === 'online' ? 'online' : 'offline'}`}>
-                              {vpn.status === 'online' ? 'Online' : 'Offline'}
+                  <div className="link-cards-grid-wrap">
+                    {pfsenseLinks.map((link) => {
+                      const uptimeInfo = pfsenseUptime.find((u) => u.nome === link.nome);
+                      return (
+                        <div className="link-card" key={link.nome}>
+                          <div className="link-card-header">
+                            <span className="link-card-name">{link.nome}</span>
+                            <span className={`status-tag status-tag-${link.status === 'online' ? 'online' : 'offline'}`}>
+                              {link.status === 'online' ? 'Online' : 'Offline'}
                             </span>
-                          </td>
-                          <td>{uptimeInfo && uptimeInfo.uptime_percent !== null ? `${uptimeInfo.uptime_percent}%` : '—'}</td>
-                        </tr>
-                        );
-                      })}
-                      {pfsenseVpns.length === 0 && (
-                        <tr><td colSpan="3">Carregando...</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                  <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Tráfego em Tempo Real</h3>
-                  <div className="metrics-grid">
-                    {pfsenseVpns.map((vpn) => (pfsenseTrafego[vpn.nome] ? (
-                      <>
-                        <div key={vpn.nome}>
-                          <MetricChart
-                            titulo={`${vpn.nome} — Download (Mbps)`}
-                            dados={pfsenseTrafego[vpn.nome].download}
-                            cor="#2ECC71"
-                            unidade=""
-                          />
+                            <span className="link-card-uptime">{uptimeInfo && uptimeInfo.uptime_percent !== null ? `${uptimeInfo.uptime_percent}% uptime (30 dias)` : 'uptime indisponível'}</span>
+                          </div>
+                          {pfsenseTrafego[link.nome] && (
+                            <div className="link-card-charts">
+                              <MetricChart titulo="Download (Mbps)" dados={pfsenseTrafego[link.nome].download} cor="#2ECC71" unidade="" altura={150} />
+                              <MetricChart titulo="Upload (Mbps)" dados={pfsenseTrafego[link.nome].upload} cor="#E74C3C" unidade="" altura={150} />
+                            </div>
+                          )}
                         </div>
-                        <div key={`${vpn.nome}-up`}>
-                          <MetricChart
-                            titulo={`${vpn.nome} — Upload (Mbps)`}
-                            dados={pfsenseTrafego[vpn.nome].upload}
-                            cor="#E74C3C"
-                            unidade=""
-                          />
-                        </div>
-                      </>
-                    ) : null))}
+                      );
+                    })}
+                    {pfsenseLinks.length === 0 && (
+                      <div className="loading-message">Carregando...</div>
+                    )}
                   </div>
                 </>
               )}
 
-              {subAbaRede === 'vlans' && (
-                <>
-                  <h3 className="detail-table-title">VLANs</h3>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Nome</th>
-                        <th>Status</th>
-                        <th>Uptime (30 dias)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pfsenseVlans.map((vlan) => {
-                        const uptimeInfo = vlansUptime.find((u) => u.nome === vlan.nome);
-                        return (
-                        <tr key={vlan.nome}>
-                          <td>{vlan.nome}</td>
-                          <td>
-                            <span className={`status-tag status-tag-${vlan.status === 'online' ? 'online' : 'offline'}`}>
-                              {vlan.status === 'online' ? 'Online' : 'Offline'}
-                            </span>
-                          </td>
-                          <td>{uptimeInfo && uptimeInfo.uptime_percent !== null ? `${uptimeInfo.uptime_percent}%` : '—'}</td>
-                        </tr>
-                        );
-                      })}
-                      {pfsenseVlans.length === 0 && (
-                        <tr><td colSpan="3">Carregando...</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                  <h3 className="detail-table-title" style={{ marginTop: '24px' }}>Tráfego em Tempo Real</h3>
-                  <div className="metrics-grid">
-                    {pfsenseVlans.map((vlan) => (pfsenseTrafego[vlan.nome] ? (
-                      <>
-                        <div key={vlan.nome}>
-                          <MetricChart
-                            titulo={`${vlan.nome} — Download (Mbps)`}
-                            dados={pfsenseTrafego[vlan.nome].download}
-                            cor="#2ECC71"
-                            unidade=""
-                          />
-                        </div>
-                        <div key={`${vlan.nome}-up`}>
-                          <MetricChart
-                            titulo={`${vlan.nome} — Upload (Mbps)`}
-                            dados={pfsenseTrafego[vlan.nome].upload}
-                            cor="#E74C3C"
-                            unidade=""
-                          />
-                        </div>
-                      </>
-                    ) : null))}
-                  </div>
-                </>
-              )}
+{subAbaRede === 'vpns' && (
+  <>
+    <h3 className="detail-table-title">VPNs</h3>
+    <div className="link-cards-grid-wrap">
+      {pfsenseVpns.map((vpn) => {
+        const uptimeInfo = vpnsUptime.find((u) => u.nome === vpn.nome);
+        return (
+          <div className="link-card" key={vpn.nome}>
+            <div className="link-card-header">
+              <span className="link-card-name">{vpn.nome}</span>
+              <span className={`status-tag status-tag-${vpn.status === 'online' ? 'online' : 'offline'}`}>
+                {vpn.status === 'online' ? 'Online' : 'Offline'}
+              </span>
+              <span className="link-card-uptime">{uptimeInfo && uptimeInfo.uptime_percent !== null ? `${uptimeInfo.uptime_percent}% uptime (30 dias)` : 'uptime indisponível'}</span>
+            </div>
+            {pfsenseTrafego[vpn.nome] && (
+              <div className="link-card-charts">
+                <MetricChart titulo="Download (Mbps)" dados={pfsenseTrafego[vpn.nome].download} cor="#2ECC71" unidade="" altura={150} />
+                <MetricChart titulo="Upload (Mbps)" dados={pfsenseTrafego[vpn.nome].upload} cor="#E74C3C" unidade="" altura={150} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {pfsenseVpns.length === 0 && (
+        <div className="loading-message">Carregando...</div>
+      )}
+    </div>
+  </>
+)}
 
-              {subAbaRede === 'access_points' && unifiAps.length > 0 && (
+{subAbaRede === 'vlans' && (
+  <>
+    <h3 className="detail-table-title">VLANs</h3>
+    <div className="link-cards-grid-wrap">
+      {pfsenseVlans.map((vlan) => {
+        const uptimeInfo = vlansUptime.find((u) => u.nome === vlan.nome);
+        return (
+          <div className="link-card" key={vlan.nome}>
+            <div className="link-card-header">
+              <span className="link-card-name">{vlan.nome}</span>
+              <span className={`status-tag status-tag-${vlan.status === 'online' ? 'online' : 'offline'}`}>
+                {vlan.status === 'online' ? 'Online' : 'Offline'}
+              </span>
+              <span className="link-card-uptime">{uptimeInfo && uptimeInfo.uptime_percent !== null ? `${uptimeInfo.uptime_percent}% uptime (30 dias)` : 'uptime indisponível'}</span>
+            </div>
+            {pfsenseTrafego[vlan.nome] && (
+              <div className="link-card-charts">
+                <MetricChart titulo="Download (Mbps)" dados={pfsenseTrafego[vlan.nome].download} cor="#2ECC71" unidade="" altura={150} />
+                <MetricChart titulo="Upload (Mbps)" dados={pfsenseTrafego[vlan.nome].upload} cor="#E74C3C" unidade="" altura={150} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {pfsenseVlans.length === 0 && (
+        <div className="loading-message">Carregando...</div>
+      )}
+    </div>
+  </>
+)}
+
+{subAbaRede === 'access_points' && unifiAps.length > 0 && (
                 <>
                   <h3 className="detail-table-title">Access Points — Clientes Conectados</h3>
                   <table>
