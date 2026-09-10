@@ -601,6 +601,14 @@ async def dashboard_servidores_uptime(
 ):
     from app.dashboard import get_uptime_por_job
     return await get_uptime_por_job("blackbox-servidores-tcp|blackbox-servidor-backup-principal", dias)
+@app.get("/dashboard/servidores/status-completo")
+@cache_ttl(10)
+async def dashboard_servidores_status_completo(
+    dias: int = 30,
+    usuario: User = Depends(get_current_user),
+):
+    from app.dashboard import get_servidores_status_completo
+    return await get_servidores_status_completo("blackbox-servidores-tcp|blackbox-servidor-backup-principal", dias)
 @app.get("/dashboard/access-points/uptime")
 @cache_ttl(5)
 async def dashboard_access_points_uptime(

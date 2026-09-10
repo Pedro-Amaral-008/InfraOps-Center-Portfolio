@@ -36,6 +36,101 @@ async def get_uptime_por_job(job: str, dias: int = 30):
             "uptime_percent": round(float(valor), 2) if valor is not None else None,
         })
     return uptime
+
+
+def _agrupar_eventos_probe(pontos):
+    """pontos: lista de (timestamp_ms, valor) ordenados por tempo, valor
+    1.0=online, 0.0=offline. Agrupa em segmentos continuos, mais recente
+    primeiro."""
+    eventos = []
+    atual = None
+    for ts, valor in pontos:
+        estado = "online" if valor >= 1.0 else "offline"
+        if atual is None or estado != atual["estado"]:
+            if atual is not None:
+                atual["fim"] = ts
+                atual["duracao_segundos"] = int((ts - atual["inicio"]) / 1000)
+                eventos.append(atual)
+            atual = {"estado": estado, "inicio": ts, "fim": None, "duracao_segundos": None}
+    if atual is not None:
+        eventos.append(atual)
+    eventos.reverse()
+    return eventos
+
+
+async def get_servidores_status_completo(job: str, dias_eventos: int = 30):
+    """Status completo por servidor (estado, latencia, uptime, historico e
+    ocorrencias), no mesmo formato usado pelo card do Protheus - casado pelo
+    campo 'nome' do Prometheus."""
+    import time
+    from datetime import datetime, timezone
+    from app.metrics import get_latencia_por_categoria, query_range
+
+    sucesso_atual = await query_prometheus(f'probe_success{{job=~"{job}"}}')
+    duracao_atual = await query_prometheus(f'probe_duration_seconds{{job=~"{job}"}} * 1000')
+
+    duracao_por_instance = {}
+    for r in duracao_atual:
+        instance = r.get("metric", {}).get("instance", "")
+        valor = r.get("value", [None, None])[1]
+        duracao_por_instance[instance] = round(float(valor), 1) if valor is not None else None
+
+    historico_series = await get_latencia_por_categoria(job, minutos=1440)
+    historico_por_instance = {
+        s["instance"]: [{"timestamp": p["timestamp"], "latencia_ms": p["valor"]} for p in s["pontos"]]
+        for s in historico_series
+    }
+
+    uptime_24h = {r["instance"]: r["uptime_percent"] for r in await get_uptime_por_job(job, dias=1)}
+    uptime_7d = {r["instance"]: r["uptime_percent"] for r in await get_uptime_por_job(job, dias=7)}
+    uptime_30d = {r["instance"]: r["uptime_percent"] for r in await get_uptime_por_job(job, dias=min(dias_eventos, 30))}
+
+    minutos_eventos = dias_eventos * 24 * 60
+    bruta = await query_range(f'probe_success{{job=~"{job}"}}', minutos=minutos_eventos, step="5m")
+    bruta_por_instance = {
+        r.get("metric", {}).get("instance", ""): [(int(v[0]) * 1000, float(v[1])) for v in r.get("values", [])]
+        for r in bruta
+    }
+
+    resultado = {}
+    for r in sucesso_atual:
+        metric = r.get("metric", {})
+        instance = metric.get("instance", "")
+        if instance in INSTANCIAS_REMOVIDAS:
+            continue
+        nome = metric.get("nome", instance)
+        valor = r.get("value", [None, None])[1]
+        online_agora = valor == "1"
+        estado_atual_str = "online" if online_agora else "offline"
+
+        pontos = bruta_por_instance.get(instance, [])
+        eventos = _agrupar_eventos_probe(pontos)
+        ocorrencias = [e for e in eventos if e["estado"] != "online"]
+
+        desde = None
+        for ts, v in reversed(pontos):
+            if ("online" if v >= 1.0 else "offline") != estado_atual_str:
+                desde = ts
+                break
+        else:
+            if pontos:
+                desde = pontos[0][0]
+
+        resultado[nome] = {
+            "estado": estado_atual_str,
+            "latencia_ms": duracao_por_instance.get(instance),
+            "perda_pacotes_percentual": 0 if online_agora else 100,
+            "desde": datetime.fromtimestamp(desde / 1000, tz=timezone.utc).isoformat() if desde else None,
+            "uptime_24h": uptime_24h.get(instance),
+            "uptime_7d": uptime_7d.get(instance),
+            "uptime_30d": uptime_30d.get(instance),
+            "historico": historico_por_instance.get(instance, []),
+            "eventos": ocorrencias,
+        }
+
+    return resultado
+
+
 def count_by_value(results, target_value="1"):
     online = 0
     offline = 0
