@@ -165,6 +165,11 @@ class ProtheusStatus(Base):
     # em toda verificacao. Serve pra validar se uma queda do Protheus e
     # isolada (so ele) ou coincide com problema geral na nossa internet.
     referencia_perda_percentual = Column(Numeric(5, 2), nullable=True)
+    # Mesma verificacao, so que executada via SSH no proprio pfSense (uma
+    # segunda origem, fora do Raspberry Pi) - serve de comparacao pra saber
+    # se a queda e generalizada ou especifica de uma rota/origem.
+    pfsense_perda_percentual = Column(Numeric(5, 2), nullable=True)
+    pfsense_latencia_ms = Column(Numeric(10, 3), nullable=True)
 
 
 class EventoSistema(Base):

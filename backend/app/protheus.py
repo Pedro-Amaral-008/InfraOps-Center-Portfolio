@@ -10,6 +10,10 @@ INTERVALO_SEGUNDOS = 15
 QUANTIDADE_PINGS = 5
 REFERENCIA_IP = "8.8.8.8"  # Google DNS, usado so pra comparacao/validacao
 
+PFSENSE_SSH_USER = "infraops-readonly"
+PFSENSE_SSH_KEY = "/home/appuser/.ssh/pfsense_readonly"
+MINUTOS_PARA_ALERTA_CONFIRMADO = 5
+
 
 async def fazer_ping(ip: str, quantidade: int = QUANTIDADE_PINGS):
     """Manda um mini-lote de pings ICMP pro IP informado e retorna
@@ -22,6 +26,35 @@ async def fazer_ping(ip: str, quantidade: int = QUANTIDADE_PINGS):
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=quantidade * 2 + 5)
+        saida = stdout.decode(errors="ignore")
+
+        match_perda = re.search(r"(\d+(?:\.\d+)?)% packet loss", saida)
+        perda = float(match_perda.group(1)) if match_perda else 100.0
+
+        match_latencia = re.search(r"= [\d.]+/([\d.]+)/", saida)
+        latencia = float(match_latencia.group(1)) if match_latencia else None
+
+        return perda, latencia
+    except Exception:
+        return 100.0, None
+
+
+async def fazer_ping_via_pfsense(ip: str, quantidade: int = QUANTIDADE_PINGS):
+    """Mesma ideia do fazer_ping, mas executado por SSH dentro do proprio
+    pfSense - uma segunda origem, fora do Raspberry Pi, pra comparar."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ssh",
+            "-i", PFSENSE_SSH_KEY,
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=5",
+            "-o", "BatchMode=yes",
+            f"{PFSENSE_SSH_USER}@{settings.pfsense_host}",
+            f"ping -c {quantidade} {ip}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=quantidade * 3 + 10)
         saida = stdout.decode(errors="ignore")
 
         match_perda = re.search(r"(\d+(?:\.\d+)?)% packet loss", saida)
@@ -108,10 +141,17 @@ async def houve_problema_na_rede_local() -> bool:
     return False
 
 
+_confirmado_offline_desde = None
+_alerta_confirmado_enviado = False
+
+
 async def verificar_protheus(db):
-    (perda, latencia), (perda_ref, latencia_ref) = await asyncio.gather(
+    global _confirmado_offline_desde, _alerta_confirmado_enviado
+
+    (perda, latencia), (perda_ref, latencia_ref), (perda_pfsense, latencia_pfsense) = await asyncio.gather(
         fazer_ping(settings.protheus_ip),
         fazer_ping(REFERENCIA_IP),
+        fazer_ping_via_pfsense(settings.protheus_ip),
     )
     novo_estado = classificar_estado(perda)
     agora = datetime.now(timezone.utc)
@@ -138,6 +178,8 @@ async def verificar_protheus(db):
         perda_pacotes_percentual=perda,
         rede_ok=rede_ok,
         referencia_perda_percentual=perda_ref,
+        pfsense_perda_percentual=perda_pfsense,
+        pfsense_latencia_ms=latencia_pfsense,
     ))
     await db.commit()
 
@@ -183,14 +225,79 @@ async def verificar_protheus(db):
 
         await enviar_telegram(msg)
 
+    # Alerta separado dos dois de cima: dispara so quando as DUAS origens
+    # (E-Ops e pfSense) confirmarem o Protheus offline ao mesmo tempo, por
+    # mais de N minutos seguidos - independente do cooldown/horario fixo.
+    confirmado_offline_agora = (
+        classificar_estado(perda) == "offline"
+        and classificar_estado(perda_pfsense) == "offline"
+    )
+
+    if confirmado_offline_agora:
+        if _confirmado_offline_desde is None:
+            _confirmado_offline_desde = agora
+            _alerta_confirmado_enviado = False
+
+        duracao_confirmada = (agora - _confirmado_offline_desde).total_seconds()
+
+        if duracao_confirmada >= MINUTOS_PARA_ALERTA_CONFIRMADO * 60 and not _alerta_confirmado_enviado:
+            msg_confirmado = (
+                f"🔴🔴 *InfraOps Center — QUEDA CONFIRMADA DO PROTHEUS*\n\n"
+                f"🖥️ *Servidor:* Protheus ({settings.protheus_hostname})\n"
+                f"⏱️ *Offline há mais de {MINUTOS_PARA_ALERTA_CONFIRMADO} minutos*, confirmado por *E-Ops* e *pfSense* ao mesmo tempo\n"
+                f"📉 *Perda (E-Ops):* {perda:.0f}% | *Perda (pfSense):* {perda_pfsense:.0f}%\n"
+                f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
+                f"_Este alerta é independente dos resumos das 08h/18h — dispara só quando confirmado por duas origens._"
+            )
+            await enviar_telegram(msg_confirmado)
+            _alerta_confirmado_enviado = True
+    else:
+        _confirmado_offline_desde = None
+        _alerta_confirmado_enviado = False
+
 
 _ultimo_resumo_protheus_enviado = None  # (data, hora) do ultimo resumo ja mandado
 
 
+def _agrupar_quedas(registros, obter_perda, fim):
+    """Agrupa uma serie de leituras em segmentos continuos do mesmo estado,
+    a partir de uma funcao que extrai a perda de pacotes de cada linha.
+    Retorna so os segmentos que nao sao "online"."""
+    eventos = []
+    atual = None
+    for r in registros:
+        perda_r = obter_perda(r)
+        estado_r = classificar_estado(perda_r) if perda_r is not None else "desconhecido"
+        if atual is None or estado_r != atual["estado"]:
+            if atual is not None:
+                atual["fim"] = r.verificado_em
+                atual["duracao_segundos"] = (atual["fim"] - atual["inicio"]).total_seconds()
+                eventos.append(atual)
+            atual = {"estado": estado_r, "inicio": r.verificado_em, "fim": None, "duracao_segundos": None}
+    if atual is not None:
+        atual["fim"] = fim
+        atual["duracao_segundos"] = (atual["fim"] - atual["inicio"]).total_seconds()
+        eventos.append(atual)
+    return [e for e in eventos if e["estado"] not in ("online", "desconhecido")]
+
+
+def _formatar_lista_quedas(quedas, max_listadas=15):
+    linhas = []
+    for q in quedas[:max_listadas]:
+        linhas.append(
+            f"• {q['inicio'].astimezone().strftime('%H:%M:%S')} → "
+            f"{q['fim'].astimezone().strftime('%H:%M:%S')} "
+            f"({_formatar_duracao(q['duracao_segundos'])})"
+        )
+    if len(quedas) > max_listadas:
+        linhas.append(f"_(+ {len(quedas) - max_listadas} outra(s) queda(s) não listada(s))_")
+    return "\n".join(linhas)
+
+
 async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
-    """Monta e manda o resumo do periodo [inicio, fim): quantas quedas,
-    tempo total offline/intermitente, a pior queda, e se alguma coincidiu
-    com problema na nossa rede."""
+    """Monta e manda o resumo do periodo [inicio, fim): quedas vistas pelo
+    E-Ops e pelo pfSense (uma embaixo da outra, pra comparar), tempo total
+    de cada origem, e se alguma coincidiu com problema na nossa rede."""
     result = await db.execute(
         select(ProtheusStatus)
         .where(ProtheusStatus.verificado_em >= inicio, ProtheusStatus.verificado_em < fim)
@@ -198,68 +305,55 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
     )
     registros = result.scalars().all()
 
-    eventos = []
-    atual = None
+    quedas_eops = _agrupar_quedas(registros, lambda r: r.perda_pacotes_percentual, fim)
+    quedas_pfsense = _agrupar_quedas(registros, lambda r: r.pfsense_perda_percentual, fim)
+
+    # Correlacao com rede/AP e com o Google, so faz sentido do lado do E-Ops
+    # (e o unico que tem essas duas checagens extras).
+    mapa_correlacao = {}
     for r in registros:
-        if atual is None or r.estado != atual["estado"]:
-            if atual is not None:
-                atual["fim"] = r.verificado_em
-                atual["duracao_segundos"] = (atual["fim"] - atual["inicio"]).total_seconds()
-                eventos.append(atual)
-            atual = {
-                "estado": r.estado,
-                "inicio": r.verificado_em,
-                "fim": None,
-                "duracao_segundos": None,
-                "rede_ok": r.rede_ok,
-                "referencia_max_perda": r.referencia_perda_percentual,
-            }
-        else:
-            if r.referencia_perda_percentual is not None:
-                maior = atual.get("referencia_max_perda")
-                if maior is None or r.referencia_perda_percentual > maior:
-                    atual["referencia_max_perda"] = r.referencia_perda_percentual
-    if atual is not None:
-        atual["fim"] = fim
-        atual["duracao_segundos"] = (atual["fim"] - atual["inicio"]).total_seconds()
-        eventos.append(atual)
+        if r.rede_ok is not None or r.referencia_perda_percentual is not None:
+            mapa_correlacao[r.verificado_em] = (r.rede_ok, r.referencia_perda_percentual)
 
-    def _coincidiu(e):
-        return e["rede_ok"] is False or (e.get("referencia_max_perda") or 0) >= 50
+    def _coincidiu_eops(q):
+        for r in registros:
+            if q["inicio"] <= r.verificado_em < q["fim"]:
+                rede_ok, ref_perda = mapa_correlacao.get(r.verificado_em, (None, None))
+                if rede_ok is False or (ref_perda or 0) >= 50:
+                    return True
+        return False
 
-    quedas = [e for e in eventos if e["estado"] != "online"]
-    total_quedas = len(quedas)
-    tempo_total_offline = sum(e["duracao_segundos"] for e in quedas)
-    coincidiu_com_rede = any(_coincidiu(e) for e in quedas)
+    tempo_total_eops = sum(q["duracao_segundos"] for q in quedas_eops)
+    tempo_total_pfsense = sum(q["duracao_segundos"] for q in quedas_pfsense)
+    coincidiu_com_rede = any(_coincidiu_eops(q) for q in quedas_eops)
 
     status_atual = await get_protheus_status_atual(db)
 
     msg = f"🔔 *InfraOps Center — Resumo Protheus ({rotulo})*\n\n"
     msg += f"📅 *Período:* {inicio.astimezone().strftime('%d/%m %H:%M')} → {fim.astimezone().strftime('%d/%m %H:%M')}\n\n"
 
-    if total_quedas == 0:
-        msg += "✅ *Nenhuma queda registrada — 100% online no período*\n"
+    if not quedas_eops and not quedas_pfsense:
+        msg += "✅ *Nenhuma queda registrada por nenhuma das origens — 100% online no período*\n"
     else:
-        pior = max(quedas, key=lambda e: e["duracao_segundos"])
-        msg += f"🔴 *{total_quedas} queda(s) registrada(s):*\n"
-
-        MAX_LISTADAS = 15
-        for q in quedas[:MAX_LISTADAS]:
-            marca = " ⚠️" if _coincidiu(q) else ""
-            msg += (
-                f"• {q['inicio'].astimezone().strftime('%H:%M:%S')} → "
-                f"{q['fim'].astimezone().strftime('%H:%M:%S')} "
-                f"({_formatar_duracao(q['duracao_segundos'])}){marca}\n"
-            )
-        if total_quedas > MAX_LISTADAS:
-            msg += f"_(+ {total_quedas - MAX_LISTADAS} outra(s) queda(s) não listada(s))_\n"
-
-        msg += f"\n⏱️ *Tempo total offline/intermitente:* {_formatar_duracao(tempo_total_offline)}\n"
-        msg += f"📉 *Maior queda:* {_formatar_duracao(pior['duracao_segundos'])} (às {pior['inicio'].astimezone().strftime('%H:%M')})\n"
-        if coincidiu_com_rede:
-            msg += "🌐 *Atenção: pelo menos uma queda coincidiu com problema na nossa rede/AP (marcadas com ⚠️ acima)*\n"
+        msg += f"📍 *E-Ops — {len(quedas_eops)} queda(s):*\n"
+        if quedas_eops:
+            msg += _formatar_lista_quedas(quedas_eops) + "\n"
+            msg += f"⏱️ Tempo total (E-Ops): {_formatar_duracao(tempo_total_eops)}\n"
         else:
-            msg += "🌐 Nenhuma coincidiu com problema na nossa rede\n"
+            msg += "✅ Nenhuma queda vista pelo E-Ops\n"
+
+        msg += f"\n📍 *pfSense — {len(quedas_pfsense)} queda(s):*\n"
+        if quedas_pfsense:
+            msg += _formatar_lista_quedas(quedas_pfsense) + "\n"
+            msg += f"⏱️ Tempo total (pfSense): {_formatar_duracao(tempo_total_pfsense)}\n"
+        else:
+            msg += "✅ Nenhuma queda vista pelo pfSense\n"
+
+        msg += "\n"
+        if coincidiu_com_rede:
+            msg += "🌐 *Atenção: pelo menos uma queda do E-Ops coincidiu com problema na nossa rede/AP ou perda pro Google*\n"
+        else:
+            msg += "🌐 Nenhuma queda coincidiu com problema na nossa rede\n"
 
     estado_txt = {"online": "Online", "intermitente": "Intermitente", "offline": "Offline"}.get(status_atual["estado"], status_atual["estado"])
     lat_txt = f" ({status_atual['latencia_ms']:.1f}ms)" if status_atual["latencia_ms"] is not None else ""
