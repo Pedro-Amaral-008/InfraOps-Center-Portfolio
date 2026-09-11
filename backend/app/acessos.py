@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import socket
 import paramiko
 import re
 from sqlalchemy import delete, func, select, update
@@ -372,7 +373,12 @@ def _puxar_novas_linhas_sync(offset: int):
     )
     try:
         _, stdout, _ = cliente.exec_command(f"wc -c < {EVE_JSON_REMOTE_PATH}")
-        tamanho_atual = int((stdout.read().decode().strip() or "0"))
+        stdout.channel.settimeout(15)
+        try:
+            tamanho_atual = int((stdout.read().decode().strip() or "0"))
+        except socket.timeout:
+            print("AVISO sync suricata: leitura do tamanho do arquivo excedeu 15s, pulando este ciclo")
+            return b"", offset, offset
 
         offset_efetivo = offset
         if tamanho_atual < offset:
@@ -390,7 +396,12 @@ def _puxar_novas_linhas_sync(offset: int):
         _, stdout, _ = cliente.exec_command(
             f"tail -c +{offset_efetivo + 1} {EVE_JSON_REMOTE_PATH} | head -c {bytes_a_ler}"
         )
-        dados = stdout.read()
+        stdout.channel.settimeout(30)
+        try:
+            dados = stdout.read()
+        except socket.timeout:
+            print("AVISO sync suricata: leitura SSH excedeu 30s, pulando este ciclo (tenta de novo em 60s)")
+            return b"", offset_efetivo, tamanho_atual
         if len(dados) == bytes_a_ler and tamanho_atual - offset_efetivo > bytes_a_ler:
             ultimo_nl = dados.rfind(b"\n")
             if ultimo_nl != -1:
