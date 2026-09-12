@@ -4,6 +4,7 @@ services:
     container_name: infraops_postgres
     restart: unless-stopped
     shm_size: "256mb"
+    command: ["postgres", "-c", "shared_buffers=512MB"]
     env_file:
       - ../../.env
     environment:
