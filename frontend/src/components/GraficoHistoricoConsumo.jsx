@@ -239,11 +239,13 @@ export default function GraficoHistoricoConsumo({
   token,
   apiUrl,
   intervaloMs = 15000,
-  periodoInicial = "24h",
+  intervaloPicosMs = 120000,
+  periodoInicial = "1h",
 }) {
   const [periodoId, setPeriodoId] = useState(periodoInicial);
   const [picoAtivo, setPicoAtivo] = useState(null);
-  const [remoto, setRemoto] = useState({ historico: [], picos: [] });
+  const [remotoHistorico, setRemotoHistorico] = useState([]);
+  const [remotoPicos, setRemotoPicos] = useState([]);
   const [erro, setErro] = useState(null);
 
   /*
@@ -265,24 +267,19 @@ export default function GraficoHistoricoConsumo({
   const urlPicosFinal =
     urlPicos ?? (apiUrl ? `${apiUrl}/dashboard/unifi/consumo/picos?minutos=${minutosPicos}` : null);
 
+  /* histórico: refaz a busca sempre que o período muda (URL muda junto) e
+     re-consulta a cada intervaloMs (15s por padrão) — só a aba ativa roda. */
   useEffect(() => {
-    if (historicoProp || picosProp) return undefined; // uso controlado: não busca nada
-    if (!urlHistoricoFinal && !urlPicosFinal) return undefined;
+    if (historicoProp) return undefined; // uso controlado: não busca nada
+    if (!urlHistoricoFinal) return undefined;
     let vivo = true;
-
     const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
 
     async function buscar() {
       try {
-        const [h, p] = await Promise.all([
-          urlHistoricoFinal ? fetch(urlHistoricoFinal, { headers }).then((r) => r.json()) : [],
-          urlPicosFinal ? fetch(urlPicosFinal, { headers }).then((r) => r.json()) : [],
-        ]);
+        const h = await fetch(urlHistoricoFinal, { headers }).then((r) => r.json());
         if (!vivo) return;
-        setRemoto({
-          historico: Array.isArray(h) ? h : h?.itens ?? h?.data ?? [],
-          picos: Array.isArray(p) ? p : p?.itens ?? p?.data ?? [],
-        });
+        setRemotoHistorico(Array.isArray(h) ? h : h?.itens ?? h?.data ?? []);
         setErro(null);
       } catch (e) {
         if (vivo) setErro(e?.message || "Falha ao carregar dados");
@@ -295,15 +292,43 @@ export default function GraficoHistoricoConsumo({
       vivo = false;
       clearInterval(timer);
     };
-  }, [historicoProp, picosProp, urlHistoricoFinal, urlPicosFinal, token, intervaloMs]);
+  }, [historicoProp, urlHistoricoFinal, token, intervaloMs]);
+
+  /* picos: janela fixa de 7 dias, independe do período escolhido — por isso
+     roda no seu próprio timer, bem mais devagar (2min por padrão), em vez de
+     ficar preso ao mesmo intervalo de 15s do histórico. */
+  useEffect(() => {
+    if (picosProp) return undefined; // uso controlado: não busca nada
+    if (!urlPicosFinal) return undefined;
+    let vivo = true;
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+
+    async function buscar() {
+      try {
+        const p = await fetch(urlPicosFinal, { headers }).then((r) => r.json());
+        if (!vivo) return;
+        setRemotoPicos(Array.isArray(p) ? p : p?.itens ?? p?.data ?? []);
+        setErro(null);
+      } catch (e) {
+        if (vivo) setErro(e?.message || "Falha ao carregar dados");
+      }
+    }
+
+    buscar();
+    const timer = setInterval(buscar, intervaloPicosMs);
+    return () => {
+      vivo = false;
+      clearInterval(timer);
+    };
+  }, [picosProp, urlPicosFinal, token, intervaloPicosMs]);
 
   const historico = useMemo(
-    () => normalizarHistorico(historicoProp ?? remoto.historico),
-    [historicoProp, remoto.historico]
+    () => normalizarHistorico(historicoProp ?? remotoHistorico),
+    [historicoProp, remotoHistorico]
   );
   const picos = useMemo(
-    () => normalizarPicos(picosProp ?? remoto.picos),
-    [picosProp, remoto.picos]
+    () => normalizarPicos(picosProp ?? remotoPicos),
+    [picosProp, remotoPicos]
   );
 
   const periodo = PERIODOS.find((p) => p.id === periodoId) ?? PERIODOS[5];

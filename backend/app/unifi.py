@@ -1,6 +1,7 @@
 import httpx
 import asyncio
 from app.config import settings
+from app.database import limitar_concorrencia_pesada
 
 SITE_ID = "88f7af54-98f8-306a-a1c7-c9349722b1f6"
 
@@ -363,6 +364,7 @@ async def get_historico_consumo_agregado(db, minutos: float = 60, num_baldes: in
     return resultado
 
 
+@limitar_concorrencia_pesada
 async def _get_historico_consumo_agregado_impl(db, minutos: float = 60, num_baldes: int = 150):
     """Agrega as amostras do periodo em ate 'num_baldes' pontos no tempo.
 
@@ -478,6 +480,7 @@ async def get_picos_sustentados(db, minutos: float = 60, limiar_mbps: float = 60
     return resultado
 
 
+@limitar_concorrencia_pesada
 async def _get_picos_sustentados_impl(db, minutos: float = 60, limiar_mbps: float = 60, duracao_minima_segundos: int = 60):
     """Analisa o historico POR DISPOSITIVO (nao a rede toda somada) e
     encontra trechos onde o download OU o upload de UM UNICO dispositivo

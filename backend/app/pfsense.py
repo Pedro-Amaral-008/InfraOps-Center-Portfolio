@@ -231,6 +231,9 @@ async def verificar_alertas_links(db):
 
         registro = await obter_estado(db, "pfsense", nome)
         estava_offline = registro.em_alerta if registro else False
+        # fecha a transacao de leitura antes de qualquer chamada de rede (Telegram),
+        # pra nao deixar transacao "idle in transaction" aberta enquanto espera resposta
+        await db.commit()
 
         if offline and not estava_offline:
             msg = (
@@ -283,6 +286,9 @@ async def verificar_alertas_vpns_vlans(db):
             estava_offline = registro.em_alerta if registro else False
             notificacao_ja_enviada = registro.notificacao_enviada if registro else False
             pode_alertar = _vpn_dentro_do_expediente() if tipo == "VPN" else True
+            # fecha a transacao de leitura antes de qualquer chamada de rede (Telegram),
+            # pra nao deixar transacao "idle in transaction" aberta enquanto espera resposta
+            await db.commit()
 
             if offline and not estava_offline:
                 if pode_alertar:

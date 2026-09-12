@@ -416,7 +416,7 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
 }
 
 function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
-  const [horas, setHoras] = useState(1440);
+  const [horas, setHoras] = useState(24);
   const [dispositivos, setDispositivos] = useState([]);
   const [topSites, setTopSites] = useState([]);
   const [carregando, setCarregando] = useState(true);

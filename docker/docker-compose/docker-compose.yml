@@ -3,6 +3,7 @@ services:
     image: postgres:16-alpine
     container_name: infraops_postgres
     restart: unless-stopped
+    shm_size: "256mb"
     env_file:
       - ../../.env
     environment:
@@ -28,6 +29,7 @@ services:
       dockerfile: Dockerfile
     container_name: infraops_backend
     restart: unless-stopped
+    mem_limit: "2g"
     env_file:
       - ../../.env
     environment:

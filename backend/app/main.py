@@ -35,6 +35,7 @@ def cache_ttl(segundos: float = 5):
     """
     def decorador(func):
         cache = {}
+        em_andamento = {}
 
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -43,11 +44,28 @@ def cache_ttl(segundos: float = 5):
             ))
             chave = (args, chave_kwargs)
             agora = time.monotonic()
+
+            # limpa entradas ja expiradas a cada chamada, pra o cache nao
+            # acumular memoria pra sempre com o passar do tempo (ex: painel
+            # ficando aberto o dia todo com varias janelas de tempo clicadas)
+            for k in [k for k, (_, expira) in cache.items() if expira < agora]:
+                del cache[k]
+
             if chave in cache:
                 valor, expira_em = cache[chave]
                 if agora < expira_em:
                     return valor
-            resultado = await func(*args, **kwargs)
+            if chave in em_andamento:
+                # ja tem uma chamada identica rodando agora - espera o
+                # resultado dela em vez de repetir a mesma consulta pesada
+                # em paralelo (evita "manada" no banco)
+                return await em_andamento[chave]
+            tarefa = asyncio.ensure_future(func(*args, **kwargs))
+            em_andamento[chave] = tarefa
+            try:
+                resultado = await tarefa
+            finally:
+                em_andamento.pop(chave, None)
             cache[chave] = (resultado, agora + segundos)
             return resultado
 
@@ -320,6 +338,7 @@ async def me(usuario: User = Depends(get_current_user)):
     }
 
 
+@cache_ttl(25)
 @app.get("/dashboard/summary")
 async def dashboard_summary(
     usuario: User = Depends(get_current_user),
@@ -384,6 +403,7 @@ async def webhook_alertmanager(request: Request, db: AsyncSession = Depends(get_
         pass
 
     return {"status": "ok"}
+@cache_ttl(25)
 @app.get("/dashboard/eventos/recentes")
 async def dashboard_eventos_recentes(
     limite: int = 8,
@@ -406,6 +426,7 @@ async def dashboard_eventos_recentes(
         }
         for e in eventos
     ]
+@cache_ttl(60)
 @app.get("/dashboard/eventos/contagem-24h")
 async def dashboard_eventos_contagem_24h(
     usuario: User = Depends(get_current_user),
@@ -419,12 +440,14 @@ async def dashboard_eventos_contagem_24h(
     )
     total = result.scalar_one()
     return {"total_24h": total}
+@cache_ttl(60)
 @app.get("/dashboard/tendencia-24h")
 async def dashboard_tendencia_24h(
     usuario: User = Depends(get_current_user),
 ):
     from app.dashboard import get_tendencia_saude_24h
     return await get_tendencia_saude_24h()
+@cache_ttl(90)
 @app.get("/dashboard/estabilidade-semanal")
 async def dashboard_estabilidade_semanal(
     usuario: User = Depends(get_current_user),
@@ -439,6 +462,7 @@ async def dashboard_estabilidade_com_variacao(
 ):
     from app.dashboard import get_estabilidade_com_variacao
     return await get_estabilidade_com_variacao(db)
+@cache_ttl(120)
 @app.get("/dashboard/estabilidade-14-dias")
 async def dashboard_estabilidade_14_dias(
     usuario: User = Depends(get_current_user),
@@ -545,6 +569,7 @@ async def dashboard_alertas_ativos_duracao(
     payload = await request.json()
     nomes = payload.get("nomes", [])
     return await get_alertas_ativos_com_duracao(db, nomes)
+@cache_ttl(120)
 @app.get("/dashboard/pior-desempenho-semana")
 async def dashboard_pior_desempenho_semana(
     usuario: User = Depends(get_current_user),
@@ -564,6 +589,7 @@ async def dashboard_ocorrencias_semana(
     return {"total": total}
 
 
+@cache_ttl(25)
 @app.get("/dashboard/metrics/host")
 async def dashboard_metrics_host(
     minutos: int = 60,
@@ -791,6 +817,7 @@ async def registrar_metrica_agente(
     return {"status": "metrica registrada com sucesso"}
 
 
+@cache_ttl(25)
 @app.get("/dashboard/agents")
 async def dashboard_agents_latest(
     usuario: User = Depends(get_current_user),
@@ -864,6 +891,7 @@ from app.agent_alerts import verificar_limites_agentes, verificar_disponibilidad
 from app.controller_alerts import verificar_limites_controller
 from app.pfsense import registrar_status_links, registrar_trafego, verificar_alertas_links, verificar_alertas_vpns_vlans, registrar_status_vpns_vlans
 from app.database import AsyncSessionLocal
+
 
 
 async def loop_verificacao_agentes():
@@ -945,6 +973,28 @@ async def loop_recategorizacao_diaria():
                 print(f"recategorizacao diaria: {atualizados} linhas atualizadas")
             except Exception as e:
                 print(f"ERRO em recategorizar_dominios_outros: {e}")
+            try:
+                from sqlalchemy import delete as _delete
+                from app.models import ConsumoRedeAmostra
+                limite_retencao = datetime.now(timezone.utc) - timedelta(days=14)
+                resultado = await db.execute(
+                    _delete(ConsumoRedeAmostra).where(ConsumoRedeAmostra.coletado_em < limite_retencao)
+                )
+                await db.commit()
+                print(f"retencao unifi_consumo_amostras: {resultado.rowcount} linhas removidas (mais de 14 dias)")
+            except Exception as e:
+                print(f"ERRO na retencao de unifi_consumo_amostras: {e}")
+            try:
+                from sqlalchemy import delete as _delete2
+                from app.models import AgentMetric
+                limite_retencao_agentes = datetime.now(timezone.utc) - timedelta(days=30)
+                resultado2 = await db.execute(
+                    _delete2(AgentMetric).where(AgentMetric.coletado_em < limite_retencao_agentes)
+                )
+                await db.commit()
+                print(f"retencao agent_metrics: {resultado2.rowcount} linhas removidas (mais de 30 dias)")
+            except Exception as e:
+                print(f"ERRO na retencao de agent_metrics: {e}")
 _conexao_lock_loops_de_fundo = None
 
 
@@ -986,6 +1036,7 @@ async def iniciar_verificacao_agentes():
     asyncio.create_task(loop_resumo_periodico_protheus())
 
 
+@cache_ttl(25)
 @app.get("/dashboard/controller/current")
 async def dashboard_controller_current(
     usuario: User = Depends(get_current_user),
@@ -1030,12 +1081,14 @@ async def dashboard_controller_current(
     }
 
 
+@cache_ttl(25)
 @app.get("/dashboard/unifi/aps")
 async def dashboard_unifi_aps(
     usuario: User = Depends(get_current_user),
 ):
     from app.unifi import get_aps_com_clientes
     return await get_aps_com_clientes()
+@cache_ttl(25)
 @app.get("/dashboard/unifi/top-consumo")
 async def dashboard_unifi_top_consumo(
     limite: int = 15,
@@ -1054,7 +1107,7 @@ async def dashboard_unifi_top_consumo_semanal(
     from app.unifi import get_top_consumo_semanal
     return await get_top_consumo_semanal(db, dias, minimo)
 @app.get("/dashboard/unifi/consumo/historico")
-@cache_ttl(5)
+@cache_ttl(20)
 async def dashboard_unifi_consumo_historico(
     minutos: float = 60,
     usuario: User = Depends(get_current_user),
@@ -1063,6 +1116,7 @@ async def dashboard_unifi_consumo_historico(
     from app.unifi import get_historico_consumo_agregado
     return await get_historico_consumo_agregado(db, minutos)
 @app.get("/dashboard/unifi/consumo/picos")
+@cache_ttl(90)
 async def dashboard_unifi_consumo_picos(
     minutos: float = 60,
     usuario: User = Depends(get_current_user),
@@ -1071,6 +1125,7 @@ async def dashboard_unifi_consumo_picos(
     from app.unifi import get_picos_sustentados
     return await get_picos_sustentados(db, minutos)
 @app.get("/dashboard/acessos/dispositivos")
+@cache_ttl(20)
 async def dashboard_acessos_dispositivos(
     horas: float = 1440,
     usuario: User = Depends(get_current_user),
@@ -1087,6 +1142,7 @@ async def dashboard_acessos_categorias(
     from app.acessos import get_categorias_disponiveis
     return await get_categorias_disponiveis(db, dias)
 @app.get("/dashboard/acessos/top-sites")
+@cache_ttl(20)
 async def dashboard_acessos_top_sites(
     horas: float = 1440,
     limite: int = 8,
@@ -1151,12 +1207,14 @@ async def dashboard_acessos_por_hora(
     return await get_atividade_por_hora(db, mac, horas)
 
 
+@cache_ttl(25)
 @app.get("/dashboard/pfsense/links")
 async def dashboard_pfsense_links(
     usuario: User = Depends(get_current_user),
 ):
     from app.pfsense import get_status_links
     return await get_status_links()
+@cache_ttl(25)
 @app.get("/dashboard/pfsense/vpns")
 async def dashboard_pfsense_vpns(
     usuario: User = Depends(get_current_user),
@@ -1164,6 +1222,7 @@ async def dashboard_pfsense_vpns(
 ):
     from app.pfsense import get_vpns_status_trafego
     return await get_vpns_status_trafego(db)
+@cache_ttl(25)
 @app.get("/dashboard/pfsense/vlans")
 async def dashboard_pfsense_vlans(
     usuario: User = Depends(get_current_user),

@@ -120,6 +120,9 @@ async def processar_recurso(db: AsyncSession, hostname: str, instance: str, nome
     registro = await obter_estado(db, instance, nome_recurso)
     estava_em_alerta = registro.em_alerta if registro else False
     esta_em_alerta = valor >= limite
+    # fecha a transacao de leitura antes de qualquer chamada de rede (Telegram),
+    # pra nao deixar transacao "idle in transaction" aberta enquanto espera resposta
+    await db.commit()
 
     if esta_em_alerta and not estava_em_alerta:
         agora = datetime.now(timezone.utc)
