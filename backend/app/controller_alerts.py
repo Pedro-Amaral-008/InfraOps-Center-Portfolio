@@ -92,6 +92,9 @@ async def verificar_limites_controller(db: AsyncSession):
         valor = round(valor)
         estava_em_alerta = await obter_estado(db, instance, nome_recurso)
         esta_em_alerta = valor >= limite
+        # fecha a transacao de leitura antes de qualquer chamada de rede (Telegram),
+        # pra nao deixar transacao "idle in transaction" aberta enquanto espera resposta
+        await db.commit()
 
         if esta_em_alerta and not estava_em_alerta:
             msg = (
