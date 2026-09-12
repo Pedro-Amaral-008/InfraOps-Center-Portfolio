@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     acessos_ips_excluidos: str = ""
     acessos_cn_vpn_excluido: str = ""
     pfsense_host: str
-    pfsense2_host: str = "10.10.0.2"  # pfSense do Patio 2 - rede/internet independente da matriz
+    pfsense2_host: str = ""  # pfSense do Patio 2 - rede/internet independente da matriz
     pfsense_snmp_community: str
     smtp_host: str = "smtp.office365.com"
     smtp_port: int = 587
