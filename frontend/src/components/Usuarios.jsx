@@ -3,7 +3,7 @@ import axios from 'axios';
 import './Auditoria.css';
 import './Usuarios.css';
 
-const API_URL = 'http://IP_AQUI:8000';
+const API_URL = '';
 
 function Usuarios({ token, meuUsername, meuRole }) {
   const [usuarios, setUsuarios] = useState([]);

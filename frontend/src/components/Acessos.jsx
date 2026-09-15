@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://IP_AQUI:8000';
+const API_URL = '';
 
 const PERIODOS = [
   { label: '1 hora', horas: 1 },
@@ -421,6 +421,7 @@ function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
   const [topSites, setTopSites] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [macSelecionado, setMacSelecionado] = useState(null);
+  const [busca, setBusca] = useState('');
   useEffect(() => {
     if (macInicial) {
       setMacSelecionado(macInicial);
@@ -430,14 +431,17 @@ function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
 
   useEffect(() => {
     if (!token) return;
+    const controller = new AbortController();
     setCarregando(true);
     Promise.all([
-      axios.get(`${API_URL}/dashboard/acessos/dispositivos`, { params: { horas }, headers: { Authorization: `Bearer ${token}` } }),
-      axios.get(`${API_URL}/dashboard/acessos/top-sites`, { params: { horas }, headers: { Authorization: `Bearer ${token}` } }),
+      axios.get(`${API_URL}/dashboard/acessos/dispositivos`, { params: { horas }, headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }),
+      axios.get(`${API_URL}/dashboard/acessos/top-sites`, { params: { horas }, headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }),
     ]).then(([respDispositivos, respTopSites]) => {
       setDispositivos(respDispositivos.data);
       setTopSites(respTopSites.data);
     }).catch(() => {}).finally(() => setCarregando(false));
+    // cancela a requisicao de verdade se o usuario sair da aba antes de terminar
+    return () => controller.abort();
   }, [token, horas]);
 
   if (macSelecionado) {
@@ -456,6 +460,14 @@ function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
   const volumeTotal = dispositivos.reduce((s, d) => s + d.volume_bytes, 0);
   const sitesUnicosAprox = dispositivos.reduce((s, d) => s + d.sites_diferentes, 0);
   const ativosAgora = dispositivos.filter((d) => d.ativo_agora).length;
+  const podeVerApelido = role === 'admin' || role === 'super_admin';
+  const buscaNormalizada = busca.trim().toLowerCase();
+  const dispositivosFiltrados = buscaNormalizada
+    ? dispositivos.filter((d) =>
+        (d.hostname || '').toLowerCase().includes(buscaNormalizada) ||
+        (podeVerApelido && d.apelido && d.apelido.toLowerCase().includes(buscaNormalizada))
+      )
+    : dispositivos;
 
   return (
     <div>
@@ -497,12 +509,25 @@ function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
       <h4 className="detail-table-title" style={{ fontSize: '14px' }}>Top sites acessados na rede</h4>
       <Donut dados={topSites} campoValor="volume_bytes" campoLabel="categoria" />
 
-      <table style={{ marginTop: '22px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', margin: '22px 0 16px', flexWrap: 'wrap' }}>
+        <input
+          type="text"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder={podeVerApelido ? 'Buscar por nome ou apelido...' : 'Buscar por nome do dispositivo...'}
+          style={{ flex: 1, minWidth: '260px', maxWidth: '380px', padding: '9px 12px', borderRadius: '8px', border: '1px solid var(--border-default)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13.5px' }}
+        />
+        <div style={{ color: 'var(--text-tertiary)', fontSize: '12.5px', whiteSpace: 'nowrap' }}>
+          {buscaNormalizada ? `${dispositivosFiltrados.length} de ${dispositivos.length} dispositivos` : `${dispositivos.length} dispositivos monitorados`}
+        </div>
+      </div>
+
+      <table>
         <thead>
           <tr><th>Dispositivo</th><th>IP</th><th>MAC</th><th>Sites diferentes</th><th>Volume</th><th>Última atividade</th></tr>
         </thead>
         <tbody>
-          {dispositivos.map((d) => (
+          {dispositivosFiltrados.map((d) => (
             <tr key={d.mac} style={{ cursor: 'pointer' }} onClick={() => setMacSelecionado(d.mac)}>
               <td>{d.hostname}</td>
               <td style={{ opacity: 0.6, fontSize: '12px', fontFamily: 'monospace' }}>{d.ip}</td>
@@ -512,6 +537,9 @@ function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
               <td style={d.ativo_agora ? { color: '#3ab97a' } : { opacity: 0.6 }}>{d.ativo_agora ? 'agora' : tempoRelativo(d.ultima_atividade)}</td>
             </tr>
           ))}
+          {!carregando && dispositivos.length > 0 && dispositivosFiltrados.length === 0 && (
+            <tr><td colSpan="6" style={{ textAlign: 'center', opacity: 0.6 }}>Nenhum dispositivo encontrado{podeVerApelido ? ' com esse nome ou apelido.' : ' com esse nome.'}</td></tr>
+          )}
           {!carregando && dispositivos.length === 0 && (
             <tr><td colSpan="6" style={{ textAlign: 'center', opacity: 0.6 }}>Nenhum acesso registrado no período selecionado.</td></tr>
           )}

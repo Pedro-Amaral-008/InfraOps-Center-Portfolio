@@ -16,13 +16,25 @@ async def enviar_telegram(mensagem: str, parse_mode: str = "Markdown"):
     url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            await client.post(url, json={
+            resposta = await client.post(url, json={
                 "chat_id": settings.telegram_chat_id,
                 "text": mensagem,
                 "parse_mode": parse_mode,
             })
-        except Exception:
-            pass
+            if resposta.status_code != 200:
+                print(f"ERRO Telegram (HTTP {resposta.status_code}): {resposta.text[:500]}")
+                # provavel erro de formatacao (Markdown com caractere especial
+                # desbalanceado) - reenvia sem parse_mode pra garantir que a
+                # mensagem chega, mesmo que sem negrito.
+                if parse_mode:
+                    resposta2 = await client.post(url, json={
+                        "chat_id": settings.telegram_chat_id,
+                        "text": mensagem,
+                    })
+                    if resposta2.status_code != 200:
+                        print(f"ERRO Telegram (retry sem formatacao, HTTP {resposta2.status_code}): {resposta2.text[:500]}")
+        except Exception as e:
+            print(f"ERRO ao enviar telegram: {e}")
 
     try:
         from app.database import AsyncSessionLocal
@@ -56,6 +68,7 @@ async def enviar_telegram(mensagem: str, parse_mode: str = "Markdown"):
         ]
 
         def limpar(texto):
+            texto = re.sub(r'<[^>]+>', '', texto)  # remove tags HTML completas (<b>, </b>, etc)
             texto = re.sub(r'[*_`\[\]#]', '', texto)
             texto = re.sub(r'^[^\w]+', '', texto)  # remove emojis/simbolos no inicio
             texto = re.sub(r'\s+', ' ', texto).strip()

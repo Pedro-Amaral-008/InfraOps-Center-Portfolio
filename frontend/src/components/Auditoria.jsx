@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './Auditoria.css';
 
-const API_URL = 'http://IP_INTERNO_AQUI:8000';
+const API_URL = '';
 
 function Auditoria({ token }) {
   const [logs, setLogs] = useState([]);

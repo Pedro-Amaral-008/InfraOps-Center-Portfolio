@@ -2,7 +2,7 @@ import { useState } from 'react';
 import axios from 'axios';
 import './Login.css';
 
-const API_URL = 'http://IP_INTERNO_AQUI:8000';
+const API_URL = '';
 
 function TrocarSenha({ token, onSenhaTrocada }) {
   const [senhaAtual, setSenhaAtual] = useState('');

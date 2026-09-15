@@ -18,11 +18,12 @@ import Automacoes from './components/Automacoes';
 import Usuarios from './components/Usuarios';
 import Solicitacoes from './components/Solicitacoes';
 import Relatorios from './components/Relatorios';
+import AmeacasPotenciais from './components/AmeacasPotenciais';
 import ConsumoRede from './components/ConsumoRede';
 import Acessos from './components/Acessos';
 import './App.css';
 
-const API_URL = 'http://IP_AQUI:8000';
+const API_URL = '';
 
 const ABAS = [
   { id: 'controller', label: 'Controller' },
@@ -464,6 +465,12 @@ function App() {
                 >
                   Acessos
                 </button>
+                <button
+                  className={`btn ${subAbaRede === 'ameacas' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setSubAbaRede('ameacas')}
+                >
+                  Ameaças de Rede
+                </button>
               </div>
 
                             {subAbaRede === 'links' && (
@@ -609,6 +616,7 @@ function App() {
               )}
               {subAbaRede === 'consumo' && <ConsumoRede token={token} />}
               {subAbaRede === 'acessos' && <Acessos token={token} role={usuario?.role} macInicial={macAcessosAlvo} onMacInicialConsumido={() => setMacAcessosAlvo(null)} />}
+              {subAbaRede === 'ameacas' && <AmeacasPotenciais token={token} role={usuario?.role} />}
             </div>
           )}
           {abaAtiva === 'backups' && (

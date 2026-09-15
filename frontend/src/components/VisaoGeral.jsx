@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './VisaoGeral.css';
 
-const API_URL = 'IP_INTERNO_AQUI:8000';
+const API_URL = '';
 
 const ORDEM_CATEGORIAS = ['Servidores', 'Access Points', 'Links de Rede', 'Backups', 'Impressoras'];
 

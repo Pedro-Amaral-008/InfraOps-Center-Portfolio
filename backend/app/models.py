@@ -187,6 +187,12 @@ class ProtheusStatus(Base):
     patio2_latencia_ms = Column(Numeric(10, 3), nullable=True)
     patio2_referencia_perda_percentual = Column(Numeric(5, 2), nullable=True)
     patio2_referencia_latencia_ms = Column(Numeric(10, 3), nullable=True)
+    # Diagnostico da causa, calculado via traceroute no momento em que uma
+    # queda comeca (transicao de "online" pra outro estado). Fica NULL nas
+    # linhas normais (sem transicao) - o resumo periodico usa a primeira
+    # linha com causa preenchida dentro de cada queda agrupada.
+    causa_tipo = Column(String, nullable=True)
+    causa_detalhe = Column(String, nullable=True)
 
 
 class EventoSistema(Base):

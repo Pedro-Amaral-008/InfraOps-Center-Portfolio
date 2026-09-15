@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './Login.css';
 
-const API_URL = 'IP_INTERNO_AQUI:8000';
+const API_URL = '';
 
 const IconePessoa = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

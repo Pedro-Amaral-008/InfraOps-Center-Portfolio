@@ -18,7 +18,7 @@ async def query_prometheus(query: str):
             return []
 
 
-INSTANCIAS_REMOVIDAS = ["IP_AQUI:445", "IP_AQUI"]
+INSTANCIAS_REMOVIDAS = ["192.168.1.71:445", "192.168.1.71"]
 async def get_uptime_por_job(job: str, dias: int = 30):
     """Calcula o uptime percentual de cada instance de um job, usando o
     historico armazenado pelo proprio Prometheus (avg_over_time)."""
@@ -187,6 +187,10 @@ async def get_dashboard_summary(db=None):
             .order_by(AgentMetric.coletado_em.desc()).limit(1)
         )
         fluig = result.scalar_one_or_none()
+        # fecha a leitura antes das chamadas de rede (Prometheus/controller/pfsense)
+        # que vem a seguir - sem isso a transacao fica aberta o tempo todo que essas
+        # chamadas demorarem, segurando a conexao do pool sem necessidade
+        await db.commit()
 
         if fluig:
             agora = datetime.now(timezone.utc)
@@ -251,8 +255,24 @@ async def get_dashboard_summary(db=None):
                 "status": "online" if ok else "offline",
             })
 
+    if db is not None:
+        # fecha a leitura de backups antes das chamadas de rede que vem a seguir
+        await db.commit()
+
     impressoras = await query_prometheus('probe_success{job="blackbox-impressoras"}')
-    impressoras_online, impressoras_offline = count_by_value(impressoras)
+    from datetime import timezone as tz_utc_imp, timedelta as td_imp
+    fuso_local_imp = tz_utc_imp(td_imp(hours=-3))
+    agora_local_imp = datetime.now(tz_utc_imp.utc).astimezone(fuso_local_imp)
+    dentro_horario_comercial = agora_local_imp.weekday() <= 4 and 8 <= agora_local_imp.hour < 18
+    if dentro_horario_comercial:
+        impressoras_online, impressoras_offline = count_by_value(impressoras)
+        impressoras_detalhe_lista = to_device_list(impressoras)
+    else:
+        # fora do horario comercial (seg-sex 8h-18h) as impressoras entram em
+        # modo standby e nao respondem ping - isso e esperado, nao e queda.
+        impressoras_online = len(impressoras)
+        impressoras_offline = 0
+        impressoras_detalhe_lista = [dict(d, status="online") for d in to_device_list(impressoras)]
 
     from app.pfsense import get_status_links
     links_wan = await get_status_links()
@@ -276,7 +296,7 @@ async def get_dashboard_summary(db=None):
         "links_online": links_online,
         "links_offline": links_offline,
         "links_detalhe": links_detalhe,
-        "impressoras_detalhe": to_device_list(impressoras),
+        "impressoras_detalhe": impressoras_detalhe_lista,
         "atualizado_em": datetime.now().isoformat(),
     }
 

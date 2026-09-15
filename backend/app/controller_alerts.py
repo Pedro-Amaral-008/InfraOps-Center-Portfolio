@@ -100,10 +100,10 @@ async def verificar_limites_controller(db: AsyncSession):
             msg = (
                 f"🔔 *Monitoramento InfraOps Center*\n\n"
                 f"*USO ELEVADO* ⚠️:\n\n"
-                f"{emoji} *Servidor: {hostname}*\n"
-                f"📊 {nome_recurso}: {valor}%\n"
-                f"🕐 Horário: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
-                f"⚠️ Ação: Verificar uso de {nome_recurso.lower()} imediatamente"
+                f"{emoji} *Servidor:* {hostname}\n"
+                f"📊 *{nome_recurso}* {valor}%\n"
+                f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+                f"⚠️ *Ação:* Verificar uso de {nome_recurso.lower()} imediatamente"
             )
             await enviar_telegram(msg)
             await definir_estado(db, instance, nome_recurso, True)
@@ -112,9 +112,9 @@ async def verificar_limites_controller(db: AsyncSession):
             msg = (
                 f"🔔 *Monitoramento InfraOps Center*\n\n"
                 f"*USO NORMALIZADO* ✅:\n\n"
-                f"{emoji} *Servidor: {hostname}*\n"
-                f"📊 {nome_recurso}: {valor}%\n"
-                f"🕐 Horário: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                f"{emoji} *Servidor:* {hostname}\n"
+                f"📊 *{nome_recurso}* {valor}%\n"
+                f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
             )
             await enviar_telegram(msg)
             await definir_estado(db, instance, nome_recurso, False)

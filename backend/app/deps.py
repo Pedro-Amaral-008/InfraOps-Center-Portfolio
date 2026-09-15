@@ -28,6 +28,10 @@ async def get_current_user(
 
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
+    # fecha a transacao de leitura na hora - essa funcao roda em quase toda
+    # requisicao autenticada, entao deixar aberta aqui e o jeito mais rapido
+    # de vazar conexao/transacao "idle in transaction" e esgotar o pool
+    await db.commit()
 
     if user is None or not user.ativo:
         raise credenciais_invalidas

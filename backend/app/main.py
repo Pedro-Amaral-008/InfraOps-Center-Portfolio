@@ -890,7 +890,7 @@ import asyncio
 from app.agent_alerts import verificar_limites_agentes, verificar_disponibilidade_agentes, verificar_failover_srv_arquivos
 from app.controller_alerts import verificar_limites_controller
 from app.pfsense import registrar_status_links, registrar_trafego, verificar_alertas_links, verificar_alertas_vpns_vlans, registrar_status_vpns_vlans
-from app.database import AsyncSessionLocal
+from app.database import AsyncSessionLocal, limitar_concorrencia_sync
 
 
 
@@ -955,6 +955,67 @@ async def loop_acessos_suricata():
             except Exception as e:
                 print(f"ERRO em sincronizar_acessos_suricata: {e}")
         await asyncio.sleep(60)
+
+
+async def loop_prewarm_pesados():
+    """Recalcula em segundo plano, a cada 15s, as consultas pesadas de
+    Acessos e Ameacas com os parametros padrao que o painel abre (24h /
+    15 dias) e deixa o resultado pronto no cache_ttl(20) de cada rota.
+    Assim quando o usuario clica na aba, na maioria das vezes o dado ja
+    esta pronto na memoria em vez de rodar a consulta pesada no HD externo
+    na hora, que e o que estava travando o painel inteiro."""
+    while True:
+        async with AsyncSessionLocal() as db:
+            try:
+                await dashboard_acessos_dispositivos(horas=24, usuario=None, db=db)
+            except Exception as e:
+                print(f"ERRO no prewarm de acessos/dispositivos: {e}")
+        async with AsyncSessionLocal() as db:
+            try:
+                await dashboard_acessos_top_sites(horas=24, limite=8, usuario=None, db=db)
+            except Exception as e:
+                print(f"ERRO no prewarm de acessos/top-sites: {e}")
+        async with AsyncSessionLocal() as db:
+            try:
+                await dashboard_ameacas_resumo(horas=24, usuario=None, db=db)
+            except Exception as e:
+                print(f"ERRO no prewarm de ameacas/resumo: {e}")
+        async with AsyncSessionLocal() as db:
+            try:
+                await dashboard_ameacas_grafico(dias=15, usuario=None, db=db)
+            except Exception as e:
+                print(f"ERRO no prewarm de ameacas/grafico: {e}")
+        async with AsyncSessionLocal() as db:
+            try:
+                await dashboard_ameacas_lista(horas=24, usuario=None, db=db)
+            except Exception as e:
+                print(f"ERRO no prewarm de ameacas/lista: {e}")
+        await asyncio.sleep(15)
+@limitar_concorrencia_sync
+async def _atualizar_resumo_diario_acessos(db):
+    from sqlalchemy import text
+    # essa agregacao (3 dias de acesso_dominio) pode passar do statement_timeout
+    # global de 10s (que protege o resto do app) sem ser um problema de verdade -
+    # isenta so essa transacao, sem afetar o timeout padrao de ninguem mais.
+    await db.execute(text("SET LOCAL statement_timeout = '120000'"))
+    await db.execute(text("INSERT INTO acesso_resumo_dominio_diario (dia, mac, dominio, categoria, bytes_download, bytes_upload, ultima_atividade)\nSELECT date(inicio), mac, dominio, max(categoria), sum(bytes_download), sum(bytes_upload), max(fim)\nFROM acesso_dominio\nWHERE date(inicio) < CURRENT_DATE AND date(inicio) >= CURRENT_DATE - interval '3 days'\nGROUP BY date(inicio), mac, dominio\nON CONFLICT (dia, mac, dominio) DO UPDATE SET\n    categoria = EXCLUDED.categoria,\n    bytes_download = EXCLUDED.bytes_download,\n    bytes_upload = EXCLUDED.bytes_upload,\n    ultima_atividade = EXCLUDED.ultima_atividade\n"))
+    await db.commit()
+
+
+async def loop_resumo_diario_acessos():
+    """Mantem a tabela acesso_resumo_dominio_diario em dia sozinha - reprocessa
+    os ultimos 3 dias fechados a cada hora (reprocessar e barato, poucos dias
+    de dados). Isso cobre virada de meia-noite e reinicios do backend sem
+    precisar de agendamento exato."""
+    while True:
+        async with AsyncSessionLocal() as db:
+            try:
+                await _atualizar_resumo_diario_acessos(db)
+            except Exception as e:
+                print(f"ERRO em _atualizar_resumo_diario_acessos: {e}")
+        await asyncio.sleep(3600)
+
+
 async def loop_recategorizacao_diaria():
     from app.acessos import recategorizar_dominios_outros, atualizar_lista_ads_se_necessario, atualizar_lista_ameacas_se_necessario
     while True:
@@ -1029,6 +1090,7 @@ async def iniciar_verificacao_agentes():
     asyncio.create_task(loop_resumo_diario())
     asyncio.create_task(loop_consumo_rede())
     asyncio.create_task(loop_acessos_suricata())
+    asyncio.create_task(loop_resumo_diario_acessos())
     asyncio.create_task(loop_recategorizacao_diaria())
     from app.protheus import loop_protheus_icmp
     asyncio.create_task(loop_protheus_icmp())
@@ -1125,14 +1187,14 @@ async def dashboard_unifi_consumo_picos(
     from app.unifi import get_picos_sustentados
     return await get_picos_sustentados(db, minutos)
 @app.get("/dashboard/acessos/dispositivos")
-@cache_ttl(20)
 async def dashboard_acessos_dispositivos(
     horas: float = 1440,
     usuario: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from app.acessos import get_dispositivos_acessos
-    return await get_dispositivos_acessos(db, horas)
+    incluir_apelido = usuario.role in ("admin", "super_admin")
+    return await get_dispositivos_acessos(db, horas, incluir_apelido=incluir_apelido)
 @app.get("/dashboard/acessos/categorias")
 async def dashboard_acessos_categorias(
     dias: int = 15,
@@ -1205,6 +1267,98 @@ async def dashboard_acessos_por_hora(
 ):
     from app.acessos import get_atividade_por_hora
     return await get_atividade_por_hora(db, mac, horas)
+
+
+@app.get("/dashboard/ameacas/resumo")
+@cache_ttl(20)
+async def dashboard_ameacas_resumo(
+    horas: float = 24,
+    usuario: User = Depends(exigir_papel("super_admin", "admin", "operador")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_resumo_ameacas
+    return await get_resumo_ameacas(db, horas)
+
+
+@app.get("/dashboard/ameacas/grafico")
+@cache_ttl(20)
+async def dashboard_ameacas_grafico(
+    dias: int = 15,
+    usuario: User = Depends(exigir_papel("super_admin", "admin", "operador")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_grafico_ameacas
+    return await get_grafico_ameacas(db, dias)
+
+
+@app.get("/dashboard/ameacas/lista")
+@cache_ttl(20)
+async def dashboard_ameacas_lista(
+    horas: float = 24,
+    usuario: User = Depends(exigir_papel("super_admin", "admin", "operador")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_lista_ameacas
+    return await get_lista_ameacas(db, horas)
+
+
+@app.put("/dashboard/ameacas/alerta/{alerta_id}/revisao")
+async def dashboard_ameacas_revisao(
+    alerta_id: int,
+    valor: str,
+    usuario: User = Depends(exigir_papel("super_admin", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import atualizar_revisao_alerta
+    ok = await atualizar_revisao_alerta(db, alerta_id, valor)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Revisao invalida ou alerta nao encontrado")
+    await registrar_log(db, usuario.username, "revisar_alerta_suricata", "sucesso", detalhes=f"alerta_id={alerta_id} valor={valor}")
+    return {"status": "ok"}
+
+
+@app.post("/dashboard/ameacas/dispositivo/{mac}/bloquear")
+async def dashboard_ameacas_bloquear(
+    mac: str,
+    request: Request,
+    usuario: User = Depends(exigir_papel("super_admin", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.unifi import bloquear_cliente_unifi
+    from app.models import DispositivoBloqueado
+    ip_cliente = request.client.host if request.client else None
+    ok = await bloquear_cliente_unifi(mac)
+    if not ok:
+        await registrar_log(db, usuario.username, "bloquear_dispositivo", "falha", detalhes=f"mac={mac}", ip_origem=ip_cliente)
+        raise HTTPException(status_code=502, detail="Falha ao comunicar com o UniFi")
+    resultado = await db.execute(select(DispositivoBloqueado).where(DispositivoBloqueado.mac == mac))
+    existente = resultado.scalar_one_or_none()
+    if existente is None:
+        db.add(DispositivoBloqueado(mac=mac, bloqueado_por=usuario.username))
+        await db.commit()
+    await registrar_log(db, usuario.username, "bloquear_dispositivo", "sucesso", detalhes=f"mac={mac}", ip_origem=ip_cliente)
+    return {"status": "ok"}
+
+
+@app.post("/dashboard/ameacas/dispositivo/{mac}/desbloquear")
+async def dashboard_ameacas_desbloquear(
+    mac: str,
+    request: Request,
+    usuario: User = Depends(exigir_papel("super_admin", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.unifi import desbloquear_cliente_unifi
+    from app.models import DispositivoBloqueado
+    from sqlalchemy import delete
+    ip_cliente = request.client.host if request.client else None
+    ok = await desbloquear_cliente_unifi(mac)
+    if not ok:
+        await registrar_log(db, usuario.username, "desbloquear_dispositivo", "falha", detalhes=f"mac={mac}", ip_origem=ip_cliente)
+        raise HTTPException(status_code=502, detail="Falha ao comunicar com o UniFi")
+    await db.execute(delete(DispositivoBloqueado).where(DispositivoBloqueado.mac == mac))
+    await db.commit()
+    await registrar_log(db, usuario.username, "desbloquear_dispositivo", "sucesso", detalhes=f"mac={mac}", ip_origem=ip_cliente)
+    return {"status": "ok"}
 
 
 @cache_ttl(25)

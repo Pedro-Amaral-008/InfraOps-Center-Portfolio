@@ -3,7 +3,7 @@ import axios from 'axios';
 import './EopsDashboard.css';
 import Estabilidade from './Estabilidade';
 
-const API_URL = 'IP_INTERNO_AQUI:8000';
+const API_URL = '';
 
 const ORDEM_CATEGORIAS = ['Servidores', 'Access Points', 'Links de Rede', 'Backups', 'Impressoras'];
 

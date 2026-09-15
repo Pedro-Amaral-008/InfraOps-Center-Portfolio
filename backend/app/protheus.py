@@ -1,5 +1,6 @@
 import asyncio
 import re
+import socket
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, func, case
 from app.config import settings
@@ -185,8 +186,9 @@ async def testar_site_protheus(timeout: float = 8.0) -> str:
 
 
 def _analisar_traceroute(saida: str, ip_destino: str):
-    """Extrai do traceroute: se chegou no destino e ate qual salto respondeu.
-    Usado tanto pro diagnostico curto quanto pro completo."""
+    """Extrai do traceroute: se chegou no destino, ate qual salto respondeu,
+    e o IP desse ultimo salto (usado pra identificar o equipamento/provedor
+    onde a rota parou). Usado tanto pro diagnostico curto quanto pro completo."""
     linhas = [l for l in saida.strip().splitlines() if l.strip()]
     hops = []
     for linha in linhas:
@@ -202,8 +204,10 @@ def _analisar_traceroute(saida: str, ip_destino: str):
 
     total_saltos = len(hops)
     chegou_no_destino = any(ip_hop == ip_destino for _, ip_hop in hops)
-    ultimo_respondeu = max((n for n, ip_hop in hops if ip_hop), default=0)
-    return chegou_no_destino, ultimo_respondeu, total_saltos
+    hops_com_resposta = [(n, ip_hop) for n, ip_hop in hops if ip_hop]
+    ultimo_respondeu = max((n for n, _ in hops_com_resposta), default=0)
+    ip_ultimo_respondeu = next((ip_hop for n, ip_hop in hops_com_resposta if n == ultimo_respondeu), None)
+    return chegou_no_destino, ultimo_respondeu, total_saltos, ip_ultimo_respondeu
 
 
 def resumir_culpa_traceroute(saida: str, ip_destino: str) -> str:
@@ -211,7 +215,7 @@ def resumir_culpa_traceroute(saida: str, ip_destino: str) -> str:
     analise = _analisar_traceroute(saida, ip_destino)
     if analise is None:
         return "não foi possível identificar de onde vem o problema"
-    chegou_no_destino, ultimo_respondeu, total_saltos = analise
+    chegou_no_destino, ultimo_respondeu, total_saltos, _ip_ultimo = analise
     if chegou_no_destino:
         return "Problema Protheus"
     if ultimo_respondeu <= 2:
@@ -224,7 +228,7 @@ def diagnosticar_traceroute(saida: str, ip_destino: str) -> str:
     analise = _analisar_traceroute(saida, ip_destino)
     if analise is None:
         return "⚪ Não deu pra interpretar o traceroute (saída vazia ou em formato inesperado)."
-    chegou_no_destino, ultimo_respondeu, total_saltos = analise
+    chegou_no_destino, ultimo_respondeu, total_saltos, _ip_ultimo = analise
 
     if chegou_no_destino:
         return (
@@ -243,6 +247,69 @@ def diagnosticar_traceroute(saida: str, ip_destino: str) -> str:
         f"indicando falha no meio do caminho da internet, mais perto do "
         f"lado do Protheus."
     )
+
+
+def _nome_equipamento_conhecido(ip: str):
+    """Se o IP for um equipamento nosso conhecido (firewalls), retorna o
+    nome amigavel. Senao, None."""
+    if not ip:
+        return None
+    if ip == getattr(settings, "pfsense_host", None):
+        return "Firewall Matriz"
+    if ip == getattr(settings, "pfsense2_host", None):
+        return "Firewall Pátio 2"
+    return None
+
+
+async def _resolver_nome_ip(ip: str) -> str:
+    """Da um nome amigavel pro IP de um salto do traceroute: equipamento
+    nosso conhecido (Firewall Matriz/Pátio 2), ou reverse DNS (PTR) pra
+    tentar identificar o provedor de internet quando o salto e externo.
+    Se nada funcionar, devolve o proprio IP."""
+    if not ip:
+        return "ponto desconhecido"
+
+    nome_conhecido = _nome_equipamento_conhecido(ip)
+    if nome_conhecido:
+        return f"{nome_conhecido} ({ip})"
+
+    try:
+        hostname = await asyncio.wait_for(
+            asyncio.to_thread(socket.gethostbyaddr, ip), timeout=3.0
+        )
+        ptr = hostname[0].lower()
+        provedores = {
+            "vivo": "Vivo", "telefonica": "Vivo", "claro": "Claro", "embratel": "Claro",
+            "oi.net": "Oi", "veloxzone": "Oi", "tim": "TIM", "algar": "Algar",
+            "brasiltelecom": "Oi",
+        }
+        for chave, nome_provedor in provedores.items():
+            if chave in ptr:
+                return f"{nome_provedor} ({ip})"
+        return f"{ptr} ({ip})"
+    except Exception:
+        return ip
+
+
+async def montar_causa_evento(saida_traceroute: str, ip_destino: str):
+    """Monta a causa de uma queda pro texto do resumo/alerta. Retorna
+    (tipo, texto) onde tipo e um de 'protheus'/'rede_interna'/'trajeto'/
+    'desconhecido', pra permitir contar por categoria no resumo."""
+    analise = _analisar_traceroute(saida_traceroute, ip_destino)
+    if analise is None:
+        return "desconhecido", "não foi possível identificar a causa (traceroute sem dados)"
+
+    chegou_no_destino, ultimo_respondeu, total_saltos, ip_ultimo_respondeu = analise
+
+    if chegou_no_destino:
+        return "protheus", f"Protheus não respondeu (servidor {ip_destino})"
+
+    nome_ponto = await _resolver_nome_ip(ip_ultimo_respondeu)
+
+    if ultimo_respondeu <= 2:
+        return "rede_interna", f"rede interna — {nome_ponto} não respondeu"
+
+    return "trajeto", f"{nome_ponto} — caminho entre rede interna e Protheus"
 
 
 def classificar_estado(perda_percentual: float) -> str:
@@ -331,10 +398,13 @@ def _fmt_ping(perda, latencia):
 
 _confirmado_offline_desde = None
 _alerta_confirmado_enviado = False
+_porta_fechada_vista_na_janela = False
+_confirmacao_externa_vista_na_janela = False
 
 
 async def verificar_protheus(db):
     global _confirmado_offline_desde, _alerta_confirmado_enviado
+    global _porta_fechada_vista_na_janela, _confirmacao_externa_vista_na_janela
 
     (
         (perda, latencia),
@@ -377,6 +447,15 @@ async def verificar_protheus(db):
         problema_local = await houve_problema_na_rede_local() or perda_ref >= 50
         rede_ok = not problema_local
 
+    causa_tipo = None
+    causa_detalhe = None
+    if mudou_estado and estado_anterior == "online" and novo_estado != "online":
+        try:
+            traceroute_saida_evento = await fazer_traceroute(settings.protheus_ip)
+            causa_tipo, causa_detalhe = await montar_causa_evento(traceroute_saida_evento, settings.protheus_ip)
+        except Exception as e:
+            print(f"AVISO: falha ao calcular causa da queda ({e})")
+
     db.add(ProtheusStatus(
         estado=novo_estado,
         latencia_ms=latencia,
@@ -392,6 +471,8 @@ async def verificar_protheus(db):
         patio2_latencia_ms=latencia_patio2,
         patio2_referencia_perda_percentual=perda_patio2_ref,
         patio2_referencia_latencia_ms=latencia_patio2_ref,
+        causa_tipo=causa_tipo,
+        causa_detalhe=causa_detalhe,
     ))
     await db.commit()
 
@@ -409,30 +490,37 @@ async def verificar_protheus(db):
         (perda_pfsense is not None and classificar_estado(perda_pfsense) == "offline")
         or (perda_patio2 is not None and classificar_estado(perda_patio2) == "offline")
     )
-    confirmado_offline_agora = (
-        classificar_estado(perda) == "offline"
-        and porta_servico_ok is False
-        and confirmacao_externa
-    )
+    eops_offline_agora = classificar_estado(perda) == "offline"
 
-    if confirmado_offline_agora:
+    if eops_offline_agora:
         if _confirmado_offline_desde is None:
             _confirmado_offline_desde = agora
             _alerta_confirmado_enviado = False
+            _porta_fechada_vista_na_janela = False
+            _confirmacao_externa_vista_na_janela = False
+
+        if porta_servico_ok is False:
+            _porta_fechada_vista_na_janela = True
+        if confirmacao_externa:
+            _confirmacao_externa_vista_na_janela = True
 
         duracao_confirmada = (agora - _confirmado_offline_desde).total_seconds()
 
-        if duracao_confirmada >= MINUTOS_PARA_ALERTA_CONFIRMADO * 60 and not _alerta_confirmado_enviado:
+        if (
+            duracao_confirmada >= MINUTOS_PARA_ALERTA_CONFIRMADO * 60
+            and _porta_fechada_vista_na_janela
+            and _confirmacao_externa_vista_na_janela
+            and not _alerta_confirmado_enviado
+        ):
             traceroute_saida = await fazer_traceroute(settings.protheus_ip)
-            motivo_curto = resumir_culpa_traceroute(traceroute_saida, settings.protheus_ip)
-            diagnostico = diagnosticar_traceroute(traceroute_saida, settings.protheus_ip)
+            causa_tipo_alerta, causa_detalhe_alerta = await montar_causa_evento(traceroute_saida, settings.protheus_ip)
             site_status = await testar_site_protheus()
 
             origens_confirmando = []
             if perda_pfsense is not None and classificar_estado(perda_pfsense) == "offline":
-                origens_confirmando.append("pfSense (matriz)")
+                origens_confirmando.append("Firewall Matriz")
             if perda_patio2 is not None and classificar_estado(perda_patio2) == "offline":
-                origens_confirmando.append("Pátio 2")
+                origens_confirmando.append("Firewall Pátio 2")
             texto_origens = " e ".join(origens_confirmando) if origens_confirmando else "nenhuma origem externa disponível"
 
             google_pi_ok = perda_ref < 50
@@ -449,23 +537,22 @@ async def verificar_protheus(db):
 
             msg_confirmado = (
                 f"🔴🔴 *InfraOps Center — QUEDA CONFIRMADA DO PROTHEUS*\n\n"
-                f"🖥️ *Protheus offline há {MINUTOS_PARA_ALERTA_CONFIRMADO}+ min* — *{motivo_curto}*\n"
+                f"🖥️ *Protheus offline há {MINUTOS_PARA_ALERTA_CONFIRMADO}+ min*\n"
+                f"Rota parou em: {causa_detalhe_alerta}\n"
                 f"Confirmado por: E-Ops, porta do serviço, {texto_origens}\n\n"
                 f"{nota_google}\n\n"
-                f"*Diagnóstico:*\n{diagnostico}\n\n"
                 f"*Pings no momento da confirmação:*\n"
                 f"📍 E-Ops → Protheus: {_fmt_ping(perda, latencia)}\n"
                 f"📍 E-Ops → Google: {_fmt_ping(perda_ref, latencia_ref)}\n"
-                f"📍 pfSense (matriz) → Protheus: {_fmt_ping(perda_pfsense, latencia_pfsense)}\n"
-                f"📍 pfSense (matriz) → Google: {_fmt_ping(perda_pfsense_ref, latencia_pfsense_ref)}\n"
-                f"📍 Pátio 2 → Protheus: {_fmt_ping(perda_patio2, latencia_patio2)}\n"
-                f"📍 Pátio 2 → Google: {_fmt_ping(perda_patio2_ref, latencia_patio2_ref)}\n"
+                f"📍 Firewall Matriz → Protheus: {_fmt_ping(perda_pfsense, latencia_pfsense)}\n"
+                f"📍 Firewall Matriz → Google: {_fmt_ping(perda_pfsense_ref, latencia_pfsense_ref)}\n"
+                f"📍 Firewall Pátio 2 → Protheus: {_fmt_ping(perda_patio2, latencia_patio2)}\n"
+                f"📍 Firewall Pátio 2 → Google: {_fmt_ping(perda_patio2_ref, latencia_patio2_ref)}\n"
                 f"🔌 Porta {PROTHEUS_PORTA_SERVICO} (webapp): {'aberta' if porta_servico_ok else 'FECHADA/recusada'}\n"
                 f"🌐 Acesso ao site: {site_status}\n\n"
                 f"*Traceroute até o Protheus:*\n"
                 f"```\n{traceroute_saida[:1500]}\n```\n\n"
-                f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
-                f"_Este alerta é independente dos resumos das 07h/22h — dispara só quando confirmado por E-Ops + porta + pelo menos uma origem externa._"
+                f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
             )
             await enviar_telegram(msg_confirmado)
             _alerta_confirmado_enviado = True
@@ -477,12 +564,14 @@ async def verificar_protheus(db):
             )
             msg_recuperado = (
                 f"🟢 *Protheus voltou* — ficou offline por {duracao_total_str}\n"
-                f"Confirmado por: E-Ops, porta do serviço e pelo menos uma origem externa voltando a responder\n\n"
+                f"Confirmado por: E-Ops voltando a responder\n\n"
                 f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
             )
             await enviar_telegram(msg_recuperado)
         _confirmado_offline_desde = None
         _alerta_confirmado_enviado = False
+        _porta_fechada_vista_na_janela = False
+        _confirmacao_externa_vista_na_janela = False
 
 
 _ultimo_resumo_protheus_enviado = None  # (data, hora) do ultimo resumo ja mandado
@@ -502,12 +591,31 @@ def _agrupar_quedas(registros, obter_perda, fim):
                 atual["fim"] = r.verificado_em
                 atual["duracao_segundos"] = (atual["fim"] - atual["inicio"]).total_seconds()
                 eventos.append(atual)
-            atual = {"estado": estado_r, "inicio": r.verificado_em, "fim": None, "duracao_segundos": None}
+            atual = {
+                "estado": estado_r, "inicio": r.verificado_em, "fim": None,
+                "duracao_segundos": None, "causa_tipo": None, "causa_detalhe": None,
+            }
+        if atual.get("causa_tipo") is None and getattr(r, "causa_tipo", None):
+            atual["causa_tipo"] = r.causa_tipo
+            atual["causa_detalhe"] = r.causa_detalhe
     if atual is not None:
         atual["fim"] = fim
         atual["duracao_segundos"] = (atual["fim"] - atual["inicio"]).total_seconds()
         eventos.append(atual)
-    return [e for e in eventos if e["estado"] not in ("online", "desconhecido")]
+    resultado = [e for e in eventos if e["estado"] not in ("online", "desconhecido")]
+    # quedas coladas uma na outra (mesmo evento na pratica, so dividido por
+    # causa da classificacao de estado mudar no meio) herdam a causa da vizinha
+    for i, seg in enumerate(resultado):
+        if seg["causa_tipo"] is not None:
+            continue
+        if i > 0 and resultado[i - 1]["fim"] == seg["inicio"] and resultado[i - 1]["causa_tipo"] is not None:
+            seg["causa_tipo"] = resultado[i - 1]["causa_tipo"]
+            seg["causa_detalhe"] = resultado[i - 1]["causa_detalhe"]
+            continue
+        if i < len(resultado) - 1 and resultado[i + 1]["inicio"] == seg["fim"] and resultado[i + 1]["causa_tipo"] is not None:
+            seg["causa_tipo"] = resultado[i + 1]["causa_tipo"]
+            seg["causa_detalhe"] = resultado[i + 1]["causa_detalhe"]
+    return resultado
 
 
 def _media_perda_no_intervalo(registros, obter_perda, inicio, fim):
@@ -529,7 +637,9 @@ def _formatar_lista_quedas(quedas, max_listadas=15):
             f"{q['fim'].astimezone().strftime('%H:%M:%S')} "
             f"({_formatar_duracao(q['duracao_segundos'])})"
         )
-        if q.get("google_pct") is not None:
+        if q.get("causa_detalhe"):
+            linha += f"\n  Rota parou em: {q['causa_detalhe']}"
+        elif q.get("google_pct") is not None:
             culpa = "Protheus" if q["google_pct"] < 50 else "rede/internet"
             linha += f" | Google: {q['google_pct']:.0f}% perda → culpa provável: {culpa}"
         linhas.append(linha)
@@ -606,19 +716,19 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
         else:
             msg += "✅ Nenhuma queda vista pelo E-Ops\n"
 
-        msg += f"\n📍 *pfSense (matriz) — {len(quedas_pfsense)} queda(s):*\n"
+        msg += f"\n📍 *Firewall Matriz — {len(quedas_pfsense)} queda(s):*\n"
         if quedas_pfsense:
             msg += _formatar_lista_quedas(quedas_pfsense) + "\n"
-            msg += f"⏱️ Tempo total (pfSense): {_formatar_duracao(tempo_total_pfsense)}\n"
+            msg += f"⏱️ Tempo total (Firewall Matriz): {_formatar_duracao(tempo_total_pfsense)}\n"
         else:
-            msg += "✅ Nenhuma queda vista pelo pfSense\n"
+            msg += "✅ Nenhuma queda vista pelo Firewall Matriz\n"
 
-        msg += f"\n📍 *Pátio 2 — {len(quedas_patio2)} queda(s):*\n"
+        msg += f"\n📍 *Firewall Pátio 2 — {len(quedas_patio2)} queda(s):*\n"
         if quedas_patio2:
             msg += _formatar_lista_quedas(quedas_patio2) + "\n"
-            msg += f"⏱️ Tempo total (Pátio 2): {_formatar_duracao(tempo_total_patio2)}\n"
+            msg += f"⏱️ Tempo total (Firewall Pátio 2): {_formatar_duracao(tempo_total_patio2)}\n"
         else:
-            msg += "✅ Nenhuma queda vista pelo Pátio 2\n"
+            msg += "✅ Nenhuma queda vista pelo Firewall Pátio 2\n"
 
         if checagens_porta:
             msg += f"\n🔌 *Porta {PROTHEUS_PORTA_SERVICO} (serviço):* falhou em {falhas_porta}/{len(checagens_porta)} verificações no período\n"
@@ -628,6 +738,23 @@ async def gerar_resumo_periodico_protheus(db, inicio, fim, rotulo):
             msg += "🌐 *Atenção: pelo menos uma queda do E-Ops coincidiu com problema na nossa rede/AP ou perda pro Google*\n"
         else:
             msg += "🌐 Nenhuma queda coincidiu com problema na nossa rede\n"
+
+        contagem_causas = {}
+        for q in quedas_eops:
+            tipo = q.get("causa_tipo") or "desconhecido"
+            contagem_causas[tipo] = contagem_causas.get(tipo, 0) + 1
+        total_causas = sum(contagem_causas.values())
+        if total_causas:
+            rotulos_causa = {
+                "protheus": "🔴 Protheus",
+                "rede_interna": "🏢 Rede interna",
+                "trajeto": "🌎 Rota/ambiente Protheus",
+                "desconhecido": "⚪ Não identificado",
+            }
+            msg += "\n📊 *Causas:*\n"
+            for tipo, qtd in sorted(contagem_causas.items(), key=lambda x: -x[1]):
+                pct = (qtd / total_causas) * 100
+                msg += f"{rotulos_causa.get(tipo, tipo)} ...... {qtd} ({pct:.0f}%)\n"
 
     estado_txt = {"online": "Online", "intermitente": "Intermitente", "offline": "Offline"}.get(status_atual["estado"], status_atual["estado"])
     lat_txt = f" ({status_atual['latencia_ms']:.1f}ms)" if status_atual["latencia_ms"] is not None else ""

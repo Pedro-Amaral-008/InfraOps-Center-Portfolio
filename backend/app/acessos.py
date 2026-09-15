@@ -12,6 +12,7 @@ import re
 from sqlalchemy import delete, func, select, update
 
 from app.config import settings
+from app.database import limitar_concorrencia_pesada, limitar_concorrencia_sync
 from app.models import AcessoDominio, SuricataFlowSni, SuricataSyncEstado, ApelidoDispositivo, EventoSistema, AmeacaDetectada, AlertaSuricata
 
 PFSENSE_SSH_USER = "infraops-readonly"
@@ -534,6 +535,7 @@ async def _obter_estado(db) -> SuricataSyncEstado:
     return estado
 
 
+@limitar_concorrencia_sync
 async def sincronizar_acessos_suricata(db):
     """Roda periodicamente: puxa via SSH as linhas novas do eve.json do pfSense,
     casa eventos TLS (SNI) com eventos de flow (que trazem duracao e volume) pelo
@@ -734,6 +736,7 @@ def _fechar_sessao(s):
     }
 
 
+@limitar_concorrencia_pesada
 async def get_sessoes_acesso(db, horas: float = 1440, mac: str = None, gap_segundos: int = GAP_SESSAO_SEGUNDOS):
     """Agrupa os flows brutos de AcessoDominio (cada um dura fracoes de segundo)
     em 'sessoes' continuas por mac+categoria: flows do mesmo dispositivo pro
@@ -803,21 +806,36 @@ async def get_atividade_por_hora(db, mac: str, horas: float = 1440):
     return [baldes[h] for h in range(24)]
 
 
-async def get_dispositivos_acessos(db, horas: float = 1440):
+@limitar_concorrencia_pesada
+async def get_dispositivos_acessos(db, horas: float = 1440, incluir_apelido: bool = False):
     """Lista de dispositivos com acessos no periodo, com contagem de sites
     diferentes, volume total e ultima atividade - alimenta a tela de lista
-    da aba Acessos."""
-    desde = datetime.now(timezone.utc) - timedelta(hours=horas)
+    da aba Acessos. incluir_apelido traz o campo apelido junto (usado pra
+    permitir busca por apelido na lista, restrito no endpoint a quem pode
+    ve-lo - admin/super_admin)."""
+    from sqlalchemy import text
 
+    agora_calc = datetime.now(timezone.utc)
+    desde = agora_calc - timedelta(hours=horas)
+    hoje = agora_calc.date()
+    primeiro_dia_completo = desde.date() + timedelta(days=1)
+    primeiro_dia_completo_ts = datetime.combine(primeiro_dia_completo, datetime.min.time(), tzinfo=timezone.utc)
+    hoje_ts = datetime.combine(hoje, datetime.min.time(), tzinfo=timezone.utc)
+
+    # usa o resumo diario pre-calculado (acesso_resumo_dominio_diario) pros dias
+    # ja fechados - so os dois extremos (o dia parcial do inicio do periodo e o
+    # dia de hoje, ainda em andamento) sao lidos da tabela bruta. Isso evita
+    # varrer milhoes de linhas pra periodos longos (15 dias, 1 mes, 2 meses)
+    # mantendo o resultado exato (count distinct nao duplica entre as fontes).
     agregados = await db.execute(
-        select(
-            AcessoDominio.mac,
-            func.count(func.distinct(AcessoDominio.dominio)).label("sites_diferentes"),
-            func.sum(AcessoDominio.bytes_download + AcessoDominio.bytes_upload).label("volume_bytes"),
-            func.max(AcessoDominio.fim).label("ultima_atividade"),
-        )
-        .where(AcessoDominio.inicio >= desde)
-        .group_by(AcessoDominio.mac)
+        text('WITH eventos AS (\n    SELECT mac, dominio, bytes_download, bytes_upload, ultima_atividade AS fim\n    FROM acesso_resumo_dominio_diario\n    WHERE dia >= :primeiro_dia_completo AND dia < :hoje\n    UNION ALL\n    SELECT mac, dominio, bytes_download, bytes_upload, fim\n    FROM acesso_dominio\n    WHERE inicio >= :desde AND (inicio < :primeiro_dia_completo_ts OR inicio >= :hoje_ts)\n)\nSELECT mac,\n       count(DISTINCT dominio) AS sites_diferentes,\n       sum(bytes_download + bytes_upload) AS volume_bytes,\n       max(fim) AS ultima_atividade\nFROM eventos\nGROUP BY mac\n'),
+        {
+            "primeiro_dia_completo": primeiro_dia_completo,
+            "hoje": hoje,
+            "desde": desde,
+            "primeiro_dia_completo_ts": primeiro_dia_completo_ts,
+            "hoje_ts": hoje_ts,
+        },
     )
     mapa_agregados = {linha.mac: linha for linha in agregados.all()}
 
@@ -844,23 +862,42 @@ async def get_dispositivos_acessos(db, horas: float = 1440):
             "ultima_atividade": agg.ultima_atividade.isoformat() if agg.ultima_atividade else None,
             "ativo_agora": segundos_desde_ultima is not None and segundos_desde_ultima <= 600,
         })
+    if incluir_apelido:
+        from app.models import ApelidoDispositivo
+        apelidos = await db.execute(select(ApelidoDispositivo.mac, ApelidoDispositivo.apelido))
+        mapa_apelido = {linha.mac: linha.apelido for linha in apelidos.all()}
+        for item in resultado:
+            item["apelido"] = mapa_apelido.get(item["mac"])
+
     resultado.sort(key=lambda d: d["volume_bytes"], reverse=True)
     return resultado
 
 
+@limitar_concorrencia_pesada
 async def get_top_sites_rede(db, horas: float = 1440, limite: int = 8):
     """Top categorias/servicos acessados por toda a rede (todos os dispositivos
     somados) no periodo - alimenta o donut da tela de lista."""
-    desde = datetime.now(timezone.utc) - timedelta(hours=horas)
+    from sqlalchemy import text
+
+    agora_calc = datetime.now(timezone.utc)
+    desde = agora_calc - timedelta(hours=horas)
+    hoje = agora_calc.date()
+    primeiro_dia_completo = desde.date() + timedelta(days=1)
+    primeiro_dia_completo_ts = datetime.combine(primeiro_dia_completo, datetime.min.time(), tzinfo=timezone.utc)
+    hoje_ts = datetime.combine(hoje, datetime.min.time(), tzinfo=timezone.utc)
+
+    # mesma ideia do get_dispositivos_acessos: usa o resumo diario pros dias
+    # fechados, so le a tabela bruta pro dia parcial do inicio e pra hoje.
     resultado = await db.execute(
-        select(
-            AcessoDominio.categoria,
-            func.sum(AcessoDominio.bytes_download + AcessoDominio.bytes_upload).label("volume_bytes"),
-        )
-        .where(AcessoDominio.inicio >= desde)
-        .group_by(AcessoDominio.categoria)
-        .order_by(func.sum(AcessoDominio.bytes_download + AcessoDominio.bytes_upload).desc())
-        .limit(limite)
+        text('WITH eventos AS (\n    SELECT categoria, bytes_download, bytes_upload\n    FROM acesso_resumo_dominio_diario\n    WHERE dia >= :primeiro_dia_completo AND dia < :hoje\n    UNION ALL\n    SELECT categoria, bytes_download, bytes_upload\n    FROM acesso_dominio\n    WHERE inicio >= :desde AND (inicio < :primeiro_dia_completo_ts OR inicio >= :hoje_ts)\n)\nSELECT categoria, sum(bytes_download + bytes_upload) AS volume_bytes\nFROM eventos\nGROUP BY categoria\nORDER BY volume_bytes DESC\nLIMIT :limite\n'),
+        {
+            "primeiro_dia_completo": primeiro_dia_completo,
+            "hoje": hoje,
+            "desde": desde,
+            "primeiro_dia_completo_ts": primeiro_dia_completo_ts,
+            "hoje_ts": hoje_ts,
+            "limite": limite,
+        },
     )
     linhas = resultado.all()
     total = sum(l.volume_bytes or 0 for l in linhas)
@@ -889,6 +926,7 @@ CATEGORIAS_NAO_CORPORATIVAS = {
 }
 
 
+@limitar_concorrencia_pesada
 async def get_relatorio_acessos(db, dias: int = 15, categoria_geral: str = None, categoria_pessoal: str = None) -> dict:
     """Monta o resumo de Acessos (internet) pro modulo de relatorios: resumo
     geral (volume total, categoria mais acessada, dispositivos monitorados),
@@ -1082,3 +1120,216 @@ async def get_detalhe_dispositivo(db, mac: str, horas: float = 1440):
         "top_sites": top_sites,
         "linha_do_tempo": sessoes[:200],
     }
+
+
+
+async def atualizar_revisao_alerta(db, alerta_id: int, valor: str) -> bool:
+    """Atualiza o campo de revisao de um alerta do Suricata
+    (pendente/confirmado/falso_positivo)."""
+    if valor not in ("pendente", "confirmado", "falso_positivo"):
+        return False
+    resultado = await db.execute(select(AlertaSuricata).where(AlertaSuricata.id == alerta_id))
+    alerta = resultado.scalar_one_or_none()
+    if not alerta:
+        return False
+    alerta.revisao = valor
+    await db.commit()
+    return True
+
+
+async def get_resumo_ameacas(db, horas: float = 24) -> dict:
+    """Resumo pros cards do topo da aba Ameacas: contagem de deteccoes
+    criticas/atencao no periodo, dispositivos distintos afetados e
+    quantos estao bloqueados atualmente."""
+    from app.models import DispositivoBloqueado
+    desde = datetime.now(timezone.utc) - timedelta(hours=horas)
+
+    dominios = (await db.execute(
+        select(AmeacaDetectada).where(AmeacaDetectada.detectado_em >= desde)
+    )).scalars().all()
+
+    alertas = (await db.execute(
+        select(AlertaSuricata).where(
+            AlertaSuricata.detectado_em >= desde,
+            AlertaSuricata.severidade.in_([1, 2]),
+        )
+    )).scalars().all()
+
+    criticos = len(dominios) + len([
+        a for a in alertas if a.severidade == 1 or a.revisao == "confirmado"
+    ])
+    atencao = len([
+        a for a in alertas
+        if a.severidade == 2 and a.revisao not in ("confirmado", "falso_positivo")
+    ])
+
+    macs_afetados = {d.mac for d in dominios} | {a.mac for a in alertas if a.mac}
+
+    bloqueados = (await db.execute(select(DispositivoBloqueado))).scalars().all()
+
+    return {
+        "criticos": criticos,
+        "atencao": atencao,
+        "dispositivos_afetados": len(macs_afetados),
+        "dispositivos_bloqueados": len(bloqueados),
+    }
+
+
+TZ_BR = timezone(timedelta(hours=-3))
+
+
+async def get_grafico_ameacas(db, dias: int = 15) -> list:
+    """Serie diaria de deteccoes (dominio Fase 1 + assinatura Fase 2, so
+    severidade alta/media) pro grafico da aba Ameacas. Cada dia recebe uma
+    cor: critico (severidade 1 ou dominio confirmado), atencao (severidade
+    2 ainda nao dispensada) ou resolvido (tudo revisado como falso positivo).
+    Os dias sao contados no fuso de Brasilia (UTC-3), nao em UTC."""
+    desde = datetime.now(timezone.utc) - timedelta(days=dias)
+
+    dominios = (await db.execute(
+        select(AmeacaDetectada).where(AmeacaDetectada.detectado_em >= desde)
+    )).scalars().all()
+
+    alertas = (await db.execute(
+        select(AlertaSuricata).where(
+            AlertaSuricata.detectado_em >= desde,
+            AlertaSuricata.severidade.in_([1, 2]),
+        )
+    )).scalars().all()
+
+    por_dia = {}
+
+    def _info(chave):
+        return por_dia.setdefault(chave, {"total": 0, "criticos": 0, "atencao": 0, "falsos": 0})
+
+    for d in dominios:
+        chave = d.detectado_em.astimezone(TZ_BR).date().isoformat()
+        info = _info(chave)
+        info["total"] += 1
+        info["criticos"] += 1
+
+    for a in alertas:
+        chave = a.detectado_em.astimezone(TZ_BR).date().isoformat()
+        info = _info(chave)
+        info["total"] += 1
+        if a.severidade == 1 or a.revisao == "confirmado":
+            info["criticos"] += 1
+        elif a.revisao == "falso_positivo":
+            info["falsos"] += 1
+        else:
+            info["atencao"] += 1
+
+    resultado = []
+    for i in range(dias):
+        dia = (datetime.now(TZ_BR) - timedelta(days=dias - 1 - i)).date().isoformat()
+        info = por_dia.get(dia, {"total": 0, "criticos": 0, "atencao": 0, "falsos": 0})
+        if info["criticos"] > 0:
+            cor = "critico"
+        elif info["atencao"] > 0:
+            cor = "atencao"
+        elif info["total"] > 0:
+            cor = "resolvido"
+        else:
+            cor = "vazio"
+        resultado.append({
+            "data": dia,
+            "total": info["total"],
+            "criticos": info["criticos"],
+            "atencao": info["atencao"],
+            "falsos": info["falsos"],
+            "cor": cor,
+        })
+    return resultado
+
+
+async def get_lista_ameacas(db, horas: float = 24) -> list:
+    """Lista de deteccoes no periodo (dominio Fase 1 + assinatura Fase 2),
+    uma linha por deteccao distinta (mac+dominio ou mac+assinatura),
+    ordenada por ocorrencias - usada na tabela da aba Ameacas."""
+    from app.models import DispositivoBloqueado
+    from app.unifi import get_todos_clientes
+
+    desde = datetime.now(timezone.utc) - timedelta(hours=horas)
+
+    bloqueados = {b.mac for b in (await db.execute(select(DispositivoBloqueado))).scalars().all()}
+
+    dominios = (await db.execute(
+        select(AmeacaDetectada).where(AmeacaDetectada.detectado_em >= desde)
+    )).scalars().all()
+
+    alertas = (await db.execute(
+        select(AlertaSuricata).where(
+            AlertaSuricata.detectado_em >= desde,
+            AlertaSuricata.severidade.in_([1, 2]),
+        )
+    )).scalars().all()
+
+    grupos = {}
+
+    for d in dominios:
+        chave = (d.mac, "dominio", d.dominio)
+        grupo = grupos.setdefault(chave, {
+            "mac": d.mac,
+            "origem": "dominio",
+            "detalhe_principal": d.dominio,
+            "detalhe_secundario": "Dominio na lista HaGeZi (Threat Intelligence)",
+            "categoria": None,
+            "severidade": 1,
+            "ocorrencias": 0,
+            "ultima_vez": None,
+            "alerta_id": None,
+            "revisao": "confirmado",
+            "dominio": d.dominio,
+            "ip_destino": None,
+            "acao": None,
+        })
+        grupo["ocorrencias"] += 1
+        if not grupo["ultima_vez"] or d.detectado_em > grupo["ultima_vez"]:
+            grupo["ultima_vez"] = d.detectado_em
+
+    # Prioridade de revisao "sticky": uma vez confirmado ou marcado falso
+    # positivo, uma ocorrencia nova (que sempre nasce "pendente") nao deve
+    # fazer o grupo voltar a aparecer como pendente/atencao.
+    PRIORIDADE_REVISAO = {"confirmado": 2, "falso_positivo": 1, "pendente": 0}
+
+    for a in alertas:
+        if not a.mac:
+            continue
+        chave = (a.mac, "suricata", a.sid or a.assinatura)
+        grupo = grupos.setdefault(chave, {
+            "mac": a.mac,
+            "origem": "suricata",
+            "detalhe_principal": a.categoria,
+            "detalhe_secundario": a.assinatura,
+            "categoria": a.categoria,
+            "severidade": a.severidade,
+            "ocorrencias": 0,
+            "ultima_vez": None,
+            "alerta_id": a.id,
+            "revisao": a.revisao,
+            "dominio": a.dominio,
+            "ip_destino": a.ip_destino,
+            "acao": a.acao,
+        })
+        grupo["ocorrencias"] += 1
+        if PRIORIDADE_REVISAO.get(a.revisao, 0) >= PRIORIDADE_REVISAO.get(grupo["revisao"], 0):
+            grupo["alerta_id"] = a.id
+            grupo["revisao"] = a.revisao
+        if not grupo["ultima_vez"] or a.detectado_em > grupo["ultima_vez"]:
+            grupo["ultima_vez"] = a.detectado_em
+
+    clientes = await get_todos_clientes()
+    mapa_hostname = {c["mac"]: c.get("hostname", "Desconhecido") for c in clientes if c.get("mac")}
+    mapa_ip = {c["mac"]: c.get("ip", "") for c in clientes if c.get("mac")}
+
+    resultado = []
+    for grupo in grupos.values():
+        grupo["hostname"] = mapa_hostname.get(grupo["mac"], "Desconhecido")
+        grupo["ip"] = mapa_ip.get(grupo["mac"], "")
+        grupo["bloqueado"] = grupo["mac"] in bloqueados
+        grupo["ultima_vez"] = grupo["ultima_vez"].isoformat() if grupo["ultima_vez"] else None
+        resultado.append(grupo)
+
+    resultado.sort(key=lambda g: g["ocorrencias"], reverse=True)
+    return resultado
+

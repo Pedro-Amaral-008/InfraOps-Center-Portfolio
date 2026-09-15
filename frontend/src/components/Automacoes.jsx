@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_URL = 'IP_INTERNO_AQUI:8000';
+const API_URL = '';
 
 function Automacoes({ token }) {
   const [historico, setHistorico] = useState([]);
@@ -30,17 +30,23 @@ function Automacoes({ token }) {
       .finally(() => setAlternandoAutomatico(false));
   };
 
-  const buscarHistorico = () => {
+  const buscarHistorico = (signal) => {
     axios.get(`${API_URL}/automations/jobs/historico`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal,
     }).then((response) => setHistorico(response.data)).catch(() => {});
   };
 
   useEffect(() => {
-    buscarHistorico();
+    const controller = new AbortController();
+    buscarHistorico(controller.signal);
     buscarStatusAutomatico();
-    const intervalo = setInterval(buscarHistorico, 10000);
-    return () => clearInterval(intervalo);
+    const intervalo = setInterval(() => buscarHistorico(controller.signal), 10000);
+    // ao sair da aba, para o timer E cancela a requisicao em andamento
+    return () => {
+      clearInterval(intervalo);
+      controller.abort();
+    };
   }, [token]);
 
   const handleRestartFluig = () => {

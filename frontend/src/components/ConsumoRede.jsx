@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import GraficoHistoricoConsumo from './GraficoHistoricoConsumo';
 
-const API_URL = 'http://IP_AQUI:8000';
+const API_URL = '';
 const JANELA_GRAFICO = 40;
 
 function fmtMbps(v) {
@@ -19,9 +19,11 @@ function ConsumoRede({ token }) {
 
   useEffect(() => {
     if (!token || modo !== 'vivo') return;
+    const controller = new AbortController();
     const buscar = () => {
       axios.get(`${API_URL}/dashboard/unifi/top-consumo`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       }).then((r) => {
         setClientes(r.data);
         const totalDown = r.data.reduce((s, c) => s + c.download_mbps, 0);
@@ -37,15 +39,22 @@ function ConsumoRede({ token }) {
     };
     buscar();
     const intervalo = setInterval(buscar, 15000);
-    return () => clearInterval(intervalo);
+    // ao sair da aba/modo, para o timer E cancela a requisicao em andamento
+    return () => {
+      clearInterval(intervalo);
+      controller.abort();
+    };
   }, [token, modo]);
 
   useEffect(() => {
     if (!token || modo !== 'semanal') return;
+    const controller = new AbortController();
     setCarregandoSemanal(true);
     axios.get(`${API_URL}/dashboard/unifi/top-consumo-semanal`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
     }).then((r) => setSemanal(r.data)).catch(() => {}).finally(() => setCarregandoSemanal(false));
+    return () => controller.abort();
   }, [token, modo]);
 
   const totalDownload = clientes.reduce((s, c) => s + c.download_mbps, 0);

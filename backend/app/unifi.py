@@ -61,16 +61,22 @@ async def get_aps_com_clientes():
     return resultado
 
 
-_sessao_unifi = {"cookie": None, "expira_em": 0}
+_sessao_unifi = {"cookie": None, "expira_em": 0, "bloqueado_ate": 0}
 
 
 async def _obter_cookie_sessao():
     """Faz login classico (UniFi OS) e guarda o cookie de sessao em cache,
-    reaproveitando por ate 1 hora antes de logar de novo."""
+    reaproveitando por ate 1 hora antes de logar de novo. Se o login falhar,
+    entra em cooldown de 10min antes de tentar de novo - evita martelar o
+    UniFi Controller e prolongar um bloqueio de "muitas tentativas"
+    (ele retorna 429 AUTHENTICATION_FAILED_LIMIT_REACHED nesse caso)."""
     import time
     agora = time.time()
     if _sessao_unifi["cookie"] and agora < _sessao_unifi["expira_em"]:
         return _sessao_unifi["cookie"]
+
+    if agora < _sessao_unifi["bloqueado_ate"]:
+        return None
 
     async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
         try:
@@ -78,17 +84,59 @@ async def _obter_cookie_sessao():
                 f"{settings.unifi_controller_url}/api/auth/login",
                 json={"username": settings.unifi_username, "password": settings.unifi_password},
             )
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                print(f"ERRO login UniFi (HTTP {resp.status_code}): {resp.text[:300]}")
+                _sessao_unifi["bloqueado_ate"] = agora + 600
+                return None
             cookie_valor = resp.cookies.get("TOKEN")
             if cookie_valor:
                 _sessao_unifi["cookie"] = cookie_valor
                 _sessao_unifi["expira_em"] = agora + 3600
                 return cookie_valor
-        except Exception:
-            pass
+            print("ERRO login UniFi: resposta 200 mas sem cookie TOKEN")
+            _sessao_unifi["bloqueado_ate"] = agora + 600
+        except Exception as e:
+            print(f"ERRO ao logar no UniFi: {e}")
+            _sessao_unifi["bloqueado_ate"] = agora + 600
     return None
 
 
+
+
+async def bloquear_cliente_unifi(mac: str) -> bool:
+    """Bloqueia um cliente da rede via API classica do UniFi (cmd/stamgr)."""
+    cookie = await _obter_cookie_sessao()
+    if not cookie:
+        return False
+    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+        try:
+            resp = await client.post(
+                f"{settings.unifi_controller_url}/proxy/network/api/s/default/cmd/stamgr",
+                cookies={"TOKEN": cookie},
+                json={"cmd": "block-sta", "mac": mac},
+            )
+            resp.raise_for_status()
+            return True
+        except Exception:
+            return False
+
+
+async def desbloquear_cliente_unifi(mac: str) -> bool:
+    """Desbloqueia um cliente da rede via API classica do UniFi (cmd/stamgr)."""
+    cookie = await _obter_cookie_sessao()
+    if not cookie:
+        return False
+    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+        try:
+            resp = await client.post(
+                f"{settings.unifi_controller_url}/proxy/network/api/s/default/cmd/stamgr",
+                cookies={"TOKEN": cookie},
+                json={"cmd": "unblock-sta", "mac": mac},
+            )
+            resp.raise_for_status()
+            return True
+        except Exception:
+            return False
 
 
 LIMITE_MBPS_CONSUMO = 60
@@ -107,7 +155,7 @@ async def get_top_consumo_clientes(limite: int = 50):
 
     cookie = await _obter_cookie_sessao()
     if not cookie:
-        return []
+        return [], set()
 
     async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
         try:
@@ -118,7 +166,7 @@ async def get_top_consumo_clientes(limite: int = 50):
             resp.raise_for_status()
             clientes = resp.json().get("data", [])
         except Exception:
-            return []
+            return [], set()
 
     IPS_EXCLUIDOS = {ip.strip() for ip in settings.ips_excluidos_consumo.split(",") if ip.strip()}
     agora = time.time()
@@ -384,12 +432,21 @@ async def _get_historico_consumo_agregado_impl(db, minutos: float = 60, num_bald
 
     limite_data = datetime.now(timezone.utc) - timedelta(minutes=minutos)
 
+    # mesmo motivo do calculo de picos: busca so as colunas usadas, evitando
+    # montar objeto ORM completo pra cada linha em janelas grandes (7 dias)
     result = await db.execute(
-        select(ConsumoRedeAmostra)
+        select(
+            ConsumoRedeAmostra.mac,
+            ConsumoRedeAmostra.hostname,
+            ConsumoRedeAmostra.ap,
+            ConsumoRedeAmostra.coletado_em,
+            ConsumoRedeAmostra.download_mbps,
+            ConsumoRedeAmostra.upload_mbps,
+        )
         .where(ConsumoRedeAmostra.coletado_em >= limite_data)
         .order_by(ConsumoRedeAmostra.coletado_em)
     )
-    amostras = result.scalars().all()
+    amostras = result.all()
 
     if not amostras:
         return []
@@ -462,7 +519,7 @@ _CACHE_PICOS_SUSTENTADOS = {}
 _CACHE_PICOS_TTL_SEGUNDOS = 120
 
 
-async def get_picos_sustentados(db, minutos: float = 60, limiar_mbps: float = 60, duracao_minima_segundos: int = 60):
+async def get_picos_sustentados(db, minutos: float = 60, limiar_mbps: float = 60, duracao_minima_segundos: int = 0):
     """Camada de cache: o calculo abaixo varre toda a janela de amostras (pode
     ser dias inteiros) e reprocessa amostra a amostra em Python, entao e caro
     demais pra rodar a cada poll do frontend (a cada ~15s). Resultado fica em
@@ -481,7 +538,7 @@ async def get_picos_sustentados(db, minutos: float = 60, limiar_mbps: float = 60
 
 
 @limitar_concorrencia_pesada
-async def _get_picos_sustentados_impl(db, minutos: float = 60, limiar_mbps: float = 60, duracao_minima_segundos: int = 60):
+async def _get_picos_sustentados_impl(db, minutos: float = 60, limiar_mbps: float = 60, duracao_minima_segundos: int = 0):
     """Analisa o historico POR DISPOSITIVO (nao a rede toda somada) e
     encontra trechos onde o download OU o upload de UM UNICO dispositivo
     ficou >= limiar_mbps de forma continua por pelo menos
@@ -493,12 +550,22 @@ async def _get_picos_sustentados_impl(db, minutos: float = 60, limiar_mbps: floa
 
     limite_data = datetime.now(timezone.utc) - timedelta(minutes=minutos)
 
+    # busca so as colunas usadas pelo calculo, em vez do objeto ORM inteiro -
+    # pra janelas grandes (7 dias = mais de 1 milhao de linhas) isso evita o
+    # custo de montar 1 milhao de objetos mapeados so pra ler 6 campos de cada
     result = await db.execute(
-        select(ConsumoRedeAmostra)
+        select(
+            ConsumoRedeAmostra.mac,
+            ConsumoRedeAmostra.hostname,
+            ConsumoRedeAmostra.ap,
+            ConsumoRedeAmostra.coletado_em,
+            ConsumoRedeAmostra.download_mbps,
+            ConsumoRedeAmostra.upload_mbps,
+        )
         .where(ConsumoRedeAmostra.coletado_em >= limite_data)
         .order_by(ConsumoRedeAmostra.mac, ConsumoRedeAmostra.coletado_em)
     )
-    amostras = result.scalars().all()
+    amostras = result.all()
 
     return await asyncio.to_thread(_calcular_picos_sustentados, amostras, limiar_mbps, duracao_minima_segundos)
 

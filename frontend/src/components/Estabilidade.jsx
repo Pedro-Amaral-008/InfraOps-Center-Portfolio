@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './Estabilidade.css';
 
-const API_URL = 'IP_INTERNO_AQUI:8000';
+const API_URL = '';
 
 const ORDEM_CATEGORIAS = ['Servidores', 'Access Points', 'Links de Rede', 'Backups', 'Impressoras'];
 
@@ -137,14 +137,20 @@ function Estabilidade({ token }) {
 
   useEffect(() => {
     if (!token) return;
+    const controller = new AbortController();
     const buscar = () => {
       axios.get(`${API_URL}/dashboard/estabilidade-14-dias`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       }).then((r) => setDados(r.data)).catch(() => {});
     };
     buscar();
     const intervalo = setInterval(buscar, 60000);
-    return () => clearInterval(intervalo);
+    // ao sair da aba, para o timer E cancela a requisicao em andamento
+    return () => {
+      clearInterval(intervalo);
+      controller.abort();
+    };
   }, [token]);
 
   useEffect(() => {

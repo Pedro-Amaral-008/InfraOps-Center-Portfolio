@@ -260,12 +260,12 @@ export default function GraficoHistoricoConsumo({
    */
   const periodoAtual = PERIODOS.find((p) => p.id === periodoId) ?? PERIODOS[5];
   const minutosHistorico = periodoAtual.ms / 60000;
-  const minutosPicos = JANELA_LISTA_MS / 60000;
+  const minutosPicos = periodoAtual.ms / 60000;
 
   const urlHistoricoFinal =
-    urlHistorico ?? (apiUrl ? `${apiUrl}/dashboard/unifi/consumo/historico?minutos=${minutosHistorico}` : null);
+    urlHistorico ?? (apiUrl != null ? `${apiUrl}/dashboard/unifi/consumo/historico?minutos=${minutosHistorico}` : null);
   const urlPicosFinal =
-    urlPicos ?? (apiUrl ? `${apiUrl}/dashboard/unifi/consumo/picos?minutos=${minutosPicos}` : null);
+    urlPicos ?? (apiUrl != null ? `${apiUrl}/dashboard/unifi/consumo/picos?minutos=${minutosPicos}` : null);
 
   /* histórico: refaz a busca sempre que o período muda (URL muda junto) e
      re-consulta a cada intervaloMs (15s por padrão) — só a aba ativa roda. */
@@ -273,52 +273,58 @@ export default function GraficoHistoricoConsumo({
     if (historicoProp) return undefined; // uso controlado: não busca nada
     if (!urlHistoricoFinal) return undefined;
     let vivo = true;
+    const controller = new AbortController();
     const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
 
     async function buscar() {
       try {
-        const h = await fetch(urlHistoricoFinal, { headers }).then((r) => r.json());
+        const h = await fetch(urlHistoricoFinal, { headers, signal: controller.signal }).then((r) => r.json());
         if (!vivo) return;
         setRemotoHistorico(Array.isArray(h) ? h : h?.itens ?? h?.data ?? []);
         setErro(null);
       } catch (e) {
-        if (vivo) setErro(e?.message || "Falha ao carregar dados");
+        if (vivo && e?.name !== "AbortError") setErro(e?.message || "Falha ao carregar dados");
       }
     }
 
     buscar();
     const timer = setInterval(buscar, intervaloMs);
+    // ao sair da aba/periodo, para o timer E cancela a requisicao em andamento
     return () => {
       vivo = false;
       clearInterval(timer);
+      controller.abort();
     };
   }, [historicoProp, urlHistoricoFinal, token, intervaloMs]);
 
-  /* picos: janela fixa de 7 dias, independe do período escolhido — por isso
+  /* picos: agora segue o mesmo período escolhido (igual ao histórico), mas
      roda no seu próprio timer, bem mais devagar (2min por padrão), em vez de
      ficar preso ao mesmo intervalo de 15s do histórico. */
   useEffect(() => {
     if (picosProp) return undefined; // uso controlado: não busca nada
     if (!urlPicosFinal) return undefined;
     let vivo = true;
+    const controller = new AbortController();
     const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
 
     async function buscar() {
       try {
-        const p = await fetch(urlPicosFinal, { headers }).then((r) => r.json());
+        const p = await fetch(urlPicosFinal, { headers, signal: controller.signal }).then((r) => r.json());
         if (!vivo) return;
         setRemotoPicos(Array.isArray(p) ? p : p?.itens ?? p?.data ?? []);
         setErro(null);
       } catch (e) {
-        if (vivo) setErro(e?.message || "Falha ao carregar dados");
+        if (vivo && e?.name !== "AbortError") setErro(e?.message || "Falha ao carregar dados");
       }
     }
 
     buscar();
     const timer = setInterval(buscar, intervaloPicosMs);
+    // ao sair da aba, para o timer E cancela a requisicao em andamento
     return () => {
       vivo = false;
       clearInterval(timer);
+      controller.abort();
     };
   }, [picosProp, urlPicosFinal, token, intervaloPicosMs]);
 
@@ -337,9 +343,9 @@ export default function GraficoHistoricoConsumo({
   /* "agora" = último ponto do histórico (se houver), senão o relógio */
   const agora = historico.length ? historico[historico.length - 1].ts : Date.now();
   const inicioJanela = agora - periodo.ms;
-  const inicioLista = agora - JANELA_LISTA_MS;
+  const inicioLista = agora - periodo.ms;
 
-  /* lista de picos: janela FIXA de 7 dias, independe da aba */
+  /* lista de picos: segue o mesmo período escolhido na aba */
   const picosLista = useMemo(
     () => picos.filter((p) => p.ts >= inicioLista && p.ts <= agora).slice().reverse(),
     [picos, inicioLista, agora]
@@ -463,7 +469,7 @@ export default function GraficoHistoricoConsumo({
       </div>
 
       <div className="ghc__lista-titulo">
-        Picos recentes — últimos 7 dias ({picosLista.length})
+        Picos recentes — últimos {periodo.rotulo} ({picosLista.length})
       </div>
 
       {picosLista.length ? (
