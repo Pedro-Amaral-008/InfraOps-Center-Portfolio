@@ -3,8 +3,8 @@ services:
     image: postgres:16-alpine
     container_name: infraops_postgres
     restart: unless-stopped
-    shm_size: "256mb"
-    command: ["postgres", "-c", "shared_buffers=512MB"]
+    shm_size: "2560mb"
+    command: ["postgres", "-c", "shared_buffers=2GB", "-c", "work_mem=128MB", "-c", "effective_cache_size=4GB"]
     env_file:
       - ../../.env
     environment:
@@ -30,13 +30,13 @@ services:
       dockerfile: Dockerfile
     container_name: infraops_backend
     restart: unless-stopped
-    mem_limit: "2g"
+    mem_limit: "4g"
     env_file:
       - ../../.env
     environment:
       POSTGRES_HOST: postgres
     volumes:
-      - CAMINHO_CHAVE_SSH_AQUI:/root/.ssh/pfsense_readonly:ro
+      - /home/infraops-admin/.ssh/pfsense_readonly:/home/appuser/.ssh/pfsense_readonly:ro
       - /etc/localtime:/etc/localtime:ro
       - ../../backend/dados:/app/app/dados
     ports:
@@ -45,7 +45,8 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - infraops_network
+      infraops_network:
+        ipv4_address: 172.28.0.10
 
   node-exporter:
     image: prom/node-exporter:latest
@@ -178,3 +179,6 @@ services:
 networks:
   infraops_network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 const API_URL = '';
@@ -112,6 +112,12 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
   const [editandoApelido, setEditandoApelido] = useState(false);
   const [rascunhoApelido, setRascunhoApelido] = useState('');
   const [salvandoApelido, setSalvandoApelido] = useState(false);
+  const [filtroProdutividade, setFiltroProdutividade] = useState('geral');
+  const [timelineExpandida, setTimelineExpandida] = useState(false);
+  const [horaSelecionada, setHoraSelecionada] = useState(null);
+  const [tooltipHora, setTooltipHora] = useState(null);
+  const [tooltipLeft, setTooltipLeft] = useState(0);
+  const barrasRef = useRef(null);
 
   useEffect(() => {
     if (!token || !mac) return;
@@ -144,14 +150,25 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
     setApelidoVisivel(false);
     setEditandoApelido(false);
   }, [mac]);
+  useEffect(() => { setTimelineExpandida(false); }, [mac, horas, filtroProdutividade]);
+  useEffect(() => { setHoraSelecionada(null); }, [mac, horas, filtroProdutividade, subAba]);
 
   if (!detalhe) {
     return <div className="loading-message">Carregando detalhe do dispositivo...</div>;
   }
 
   const ativoAgora = detalhe.ultima_atividade && (Date.now() - new Date(detalhe.ultima_atividade).getTime()) / 1000 <= 600;
-  const maxDuracao = Math.max(...detalhe.top_sites.map((s) => s.duracao_segundos), 1);
-  const maxPorHora = porHora ? Math.max(...porHora.map((b) => b.duracao_segundos), 1) : 1;
+  const categoriaTipoMap = Object.fromEntries(detalhe.top_sites.map((s) => [s.categoria, s.tipo]));
+  const topSitesFiltrados = (() => {
+    if (filtroProdutividade === 'geral') return detalhe.top_sites;
+    const filtrados = detalhe.top_sites.filter((s) => s.tipo === filtroProdutividade);
+    const totalFiltrado = filtrados.reduce((acc, s) => acc + s.volume_bytes, 0);
+    return filtrados.map((s) => ({ ...s, percentual: totalFiltrado ? Math.round((s.volume_bytes / totalFiltrado) * 1000) / 10 : 0 }));
+  })();
+  const linhaDoTempoFiltrada = filtroProdutividade === 'geral' ? detalhe.linha_do_tempo : detalhe.linha_do_tempo.filter((s) => categoriaTipoMap[s.categoria] === filtroProdutividade);
+  const timelineParaMostrar = timelineExpandida ? linhaDoTempoFiltrada : linhaDoTempoFiltrada.slice(0, 20);
+  const maxDuracao = Math.max(...topSitesFiltrados.map((s) => s.duracao_segundos), 1);
+  const maxPorHora = porHora ? Math.max(...porHora.map((b) => b.produtivo_segundos_media + b.nao_produtivo_segundos_media + b.neutro_segundos_media), 1) : 1;
   const podeRevelarIdentidade = role === 'admin' || role === 'super_admin';
   const ehDispositivoNaoResolvido = mac && mac.startsWith('desconhecido-');
 
@@ -265,12 +282,19 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-          {PERIODOS.map((p) => (
-            <button key={p.horas} className={`btn ${horas === p.horas ? 'btn-primary' : 'btn-secondary'}`} onClick={() => onHorasChange(p.horas)}>
-              {p.label}
-            </button>
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '9px', padding: '3px' }}>
+            <button className={`btn ${filtroProdutividade === 'geral' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFiltroProdutividade('geral')}>Geral</button>
+            <button className={`btn ${filtroProdutividade === 'produtivo' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFiltroProdutividade('produtivo')}>Produtivo</button>
+            <button className={`btn ${filtroProdutividade === 'nao_produtivo' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFiltroProdutividade('nao_produtivo')}>Não produtivo</button>
+          </div>
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+            {PERIODOS.map((p) => (
+              <button key={p.horas} className={`btn ${horas === p.horas ? 'btn-primary' : 'btn-secondary'}`} onClick={() => onHorasChange(p.horas)}>
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       <div style={{ fontSize: '12.5px', opacity: 0.6, fontFamily: 'monospace', marginBottom: '18px' }}>
@@ -318,8 +342,27 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
         </div>
       </div>
 
-      <h4 className="detail-table-title" style={{ fontSize: '14px' }}>Top sites acessados</h4>
-      <Donut dados={detalhe.top_sites} campoValor="volume_bytes" campoLabel="categoria" />
+      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '16px 18px', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+          <h4 className="detail-table-title" style={{ fontSize: '14px', margin: 0 }}>Produtividade no período</h4>
+          <span style={{ fontSize: '11px', opacity: 0.55 }}>calculado por tempo com atividade, não por bytes</span>
+        </div>
+        <div style={{ display: 'flex', height: '10px', borderRadius: '999px', overflow: 'hidden', background: 'rgba(255,255,255,0.06)', marginBottom: '12px' }}>
+          <div style={{ width: `${detalhe.produtividade.produtivo_pct}%`, background: '#3ab97a' }} />
+          <div style={{ width: `${detalhe.produtividade.nao_produtivo_pct}%`, background: '#e5a23a' }} />
+          <div style={{ width: `${detalhe.produtividade.neutro_pct}%`, background: '#576078' }} />
+        </div>
+        <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap', fontSize: '12.5px' }}>
+          <span><span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#3ab97a', marginRight: '6px' }} />Produtivo <b>{detalhe.produtividade.produtivo_pct}%</b> <span style={{ opacity: 0.6 }}>· {fmtDuracao(detalhe.produtividade.produtivo_segundos)}</span></span>
+          <span><span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#e5a23a', marginRight: '6px' }} />Não produtivo <b>{detalhe.produtividade.nao_produtivo_pct}%</b> <span style={{ opacity: 0.6 }}>· {fmtDuracao(detalhe.produtividade.nao_produtivo_segundos)}</span></span>
+          <span><span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#576078', marginRight: '6px' }} />Não classificado <b>{detalhe.produtividade.neutro_pct}%</b> <span style={{ opacity: 0.6 }}>· {fmtDuracao(detalhe.produtividade.neutro_segundos)}</span></span>
+        </div>
+      </div>
+
+      <h4 className="detail-table-title" style={{ fontSize: '14px' }}>Top sites acessados{filtroProdutividade !== 'geral' && (
+        <span style={{ fontWeight: 400, opacity: 0.55, fontSize: '12px' }}> — filtrado em {filtroProdutividade === 'produtivo' ? 'Produtivo' : 'Não produtivo'}</span>
+      )}</h4>
+      <Donut dados={topSitesFiltrados} campoValor="volume_bytes" campoLabel="categoria" />
 
       <div style={{ display: 'flex', gap: '4px', marginTop: '24px', marginBottom: '12px' }}>
         <button className={`btn ${subAba === 'linha_do_tempo' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setSubAba('linha_do_tempo')}>Linha do tempo</button>
@@ -330,11 +373,13 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
       {subAba === 'linha_do_tempo' && (
         <table>
           <thead>
-            <tr><th>Início</th><th>Domínio</th><th>Duração</th><th>Volume</th></tr>
+            <tr><th>Início</th><th>Domínio</th><th>Duração</th><th>Tipo</th><th>Volume</th></tr>
           </thead>
           <tbody>
-            {detalhe.linha_do_tempo.map((s, i) => {
+            {timelineParaMostrar.map((s, i) => {
               const ehAmeaca = s.dominios.some((d) => dominiosAmeaca.includes(d));
+              const tipoSessao = categoriaTipoMap[s.categoria];
+              const corTag = tipoSessao === 'produtivo' ? '#3ab97a' : tipoSessao === 'nao_produtivo' ? '#e5a23a' : '#8792a8';
               return (
                 <tr key={i} style={ehAmeaca ? { background: 'rgba(220,50,50,0.12)' } : undefined}>
                   <td style={{ fontSize: '12px', opacity: 0.7 }}>{fmtHora(s.inicio)}</td>
@@ -342,15 +387,27 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
                     {ehAmeaca && '⚠️ '}{s.dominio_principal}{s.dominios.length > 1 ? ` (+${s.dominios.length - 1})` : ''}
                   </td>
                   <td style={{ fontSize: '12px' }}>{fmtDuracao(s.duracao_segundos)}</td>
+                  <td>
+                    <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '999px', background: `${corTag}26`, color: corTag }}>
+                      {tipoSessao === 'produtivo' ? 'produtivo' : tipoSessao === 'nao_produtivo' ? 'não produtivo' : 'neutro'}
+                    </span>
+                  </td>
                   <td style={{ fontSize: '12px', opacity: 0.7 }}>{fmtBytes(s.bytes_download + s.bytes_upload)}</td>
                 </tr>
               );
             })}
-            {detalhe.linha_do_tempo.length === 0 && (
-              <tr><td colSpan="4" style={{ textAlign: 'center', opacity: 0.6 }}>Sem acessos no período selecionado.</td></tr>
+            {linhaDoTempoFiltrada.length === 0 && (
+              <tr><td colSpan="5" style={{ textAlign: 'center', opacity: 0.6 }}>Sem acessos {filtroProdutividade === 'geral' ? '' : filtroProdutividade === 'produtivo' ? 'produtivos ' : 'não produtivos '}no período selecionado.</td></tr>
             )}
           </tbody>
         </table>
+      )}
+      {subAba === 'linha_do_tempo' && linhaDoTempoFiltrada.length > 20 && (
+        <div style={{ textAlign: 'center', marginTop: '10px' }}>
+          <button className="btn btn-secondary" onClick={() => setTimelineExpandida(!timelineExpandida)}>
+            {timelineExpandida ? 'Mostrar menos' : `Mostrar linha do tempo completa (${linhaDoTempoFiltrada.length} sessões)`}
+          </button>
+        </div>
       )}
 
       {subAba === 'duracao' && (
@@ -359,7 +416,7 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
             <tr><th>Site</th><th>Tempo conectado</th><th></th></tr>
           </thead>
           <tbody>
-            {[...detalhe.top_sites].sort((a, b) => b.duracao_segundos - a.duracao_segundos).map((s, i) => (
+            {[...topSitesFiltrados].sort((a, b) => b.duracao_segundos - a.duracao_segundos).map((s, i) => (
               <tr key={i}>
                 <td>{s.categoria}</td>
                 <td style={{ fontSize: '12px', opacity: 0.7, width: '90px' }}>{fmtDuracao(s.duracao_segundos)}</td>
@@ -370,47 +427,265 @@ function DetalheDispositivo({ token, mac, horas, onHorasChange, onVoltar, role }
                 </td>
               </tr>
             ))}
-            {detalhe.top_sites.length === 0 && (
+            {topSitesFiltrados.length === 0 && (
               <tr><td colSpan="3" style={{ textAlign: 'center', opacity: 0.6 }}>Sem acessos no período selecionado.</td></tr>
             )}
           </tbody>
         </table>
       )}
       {subAba === 'por_hora' && (
-        <div>
-          {!porHora ? (
-            <div className="loading-message">Carregando...</div>
-          ) : (
-            <>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '160px', marginBottom: '4px' }}>
-                {porHora.map((b) => (
-                  <div
-                    key={b.hora}
-                    style={{ flex: 1, display: 'flex', alignItems: 'flex-end', height: '100%' }}
-                    title={`${b.hora}h - ${fmtDuracao(b.duracao_segundos)} - ${fmtBytes(b.bytes_total)}`}
-                  >
+  <div>
+    {(!porHora || porHora.length === 0) ? (
+      <div style={{ padding: '24px 0', textAlign: 'center', opacity: 0.6, fontSize: 13 }}>Carregando dados por hora...</div>
+    ) : (
+    <>
+    <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+      <div style={{ background: '#151b24', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 14, padding: '20px 22px 18px', flex: '2.2 1 0', minWidth: 0 }}>
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 4, fontSize: 11.5, color: '#97a3b5' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: '#22c55e', flexShrink: 0 }} />
+            Produtivo
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: '#f59e0b', flexShrink: 0 }} />
+            Não produtivo
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: '#4b5563', flexShrink: 0 }} />
+            Neutro
+          </div>
+        </div>
+
+        <div style={{ position: 'relative', marginTop: 18, overflow: 'visible' }}>
+          <div style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 34, pointerEvents: 'none' }}>
+            {[0, 1, 2, 3, 4].map((i) => {
+              const val = (maxPorHora / 4) * i;
+              return (
+                <div key={i} style={{ position: 'absolute', left: 0, right: 0, bottom: `${(i / 4) * 200}px`, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <span style={{ position: 'absolute', left: 0, fontSize: 9.5, color: '#7c8a9c', transform: 'translateY(-6px)' }}>
+                    {i === 0 ? '' : fmtDuracao(Math.round(val))}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div ref={barrasRef} style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 200, position: 'relative', paddingLeft: 34, overflow: 'visible' }}>
+            {porHora.map((b) => {
+              const total = b.produtivo_segundos_media + b.nao_produtivo_segundos_media + b.neutro_segundos_media;
+              const dias = b.dias_amostrados ?? 0;
+              const segmentos = [
+                { val: b.produtivo_segundos_media, cor: '#22c55e' },
+                { val: b.nao_produtivo_segundos_media, cor: '#f59e0b' },
+                { val: b.neutro_segundos_media, cor: '#4b5563' },
+              ].filter((s) => s.val > 0);
+
+              const dotClasse = dias >= 10 ? 'alta' : dias >= 4 ? 'media' : dias >= 1 ? 'baixa' : null;
+              const dotOpacidade = dotClasse === 'alta' ? 1 : dotClasse === 'media' ? 0.65 : dotClasse === 'baixa' ? 0.35 : 0;
+
+              return (
+                <div
+                  key={b.hora}
+                  onClick={() => setHoraSelecionada((prev) => (prev === b.hora ? null : b.hora))}
+                  onMouseEnter={() => setTooltipHora(b)}
+                  onMouseMove={(e) => {
+                    if (!barrasRef.current) return;
+                    const rect = barrasRef.current.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    setTooltipLeft(Math.min(Math.max(x - 80, 0), rect.width - 170));
+                  }}
+                  onMouseLeave={() => setTooltipHora(null)}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column-reverse',
+                    alignItems: 'stretch',
+                    height: '100%',
+                    position: 'relative',
+                    cursor: 'pointer',
+                    overflow: 'visible',
+                  }}
+                >
+                  {segmentos.map((s, idx) => (
                     <div
+                      key={idx}
                       style={{
                         width: '100%',
-                        borderRadius: '3px 3px 0 0',
-                        background: CORES_DONUT[0],
-                        height: `${Math.max((b.duracao_segundos / maxPorHora) * 100, b.duracao_segundos > 0 ? 3 : 0)}%`,
+                        height: `${(s.val / maxPorHora) * 200}px`,
+                        background: s.cor,
+                        marginBottom: idx === segmentos.length - 1 ? 0 : 2,
+                        borderRadius:
+                          idx === 0 && idx === segmentos.length - 1
+                            ? '3px 3px 3px 3px'
+                            : idx === 0
+                            ? '0 0 3px 3px'
+                            : idx === segmentos.length - 1
+                            ? '3px 3px 0 0'
+                            : 0,
                       }}
                     />
-                  </div>
-                ))}
+                  ))}
+                  {dotClasse && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: -16,
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: '#7c8a9c',
+                        opacity: dotOpacidade,
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            {tooltipHora && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: tooltipLeft,
+                  top: -96,
+                  background: '#0d1117',
+                  border: '1px solid rgba(255,255,255,0.10)',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  fontSize: 11,
+                  minWidth: 160,
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                  pointerEvents: 'none',
+                  zIndex: 10,
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 11.5 }}>
+                  {String(tooltipHora.hora).padStart(2, '0')}:00 – {String((tooltipHora.hora + 1) % 24).padStart(2, '0')}:00
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 3 }}>
+                  <span style={{ color: '#97a3b5', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: 2, background: '#22c55e' }} />
+                    Produtivo
+                  </span>
+                  <b>{fmtDuracao(tooltipHora.produtivo_segundos_media)}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 3 }}>
+                  <span style={{ color: '#97a3b5', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: 2, background: '#f59e0b' }} />
+                    Não produtivo
+                  </span>
+                  <b>{fmtDuracao(tooltipHora.nao_produtivo_segundos_media)}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, marginBottom: 3 }}>
+                  <span style={{ color: '#97a3b5', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: 2, background: '#4b5563' }} />
+                    Neutro
+                  </span>
+                  <b>{fmtDuracao(tooltipHora.neutro_segundos_media)}</b>
+                </div>
+                <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.08)', color: '#7c8a9c', fontSize: 10 }}>
+                  Média por dia · baseado em {tooltipHora.dias_amostrados ?? 0} dia(s) com atividade nessa hora
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '3px' }}>
-                {porHora.map((b) => (
-                  <div key={b.hora} style={{ flex: 1, textAlign: 'center', fontSize: '9px', opacity: 0.55 }}>
-                    {b.hora}
-                  </div>
-                ))}
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 3, paddingLeft: 34, marginTop: 26 }}>
+          {porHora.map((b) => (
+            <div key={b.hora} style={{ flex: 1, textAlign: 'center', fontSize: 10, color: '#7c8a9c' }}>
+              {b.hora % 3 === 0 ? String(b.hora).padStart(2, '0') : ''}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 30, fontSize: 11, color: '#7c8a9c', flexWrap: 'wrap' }}>
+          <span>Amostra por hora:</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c8a9c', opacity: 0.35 }} /> fraca (1–3 dias)
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c8a9c', opacity: 0.65 }} /> média (4–9 dias)
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c8a9c', opacity: 1 }} /> forte (10+ dias)
+          </span>
+        </div>
+      </div>
+
+      <div style={{ background: '#151b24', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 14, padding: '20px 22px 18px', flex: '1 1 0', minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Top 3 categorias do período</div>
+        <div style={{ fontSize: 11.5, color: '#97a3b5', marginBottom: 16 }}>Por tempo conectado</div>
+        {[...topSitesFiltrados].sort((a, b) => b.duracao_segundos - a.duracao_segundos).slice(0, 3).map((s, i) => {
+          const tipoSessao = categoriaTipoMap[s.categoria];
+          const cor = tipoSessao === 'produtivo' ? '#22c55e' : tipoSessao === 'nao_produtivo' ? '#f59e0b' : '#4b5563';
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 0', borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.08)' : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: cor, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.categoria}</span>
               </div>
-            </>
+              <span style={{ fontSize: 12, color: '#97a3b5', flexShrink: 0 }}>{fmtDuracao(s.duracao_segundos)}</span>
+            </div>
+          );
+        })}
+        {topSitesFiltrados.length === 0 && (
+          <div style={{ opacity: 0.6, fontSize: 12 }}>Sem dados no período.</div>
+        )}
+      </div>
+    </div>
+
+    {horaSelecionada !== null && (() => {
+      const sessoesHora = linhaDoTempoFiltrada
+        .filter((s) => s.hora_local === horaSelecionada)
+        .sort((a, b) => new Date(a.inicio) - new Date(b.inicio));
+      return (
+        <div style={{ marginTop: 16, background: '#1b2330', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, padding: '14px 16px', fontSize: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <b>Acessos entre {String(horaSelecionada).padStart(2, '0')}:00 e {String((horaSelecionada + 1) % 24).padStart(2, '0')}:00</b>
+            <span style={{ color: '#97a3b5', cursor: 'pointer', fontSize: 11 }} onClick={() => setHoraSelecionada(null)}>fechar ✕</span>
+          </div>
+          {sessoesHora.length === 0 ? (
+            <div style={{ opacity: 0.6 }}>Sem acessos registrados nesse horário.</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', color: '#97a3b5', fontWeight: 500, padding: '4px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: 11 }}>Horário</th>
+                  <th style={{ textAlign: 'left', color: '#97a3b5', fontWeight: 500, padding: '4px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: 11 }}>Categoria</th>
+                  <th style={{ textAlign: 'left', color: '#97a3b5', fontWeight: 500, padding: '4px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: 11 }}>Tipo</th>
+                  <th style={{ textAlign: 'left', color: '#97a3b5', fontWeight: 500, padding: '4px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: 11 }}>Duração</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessoesHora.map((s, i) => {
+                  const tipoSessao = categoriaTipoMap[s.categoria];
+                  const corTag = tipoSessao === 'produtivo' ? '#3ab97a' : tipoSessao === 'nao_produtivo' ? '#e5a23a' : '#8792a8';
+                  return (
+                    <tr key={i}>
+                      <td style={{ padding: '5px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>{fmtHora(s.inicio)}</td>
+                      <td style={{ padding: '5px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>{s.categoria}</td>
+                      <td style={{ padding: '5px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: `${corTag}26`, color: corTag }}>
+                          {tipoSessao === 'produtivo' ? 'produtivo' : tipoSessao === 'nao_produtivo' ? 'não produtivo' : 'neutro'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '5px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>{fmtDuracao(s.duracao_segundos)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
         </div>
-      )}
+      );
+    })()}
+    </>
+    )}
+  </div>
+)}
     </div>
   );
 }

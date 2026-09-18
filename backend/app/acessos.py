@@ -13,7 +13,7 @@ from sqlalchemy import delete, func, select, update
 
 from app.config import settings
 from app.database import limitar_concorrencia_pesada, limitar_concorrencia_sync
-from app.models import AcessoDominio, SuricataFlowSni, SuricataSyncEstado, ApelidoDispositivo, EventoSistema, AmeacaDetectada, AlertaSuricata
+from app.models import AcessoDominio, SuricataFlowSni, SuricataSyncEstado, ApelidoDispositivo, EventoSistema, AmeacaDetectada, AlertaSuricata, CategoriaProdutividade
 
 PFSENSE_SSH_USER = "infraops-readonly"
 PFSENSE_SSH_KEY_PATH = "/home/appuser/.ssh/pfsense_readonly"
@@ -147,6 +147,275 @@ async def atualizar_lista_ameacas_se_necessario():
         _lista_ameacas_dominios = None
     except Exception:
         pass
+
+
+PROVEDORES_VPN_CONHECIDOS = {
+    "nordvpn.com": "NordVPN",
+    "nordvpn.net": "NordVPN",
+    "protonvpn.com": "ProtonVPN",
+    "protonvpn.net": "ProtonVPN",
+    "vpn-api.proton.me": "ProtonVPN",
+    "expressvpn.com": "ExpressVPN",
+    "surfshark.com": "Surfshark",
+    "cyberghostvpn.com": "CyberGhost",
+    "windscribe.com": "Windscribe",
+    "mullvad.net": "Mullvad",
+    "privateinternetaccess.com": "Private Internet Access",
+    "tunnelbear.com": "TunnelBear",
+    "hotspotshield.com": "Hotspot Shield",
+    "hidemyass.com": "HMA VPN",
+    "ipvanish.com": "IPVanish",
+    "purevpn.com": "PureVPN",
+    "vyprvpn.com": "VyprVPN",
+    "atlasvpn.com": "Atlas VPN",
+    "pandavpn.com": "PandaVPN",
+    "zenmate.com": "ZenMate",
+    "vpnunlimitedapp.com": "VPN Unlimited",
+    "strongvpn.com": "StrongVPN",
+    "torguard.net": "TorGuard",
+    "privatevpn.com": "PrivateVPN",
+    "fastestvpn.com": "FastestVPN",
+    "browsec.com": "Browsec",
+    "urban-vpn.com": "Urban VPN",
+    "hola.org": "Hola VPN",
+    "psiphon3.com": "Psiphon",
+}
+
+CAMINHO_LISTA_VPN = "/app/app/dados/lista_vpn_publica.txt"
+URL_LISTA_VPN = "https://raw.githubusercontent.com/blocklistproject/Lists/master/vpn.txt"
+INTERVALO_ATUALIZACAO_LISTA_VPN_SEGUNDOS = 7 * 24 * 60 * 60  # 7 dias
+TAMANHO_MAXIMO_LISTA_VPN_BYTES = 2_000_000  # trava: recusa download anormal, mantem lista anterior
+
+_lista_vpn_dominios = None
+
+
+def _carregar_lista_vpn() -> set:
+    global _lista_vpn_dominios
+    if _lista_vpn_dominios is not None:
+        return _lista_vpn_dominios
+    dominios = set()
+    try:
+        with open(CAMINHO_LISTA_VPN, "r", encoding="utf-8", errors="ignore") as f:
+            for linha in f:
+                linha = linha.strip()
+                if not linha or linha.startswith("#"):
+                    continue
+                if linha.startswith("0.0.0.0 "):
+                    linha = linha[len("0.0.0.0 "):].strip()
+                if linha.startswith("*."):
+                    linha = linha[2:]
+                if linha:
+                    dominios.add(linha)
+    except FileNotFoundError:
+        pass
+    _lista_vpn_dominios = dominios
+    return dominios
+
+
+def identificar_provedor_vpn(dominio: str):
+    """Retorna o nome do provedor de VPN se o dominio bater com a lista curada
+    ou com a lista publica auto-atualizavel. None se nao for VPN. A lista
+    curada funciona mesmo se o download da lista publica falhar ou nunca
+    tiver rodado - a deteccao nunca fica zerada por causa de rede."""
+    d = (dominio or "").lower()
+    for sufixo, nome in PROVEDORES_VPN_CONHECIDOS.items():
+        if d == sufixo or d.endswith("." + sufixo):
+            return nome
+    lista = _carregar_lista_vpn()
+    if lista and d in lista:
+        return f"VPN ({d})"
+    for sufixo in lista:
+        if d.endswith("." + sufixo):
+            return f"VPN ({sufixo})"
+    return None
+
+
+async def atualizar_lista_vpn_se_necessario():
+    """Baixa a lista publica de dominios de VPN (Blocklist Project) se o
+    arquivo local nao existir ou tiver mais de 7 dias. Chamada no mesmo loop
+    diario das listas de ads/ameacas. Reforco apenas - a lista curada acima
+    ja cobre os provedores mais comuns independente disso."""
+    global _lista_vpn_dominios
+    try:
+        precisa_baixar = True
+        if os.path.exists(CAMINHO_LISTA_VPN):
+            idade = time.time() - os.path.getmtime(CAMINHO_LISTA_VPN)
+            if idade < INTERVALO_ATUALIZACAO_LISTA_VPN_SEGUNDOS:
+                precisa_baixar = False
+        if not precisa_baixar:
+            return
+        os.makedirs(os.path.dirname(CAMINHO_LISTA_VPN), exist_ok=True)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(URL_LISTA_VPN)
+            resp.raise_for_status()
+            if len(resp.content) > TAMANHO_MAXIMO_LISTA_VPN_BYTES:
+                print(f"lista de VPN publica veio maior que o esperado ({len(resp.content)} bytes) - ignorando")
+                return
+            with open(CAMINHO_LISTA_VPN, "w", encoding="utf-8") as f:
+                f.write(resp.text)
+        _lista_vpn_dominios = None
+    except Exception as e:
+        print(f"ERRO em atualizar_lista_vpn_se_necessario: {e}")
+
+
+CAMINHO_LISTA_VPN_IPS = "/app/app/dados/lista_vpn_ips.txt"
+URLS_LISTA_VPN_IPS = [
+    "https://raw.githubusercontent.com/tn3w/ProtonVPN-IPs/master/protonvpn_entry_ip_ranges.txt",
+    "https://raw.githubusercontent.com/tn3w/ProtonVPN-IPs/master/protonvpn_entry_ips.txt",
+]  # curada, so Proton (IPs de entrada/gateway, que e o que o dispositivo conecta) - evita falso positivo de datacenter generico
+INTERVALO_ATUALIZACAO_LISTA_VPN_IPS_SEGUNDOS = 24 * 60 * 60  # 1 dia
+TAMANHO_MAXIMO_LISTA_VPN_IPS_BYTES = 3_000_000  # trava: recusa download anormal
+MAX_REDES_VPN_IPS = 60_000  # trava de sanidade
+
+_lista_vpn_redes = None
+
+def _carregar_lista_vpn_ips() -> list:
+    global _lista_vpn_redes
+    if _lista_vpn_redes is not None:
+        return _lista_vpn_redes
+    redes = []
+    try:
+        with open(CAMINHO_LISTA_VPN_IPS, "r", encoding="utf-8", errors="ignore") as f:
+            for linha in f:
+                linha = linha.strip()
+                if not linha or linha.startswith("#"):
+                    continue
+                try:
+                    redes.append(ipaddress.ip_network(linha, strict=False))
+                except ValueError:
+                    continue
+                if len(redes) >= MAX_REDES_VPN_IPS:
+                    break
+    except FileNotFoundError:
+        pass
+    _lista_vpn_redes = redes
+    return redes
+
+def ip_e_vpn_conhecida(ip_str: str) -> bool:
+    try:
+        ip_obj = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    for rede in _carregar_lista_vpn_ips():
+        if ip_obj in rede:
+            return True
+    return False
+
+async def atualizar_lista_vpn_ips_se_necessario():
+    global _lista_vpn_redes_buckets, _lista_vpn_redes_curtas
+    try:
+        precisa_baixar = True
+        if os.path.exists(CAMINHO_LISTA_VPN_IPS):
+            idade = time.time() - os.path.getmtime(CAMINHO_LISTA_VPN_IPS)
+            if idade < INTERVALO_ATUALIZACAO_LISTA_VPN_IPS_SEGUNDOS:
+                precisa_baixar = False
+        if not precisa_baixar:
+            return
+        os.makedirs(os.path.dirname(CAMINHO_LISTA_VPN_IPS), exist_ok=True)
+        partes = []
+        tamanho_total = 0
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            for url in URLS_LISTA_VPN_IPS:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                tamanho_total += len(resp.content)
+                if tamanho_total > TAMANHO_MAXIMO_LISTA_VPN_IPS_BYTES:
+                    print(f"lista de IPs de VPN veio maior que o esperado ({tamanho_total} bytes) - ignorando")
+                    return
+                partes.append(resp.text)
+        with open(CAMINHO_LISTA_VPN_IPS, "w", encoding="utf-8") as f:
+            f.write("\n".join(partes))
+        _lista_vpn_redes_buckets = None
+        _lista_vpn_redes_curtas = None
+    except Exception as e:
+        print(f"ERRO em atualizar_lista_vpn_ips_se_necessario: {e}")
+
+
+def _extrair_pares_pfctl(saida: str):
+    pares = []
+    for linha in saida.splitlines():
+        partes = linha.split()
+        if len(partes) < 5 or partes[3] != "<-":
+            continue
+        externo = partes[2]
+        interno = partes[4]
+        try:
+            ip_externo = externo.rsplit(":", 1)[0]
+            ip_interno = interno.rsplit(":", 1)[0]
+        except Exception:
+            continue
+        if ip_interno.startswith("192.168."):
+            pares.append((ip_interno, ip_externo))
+    return pares
+
+
+def _consultar_pfctl_state_sync() -> str:
+    import paramiko
+    from app.config import settings
+
+    cliente = paramiko.SSHClient()
+    cliente.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    cliente.connect(
+        settings.pfsense_host,
+        username="infraops-readonly",
+        key_filename="/home/appuser/.ssh/pfsense_readonly",
+        timeout=10,
+    )
+    try:
+        _stdin, stdout, _stderr = cliente.exec_command("sudo /sbin/pfctl -s state", timeout=20)
+        return stdout.read().decode("utf-8", errors="ignore")
+    finally:
+        cliente.close()
+
+
+async def loop_pfctl_vpn_ativo():
+    from app.models import AcessoVpnDetectado
+    from app.unifi import get_todos_clientes
+    from app.database import AsyncSessionLocal
+
+    while True:
+        try:
+            saida = await asyncio.get_event_loop().run_in_executor(None, _consultar_pfctl_state_sync)
+            pares = _extrair_pares_pfctl(saida)
+            pares_vpn = [(ip_i, ip_e) for ip_i, ip_e in pares if ip_e_vpn_conhecida(ip_e)]
+
+            if pares_vpn:
+                clientes = await get_todos_clientes()
+                mapa_ip_para_cliente = {c["ip"]: c for c in clientes if c.get("ip")}
+
+                async with AsyncSessionLocal() as db:
+                    agora = datetime.now(timezone.utc)
+                    macs_processados = set()
+                    for ip_interno, ip_externo in pares_vpn:
+                        cliente = mapa_ip_para_cliente.get(ip_interno)
+                        if not cliente:
+                            continue
+                        mac = cliente.get("mac")
+                        if not mac or mac in macs_processados:
+                            continue
+                        macs_processados.add(mac)
+
+                        ultimo = (await db.execute(
+                            select(AcessoVpnDetectado)
+                            .where(AcessoVpnDetectado.mac == mac)
+                            .order_by(AcessoVpnDetectado.detectado_em.desc())
+                            .limit(1)
+                        )).scalars().first()
+                        provedor = ultimo.provedor if ultimo else "ProtonVPN"
+
+                        db.add(AcessoVpnDetectado(
+                            mac=mac,
+                            hostname=cliente.get("hostname"),
+                            ip=ip_interno,
+                            dominio=f"ip:{ip_externo}",
+                            provedor=provedor,
+                            detectado_em=agora,
+                        ))
+                    if macs_processados:
+                        await db.commit()
+        except Exception as e:
+            print(f"ERRO em loop_pfctl_vpn_ativo: {e}")
+        await asyncio.sleep(60)
 
 
 async def _enviar_telegram(texto: str):
@@ -304,22 +573,88 @@ CATEGORIAS = [
 ]
 
 
+async def resolver_macs_dispositivo(db, mac: str) -> list:
+    """Dado qualquer mac do dispositivo, retorna todos os macs irmaos (mesmo
+    dispositivo_logico) - usado pra combinar o historico de dispositivos que
+    trocam de mac (ex: randomizacao de MAC do Android/iOS)."""
+    from sqlalchemy import text
+    resultado = await db.execute(
+        text(
+            """
+            SELECT dm2.mac
+            FROM dispositivo_mac dm1
+            JOIN dispositivo_mac dm2 ON dm2.dispositivo_logico_id = dm1.dispositivo_logico_id
+            WHERE dm1.mac = :mac
+            """
+        ),
+        {"mac": mac},
+    )
+    macs = [linha.mac for linha in resultado.all()]
+    return macs if macs else [mac]
+
+
 async def get_apelido_dispositivo(db, mac: str) -> str | None:
-    resultado = await db.execute(select(ApelidoDispositivo).where(ApelidoDispositivo.mac == mac))
-    registro = resultado.scalar_one_or_none()
-    return registro.apelido if registro else None
+    from sqlalchemy import text
+    resultado = await db.execute(
+        text(
+            """
+            SELECT dl.apelido
+            FROM dispositivo_mac dm
+            JOIN dispositivo_logico dl ON dl.id = dm.dispositivo_logico_id
+            WHERE dm.mac = :mac
+            """
+        ),
+        {"mac": mac},
+    )
+    linha = resultado.first()
+    return linha.apelido if linha and linha.apelido else None
 
 
 async def definir_apelido_dispositivo(db, mac: str, apelido: str, usuario: str) -> None:
-    resultado = await db.execute(select(ApelidoDispositivo).where(ApelidoDispositivo.mac == mac))
-    registro = resultado.scalar_one_or_none()
+    from sqlalchemy import text
     apelido = (apelido or "").strip()
-    if registro:
-        registro.apelido = apelido
-        registro.atualizado_por = usuario
+    agora = datetime.now(timezone.utc)
+    resultado = await db.execute(
+        text("SELECT dispositivo_logico_id FROM dispositivo_mac WHERE mac = :mac"),
+        {"mac": mac},
+    )
+    linha = resultado.first()
+    if linha is None:
+        chave = f"__mac__:{mac}"
+        resultado2 = await db.execute(
+            text(
+                """
+                INSERT INTO dispositivo_logico (hostname_normalizado, atualizado_em)
+                VALUES (:chave, :agora)
+                ON CONFLICT (hostname_normalizado) DO UPDATE SET atualizado_em = :agora
+                RETURNING id
+                """
+            ),
+            {"chave": chave, "agora": agora},
+        )
+        logico_id = resultado2.scalar_one()
+        await db.execute(
+            text(
+                """
+                INSERT INTO dispositivo_mac (mac, dispositivo_logico_id, primeira_vez, ultima_vez)
+                VALUES (:mac, :logico_id, :agora, :agora)
+                ON CONFLICT (mac) DO UPDATE SET dispositivo_logico_id = :logico_id, ultima_vez = :agora
+                """
+            ),
+            {"mac": mac, "logico_id": logico_id, "agora": agora},
+        )
     else:
-        registro = ApelidoDispositivo(mac=mac, apelido=apelido, atualizado_por=usuario)
-        db.add(registro)
+        logico_id = linha.dispositivo_logico_id
+    await db.execute(
+        text(
+            """
+            UPDATE dispositivo_logico
+            SET apelido = :apelido, atualizado_por = :usuario, atualizado_em = :agora
+            WHERE id = :logico_id
+            """
+        ),
+        {"apelido": apelido, "usuario": usuario, "agora": agora, "logico_id": logico_id},
+    )
     await db.commit()
 
 
@@ -328,6 +663,8 @@ def categorizar_dominio(dominio: str) -> str:
     for termos, nome in CATEGORIAS:
         if any(t in d for t in termos):
             return nome
+    if identificar_provedor_vpn(d):
+        return "VPN"
     if _bate_lista_ads(d):
         return "Anuncios / Rastreadores (lista publica)"
     return "Outros"
@@ -535,6 +872,76 @@ async def _obter_estado(db) -> SuricataSyncEstado:
     return estado
 
 
+_HOSTNAMES_GENERICOS_EXATOS = {
+    "iphone", "ipad", "watch", "computador", "android", "notebook",
+    "desktop", "laptop", "tv", "smarttv", "lgwebostv", "chromecast",
+    "impressora", "printer",
+}
+_HOSTNAMES_GENERICOS_REGEX = [
+    re.compile(r"^galaxy-"),
+    re.compile(r"^redmi-"),
+    re.compile(r"^poco-"),
+    re.compile(r"^moto(rola)?-"),
+    re.compile(r"^sm-[a-z0-9]+$"),
+    re.compile(r"^mi-[0-9]"),
+]
+
+
+def _normalizar_hostname_dispositivo(hostname, mac):
+    """Chave de agrupamento de dispositivo logico. Hostnames vazios, 'Desconhecido'
+    ou de fabrica/modelo (iphone, watch, galaxy-*, redmi-*, etc.) NAO agrupam -
+    cada mac vira seu proprio dispositivo, pra nao misturar aparelhos de pessoas
+    diferentes que nunca renomearam o celular."""
+    h = (hostname or "").strip().lower()
+    if not h or h == "desconhecido":
+        return f"__mac__:{mac}"
+    if h in _HOSTNAMES_GENERICOS_EXATOS:
+        return f"__mac__:{mac}"
+    for padrao in _HOSTNAMES_GENERICOS_REGEX:
+        if padrao.match(h):
+            return f"__mac__:{mac}"
+    return h
+
+
+async def _registrar_dispositivos_logicos(db, macs_hostnames: dict):
+    """Garante que cada mac visto neste ciclo esteja vinculado a um dispositivo_logico
+    (agrupado por hostname normalizado quando o hostname identifica o dono)."""
+    from sqlalchemy import text
+    if not macs_hostnames:
+        return
+    agora = datetime.now(timezone.utc)
+    for mac, hostname in macs_hostnames.items():
+        if not mac:
+            continue
+        chave = _normalizar_hostname_dispositivo(hostname, mac)
+        resultado = await db.execute(
+            text(
+                """
+                INSERT INTO dispositivo_logico (hostname_normalizado, hostname_exibicao, criado_em, atualizado_em)
+                VALUES (:chave, :hostname, :agora, :agora)
+                ON CONFLICT (hostname_normalizado) DO UPDATE
+                    SET hostname_exibicao = EXCLUDED.hostname_exibicao, atualizado_em = :agora
+                RETURNING id
+                """
+            ),
+            {"chave": chave, "hostname": hostname, "agora": agora},
+        )
+        logico_id = resultado.scalar_one()
+        await db.execute(
+            text(
+                """
+                INSERT INTO dispositivo_mac (mac, dispositivo_logico_id, hostname_visto, primeira_vez, ultima_vez)
+                VALUES (:mac, :logico_id, :hostname, :agora, :agora)
+                ON CONFLICT (mac) DO UPDATE
+                    SET dispositivo_logico_id = EXCLUDED.dispositivo_logico_id,
+                        hostname_visto = EXCLUDED.hostname_visto,
+                        ultima_vez = :agora
+                """
+            ),
+            {"mac": mac, "logico_id": logico_id, "hostname": hostname, "agora": agora},
+        )
+
+
 @limitar_concorrencia_sync
 async def sincronizar_acessos_suricata(db):
     """Roda periodicamente: puxa via SSH as linhas novas do eve.json do pfSense,
@@ -542,6 +949,7 @@ async def sincronizar_acessos_suricata(db):
     flow_id, resolve o dispositivo (mac/hostname) pelo IP via UniFi, categoriza o
     dominio, grava em AcessoDominio e aplica a retencao de 60 dias."""
     from app.unifi import get_todos_clientes
+    from app.models import AcessoVpnDetectado
 
     estado = await _obter_estado(db)
     dados, novo_offset, _tamanho_atual = await asyncio.to_thread(_puxar_novas_linhas_sync, estado.offset_bytes)
@@ -561,11 +969,20 @@ async def sincronizar_acessos_suricata(db):
     ips_excluidos = await _obter_ips_excluidos()
 
     eventos_para_gravar = []
+    macs_hostnames_vistos = {}
     ameacas_ja_alertadas = {
         (a.mac, a.dominio) for a in (await db.execute(select(AmeacaDetectada))).scalars().all()
     }
     ameacas_novas = []
     alertas_novos = []
+
+    inicio_hoje = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    vpn_ja_alertados_hoje = set((await db.execute(
+        select(AcessoVpnDetectado.mac).where(AcessoVpnDetectado.detectado_em >= inicio_hoje).distinct()
+    )).scalars().all())
+    vpn_eventos_para_gravar = []
+    vpn_alertas_novos = []
+    vpn_macs_alertados_neste_ciclo = set()
 
     for linha in dados.decode("utf-8", errors="ignore").splitlines():
         linha = linha.strip()
@@ -602,6 +1019,8 @@ async def sincronizar_acessos_suricata(db):
             else:
                 mac_alerta = None
             hostname_alerta = cliente_alerta["hostname"] if cliente_alerta else "Desconhecido"
+            if mac_alerta:
+                macs_hostnames_vistos[mac_alerta] = hostname_alerta
             alertas_novos.append(AlertaSuricata(
                 mac=mac_alerta,
                 ip=ip_disp_alerta,
@@ -662,9 +1081,20 @@ async def sincronizar_acessos_suricata(db):
         mac = cliente["mac"] if cliente and cliente.get("mac") else f"desconhecido-{ip_dispositivo}"
         hostname = cliente["hostname"] if cliente else "Desconhecido"
         ap = cliente.get("ap") if cliente else None
+        macs_hostnames_vistos[mac] = hostname
         if _bate_lista_ameacas(sni) and (mac, sni) not in ameacas_ja_alertadas:
             ameacas_ja_alertadas.add((mac, sni))
             ameacas_novas.append((mac, hostname, ip_dispositivo, sni))
+
+        provedor_vpn = identificar_provedor_vpn(sni)
+        if provedor_vpn:
+            vpn_eventos_para_gravar.append(AcessoVpnDetectado(
+                mac=mac, hostname=hostname, ip=ip_dispositivo, dominio=sni,
+                provedor=provedor_vpn, detectado_em=fim,
+            ))
+            if mac not in vpn_ja_alertados_hoje and mac not in vpn_macs_alertados_neste_ciclo:
+                vpn_macs_alertados_neste_ciclo.add(mac)
+                vpn_alertas_novos.append((mac, hostname, ip_dispositivo, provedor_vpn, sni))
 
         eventos_para_gravar.append(AcessoDominio(
             mac=mac,
@@ -681,8 +1111,12 @@ async def sincronizar_acessos_suricata(db):
         ))
         flow_ids_consumidos.add(flow_id)
 
+    await _registrar_dispositivos_logicos(db, macs_hostnames_vistos)
+
     for evento in eventos_para_gravar:
         db.add(evento)
+    for evento_vpn in vpn_eventos_para_gravar:
+        db.add(evento_vpn)
     for alerta in alertas_novos:
         db.add(alerta)
 
@@ -698,6 +1132,7 @@ async def sincronizar_acessos_suricata(db):
 
     limite_retencao = datetime.now(timezone.utc) - timedelta(days=60)
     await db.execute(delete(AcessoDominio).where(AcessoDominio.inicio < limite_retencao))
+    await db.execute(delete(AcessoVpnDetectado).where(AcessoVpnDetectado.detectado_em < limite_retencao))
 
     for mac_a, hostname_a, ip_a, dominio_a in ameacas_novas:
         db.add(AmeacaDetectada(mac=mac_a, dominio=dominio_a))
@@ -707,15 +1142,88 @@ async def sincronizar_acessos_suricata(db):
             detalhes=ip_a,
             mac_dispositivo=mac_a,
         ))
+    for mac_v, hostname_v, ip_v, provedor_v, dominio_v in vpn_alertas_novos:
+        db.add(EventoSistema(
+            tipo="atencao",
+            mensagem=f"{hostname_v} acessou servico de VPN ({provedor_v})",
+            detalhes=ip_v,
+            mac_dispositivo=mac_v,
+        ))
     estado.offset_bytes = novo_offset
     await db.commit()
     for mac_a, hostname_a, ip_a, dominio_a in ameacas_novas:
         await _enviar_telegram(
             f"\u26a0\ufe0f Possivel ameaca detectada\n\nDispositivo: {hostname_a} ({ip_a})\nDominio suspeito: {dominio_a}\n\nVerificar na tela de Acessos."
         )
+    for mac_v, hostname_v, ip_v, provedor_v, dominio_v in vpn_alertas_novos:
+        await _enviar_telegram(
+            f"\u26a0\ufe0f VPN detectada\n\nDispositivo: {hostname_v} ({ip_v})\nProvedor: {provedor_v}\nDominio: {dominio_v}\n\nVerificar na tela de Acessos."
+        )
 
 
 GAP_SESSAO_SEGUNDOS = 300  # flows do mesmo dispositivo+servico com menos que isso entre eles viram uma sessao so
+
+
+async def get_dispositivos_vpn(db, horas: float = 168):
+    """Lista dispositivos que acessaram servicos de VPN no periodo, agrupando
+    eventos em 'sessoes' (gap menor que GAP_SESSAO_SEGUNDOS = mesma sessao)
+    pra estimar duracao da sessao mais recente e se esta ativa agora."""
+    from app.models import AcessoVpnDetectado
+
+    GAP_ATIVO_VPN_SEGUNDOS = 600  # 10 minutos - cobre apps de VPN que nao ficam conversando o tempo todo  # so pra "ativo agora" - o loop do Suricata roda a cada 60s,
+                                   # entao 2 min ja da folga de 1 ciclo sem marcar flapping
+
+    limite = datetime.now(timezone.utc) - timedelta(hours=horas)
+    resultado = await db.execute(
+        select(AcessoVpnDetectado)
+        .where(AcessoVpnDetectado.detectado_em >= limite)
+        .order_by(AcessoVpnDetectado.mac, AcessoVpnDetectado.detectado_em)
+    )
+    eventos = resultado.scalars().all()
+
+    por_dispositivo = {}
+    for ev in eventos:
+        por_dispositivo.setdefault(ev.mac, []).append(ev)
+
+    agora = datetime.now(timezone.utc)
+    dispositivos = []
+    for mac, evs in por_dispositivo.items():
+        evs.sort(key=lambda e: e.detectado_em)
+
+        sessoes = [[evs[0]]]
+        for anterior, atual in zip(evs, evs[1:]):
+            gap = (atual.detectado_em - anterior.detectado_em).total_seconds()
+            if gap <= GAP_SESSAO_SEGUNDOS:
+                sessoes[-1].append(atual)
+            else:
+                sessoes.append([atual])
+
+        ultima_sessao = sessoes[-1]
+        duracao_ultima_sessao = max(0, round((ultima_sessao[-1].detectado_em - ultima_sessao[0].detectado_em).total_seconds()))
+        ativo_agora = (agora - ultima_sessao[-1].detectado_em).total_seconds() <= GAP_ATIVO_VPN_SEGUNDOS
+
+        contagem_provedor = {}
+        contagem_dominio = {}
+        for e in evs:
+            contagem_provedor[e.provedor] = contagem_provedor.get(e.provedor, 0) + 1
+            contagem_dominio[e.dominio] = contagem_dominio.get(e.dominio, 0) + 1
+        provedor_mais_comum = max(contagem_provedor, key=contagem_provedor.get)
+        dominio_mais_comum = max(contagem_dominio, key=contagem_dominio.get)
+
+        dispositivos.append({
+            "mac": mac,
+            "hostname": evs[-1].hostname,
+            "provedor": provedor_mais_comum,
+            "dominio": dominio_mais_comum,
+            "primeira_deteccao": evs[0].detectado_em.isoformat(),
+            "ultima_deteccao": evs[-1].detectado_em.isoformat(),
+            "duracao_ultima_sessao_segundos": duracao_ultima_sessao,
+            "ativo_agora": ativo_agora,
+            "eventos": len(evs),
+        })
+
+    dispositivos.sort(key=lambda d: d["ultima_deteccao"], reverse=True)
+    return dispositivos
 
 
 def _fechar_sessao(s):
@@ -729,6 +1237,7 @@ def _fechar_sessao(s):
         "dominio_principal": sorted(s["dominios"])[0],
         "dominios": sorted(s["dominios"]),
         "inicio": s["inicio_dt"].isoformat(),
+        "hora_local": s["inicio_dt"].astimezone(TZ_BR).hour,
         "fim": s["fim_dt"].isoformat(),
         "duracao_segundos": duracao,
         "bytes_download": s["bytes_download"],
@@ -747,7 +1256,10 @@ async def get_sessoes_acesso(db, horas: float = 1440, mac: str = None, gap_segun
     desde = datetime.now(timezone.utc) - timedelta(hours=horas)
     query = select(AcessoDominio).where(AcessoDominio.inicio >= desde)
     if mac:
-        query = query.where(AcessoDominio.mac == mac)
+        if isinstance(mac, (list, tuple, set)):
+            query = query.where(AcessoDominio.mac.in_(list(mac)))
+        else:
+            query = query.where(AcessoDominio.mac == mac)
     query = query.order_by(AcessoDominio.mac, AcessoDominio.categoria, AcessoDominio.inicio)
 
     resultado = await db.execute(query)
@@ -787,32 +1299,67 @@ async def get_sessoes_acesso(db, horas: float = 1440, mac: str = None, gap_segun
 
 async def get_atividade_por_hora(db, mac: str, horas: float = 1440):
     """Agrupa as sessoes de um dispositivo por hora do dia (0-23, horario de
-    Brasilia), somando duracao e volume - serve pra ver em que horario do dia
-    o dispositivo mais acessa a internet."""
+    Brasilia), dividindo a duracao por tipo de produtividade (produtivo /
+    nao_produtivo / neutro) e normalizando pela quantidade de dias distintos
+    que tiveram atividade naquela hora - assim uma hora com 1 dia fora do
+    padrao nao domina o grafico num periodo longo (15 dias, 1 mes, 2 meses)."""
     from zoneinfo import ZoneInfo
     fuso_local = ZoneInfo("America/Sao_Paulo")
 
     sessoes = await get_sessoes_acesso(db, horas=horas, mac=mac)
+    mapa_tipo = await _obter_mapa_produtividade(db)
 
-    baldes = {h: {"hora": h, "acessos": 0, "duracao_segundos": 0, "bytes_total": 0} for h in range(24)}
+    baldes = {
+        h: {
+            "hora": h, "acessos": 0, "bytes_total": 0, "dias": set(),
+            "produtivo_segundos": 0, "nao_produtivo_segundos": 0, "neutro_segundos": 0,
+        }
+        for h in range(24)
+    }
     for sessao in sessoes:
         inicio_dt = datetime.fromisoformat(sessao["inicio"])
         inicio_local = inicio_dt.astimezone(fuso_local)
         h = inicio_local.hour
-        baldes[h]["acessos"] += 1
-        baldes[h]["duracao_segundos"] += sessao["duracao_segundos"]
-        baldes[h]["bytes_total"] += sessao["bytes_download"] + sessao["bytes_upload"]
+        balde = baldes[h]
+        balde["acessos"] += 1
+        balde["bytes_total"] += sessao["bytes_download"] + sessao["bytes_upload"]
+        balde["dias"].add(inicio_local.date().isoformat())
+        tipo = mapa_tipo.get(sessao.get("categoria"), "neutro")
+        chave = "produtivo_segundos" if tipo == "produtivo" else ("nao_produtivo_segundos" if tipo == "nao_produtivo" else "neutro_segundos")
+        # uma sessao pode durar muito mais que 1h (ex: conexao de fundo tipo
+        # keep-alive); como o balde representa uma janela de 1h, a contribuicao
+        # dela pra essa hora nao pode passar de 3600s, senao infla o grafico
+        # com valores absurdos (ex: "35h" numa unica hora do dia)
+        balde[chave] += min(sessao["duracao_segundos"], 3600)
 
-    return [baldes[h] for h in range(24)]
+    resultado = []
+    for h in range(24):
+        balde = baldes[h]
+        dias_amostrados = len(balde["dias"])
+        divisor = dias_amostrados or 1
+        resultado.append({
+            "hora": h,
+            "acessos": balde["acessos"],
+            "bytes_total": balde["bytes_total"],
+            "dias_amostrados": dias_amostrados,
+            "produtivo_segundos": balde["produtivo_segundos"],
+            "nao_produtivo_segundos": balde["nao_produtivo_segundos"],
+            "neutro_segundos": balde["neutro_segundos"],
+            "produtivo_segundos_media": round(balde["produtivo_segundos"] / divisor),
+            "nao_produtivo_segundos_media": round(balde["nao_produtivo_segundos"] / divisor),
+            "neutro_segundos_media": round(balde["neutro_segundos"] / divisor),
+        })
+    return resultado
 
 
 @limitar_concorrencia_pesada
 async def get_dispositivos_acessos(db, horas: float = 1440, incluir_apelido: bool = False):
     """Lista de dispositivos com acessos no periodo, com contagem de sites
     diferentes, volume total e ultima atividade - alimenta a tela de lista
-    da aba Acessos. incluir_apelido traz o campo apelido junto (usado pra
-    permitir busca por apelido na lista, restrito no endpoint a quem pode
-    ve-lo - admin/super_admin)."""
+    da aba Acessos. Agrupado por DISPOSITIVO LOGICO (nao por mac cru) - um
+    celular que troca de mac (randomizacao Android/iOS) aparece como uma
+    linha so, com o historico somado. incluir_apelido traz o campo apelido
+    junto (restrito no endpoint a quem pode ve-lo - admin/super_admin)."""
     from sqlalchemy import text
 
     agora_calc = datetime.now(timezone.utc)
@@ -822,38 +1369,92 @@ async def get_dispositivos_acessos(db, horas: float = 1440, incluir_apelido: boo
     primeiro_dia_completo_ts = datetime.combine(primeiro_dia_completo, datetime.min.time(), tzinfo=timezone.utc)
     hoje_ts = datetime.combine(hoje, datetime.min.time(), tzinfo=timezone.utc)
 
-    # usa o resumo diario pre-calculado (acesso_resumo_dominio_diario) pros dias
-    # ja fechados - so os dois extremos (o dia parcial do inicio do periodo e o
-    # dia de hoje, ainda em andamento) sao lidos da tabela bruta. Isso evita
-    # varrer milhoes de linhas pra periodos longos (15 dias, 1 mes, 2 meses)
-    # mantendo o resultado exato (count distinct nao duplica entre as fontes).
+    params = {
+        "primeiro_dia_completo": primeiro_dia_completo,
+        "hoje": hoje,
+        "desde": desde,
+        "primeiro_dia_completo_ts": primeiro_dia_completo_ts,
+        "hoje_ts": hoje_ts,
+    }
+
+    # agrupa por dispositivo_logico_id (via dispositivo_mac); um mac sem
+    # vinculo ainda (nao deveria ocorrer em uso normal - a sincronizacao
+    # registra na hora) cai num id sintetico proprio (hashtext do mac) pra
+    # nao se misturar com outro dispositivo.
     agregados = await db.execute(
-        text('WITH eventos AS (\n    SELECT mac, dominio, bytes_download, bytes_upload, ultima_atividade AS fim\n    FROM acesso_resumo_dominio_diario\n    WHERE dia >= :primeiro_dia_completo AND dia < :hoje\n    UNION ALL\n    SELECT mac, dominio, bytes_download, bytes_upload, fim\n    FROM acesso_dominio\n    WHERE inicio >= :desde AND (inicio < :primeiro_dia_completo_ts OR inicio >= :hoje_ts)\n)\nSELECT mac,\n       count(DISTINCT dominio) AS sites_diferentes,\n       sum(bytes_download + bytes_upload) AS volume_bytes,\n       max(fim) AS ultima_atividade\nFROM eventos\nGROUP BY mac\n'),
-        {
-            "primeiro_dia_completo": primeiro_dia_completo,
-            "hoje": hoje,
-            "desde": desde,
-            "primeiro_dia_completo_ts": primeiro_dia_completo_ts,
-            "hoje_ts": hoje_ts,
-        },
+        text(
+            """
+            WITH eventos AS (
+                SELECT mac, dominio, bytes_download, bytes_upload, ultima_atividade AS fim
+                FROM acesso_resumo_dominio_diario
+                WHERE dia >= :primeiro_dia_completo AND dia < :hoje
+                UNION ALL
+                SELECT mac, dominio, bytes_download, bytes_upload, fim
+                FROM acesso_dominio
+                WHERE inicio >= :desde AND (inicio < :primeiro_dia_completo_ts OR inicio >= :hoje_ts)
+            ),
+            eventos_agrupados AS (
+                SELECT
+                    COALESCE(dm.dispositivo_logico_id, -abs(hashtext(e.mac))) AS logico_id,
+                    e.dominio, e.bytes_download, e.bytes_upload, e.fim
+                FROM eventos e
+                LEFT JOIN dispositivo_mac dm ON dm.mac = e.mac
+            )
+            SELECT logico_id,
+                   count(DISTINCT dominio) AS sites_diferentes,
+                   sum(bytes_download + bytes_upload) AS volume_bytes,
+                   max(fim) AS ultima_atividade
+            FROM eventos_agrupados
+            GROUP BY logico_id
+            """
+        ),
+        params,
     )
-    mapa_agregados = {linha.mac: linha for linha in agregados.all()}
+    mapa_agregados = {linha.logico_id: linha for linha in agregados.all()}
 
     ultimos = await db.execute(
-        select(AcessoDominio.mac, AcessoDominio.hostname, AcessoDominio.ip, AcessoDominio.ap)
-        .distinct(AcessoDominio.mac)
-        .where(AcessoDominio.inicio >= desde)
-        .order_by(AcessoDominio.mac, AcessoDominio.inicio.desc())
+        text(
+            """
+            SELECT DISTINCT ON (logico_id)
+                   COALESCE(dm.dispositivo_logico_id, -abs(hashtext(ad.mac))) AS logico_id,
+                   ad.mac, ad.hostname, ad.ip, ad.ap
+            FROM acesso_dominio ad
+            LEFT JOIN dispositivo_mac dm ON dm.mac = ad.mac
+            WHERE ad.inicio >= :desde
+            ORDER BY logico_id, ad.inicio DESC
+            """
+        ),
+        {"desde": desde},
     )
-    mapa_info = {linha.mac: linha for linha in ultimos.all()}
+    mapa_info = {linha.logico_id: linha for linha in ultimos.all()}
+
+    mapa_apelido = {}
+    if incluir_apelido:
+        apelidos = await db.execute(
+            text("SELECT id, apelido FROM dispositivo_logico WHERE apelido IS NOT NULL AND apelido != ''")
+        )
+        mapa_apelido = {linha.id: linha.apelido for linha in apelidos.all()}
+
+    qtd_macs_rows = await db.execute(
+        text(
+            """
+            SELECT dispositivo_logico_id AS logico_id, count(*) AS qtd
+            FROM dispositivo_mac
+            GROUP BY dispositivo_logico_id
+            """
+        )
+    )
+    mapa_qtd_macs = {linha.logico_id: linha.qtd for linha in qtd_macs_rows.all()}
 
     agora = datetime.now(timezone.utc)
     resultado = []
-    for mac, agg in mapa_agregados.items():
-        info = mapa_info.get(mac)
+    for logico_id, agg in mapa_agregados.items():
+        info = mapa_info.get(logico_id)
         segundos_desde_ultima = (agora - agg.ultima_atividade).total_seconds() if agg.ultima_atividade else None
         resultado.append({
-            "mac": mac,
+            "mac": info.mac if info else None,
+            "dispositivo_logico_id": logico_id if logico_id > 0 else None,
+            "qtd_macs": mapa_qtd_macs.get(logico_id, 1),
             "hostname": info.hostname if info else "Desconhecido",
             "ip": info.ip if info else "",
             "ap": info.ap if info else None,
@@ -863,11 +1464,9 @@ async def get_dispositivos_acessos(db, horas: float = 1440, incluir_apelido: boo
             "ativo_agora": segundos_desde_ultima is not None and segundos_desde_ultima <= 600,
         })
     if incluir_apelido:
-        from app.models import ApelidoDispositivo
-        apelidos = await db.execute(select(ApelidoDispositivo.mac, ApelidoDispositivo.apelido))
-        mapa_apelido = {linha.mac: linha.apelido for linha in apelidos.all()}
         for item in resultado:
-            item["apelido"] = mapa_apelido.get(item["mac"])
+            lid = item.get("dispositivo_logico_id")
+            item["apelido"] = mapa_apelido.get(lid) if lid else None
 
     resultado.sort(key=lambda d: d["volume_bytes"], reverse=True)
     return resultado
@@ -973,16 +1572,16 @@ async def get_relatorio_acessos(db, dias: int = 15, categoria_geral: str = None,
 
     macs_necessarios = {m for m, _ in ranking_geral_bruto} | {m for m, _ in ranking_pessoal_bruto}
     mapa_dispositivo = {}
-    if macs_necessarios:
-        subq = (
-            select(AcessoDominio.mac, AcessoDominio.hostname, AcessoDominio.ip)
-            .where(AcessoDominio.mac.in_(macs_necessarios))
-            .distinct(AcessoDominio.mac)
-            .order_by(AcessoDominio.mac, AcessoDominio.inicio.desc())
+    for mac in macs_necessarios:
+        resultado_nome = await db.execute(
+            select(AcessoDominio.hostname, AcessoDominio.ip)
+            .where(AcessoDominio.mac == mac)
+            .order_by(AcessoDominio.inicio.desc())
+            .limit(1)
         )
-        resultado_nomes = await db.execute(subq)
-        for mac, hostname, ip in resultado_nomes.all():
-            mapa_dispositivo[mac] = {"hostname": hostname, "ip": ip}
+        linha_nome = resultado_nome.first()
+        if linha_nome:
+            mapa_dispositivo[mac] = {"hostname": linha_nome.hostname, "ip": linha_nome.ip}
 
     def _montar_linha(mac, volume):
         info = mapa_dispositivo.get(mac, {})
@@ -1061,13 +1660,101 @@ async def get_categorias_disponiveis(db, dias: int = 15) -> list:
     )
     categorias = sorted({c for (c,) in resultado.all() if c})
     return categorias
-async def get_ameacas_dispositivo(db, mac: str) -> list:
+async def get_ameacas_dispositivo(db, mac) -> list:
     """Lista os dominios de ameaca ja detectados para esse dispositivo -
-    usado pra destacar em vermelho na linha do tempo de Acessos."""
+    usado pra destacar em vermelho na linha do tempo de Acessos. Aceita um
+    mac unico ou uma lista de macs (dispositivo logico)."""
+    condicao = AmeacaDetectada.mac.in_(list(mac)) if isinstance(mac, (list, tuple, set)) else AmeacaDetectada.mac == mac
     resultado = await db.execute(
-        select(AmeacaDetectada.dominio).where(AmeacaDetectada.mac == mac).distinct()
+        select(AmeacaDetectada.dominio).where(condicao).distinct()
     )
     return [d for (d,) in resultado.all()]
+
+
+async def _obter_mapa_produtividade(db) -> dict:
+    resultado = await db.execute(select(CategoriaProdutividade))
+    return {linha.categoria: linha.tipo for linha in resultado.scalars().all()}
+
+
+async def listar_categorias_produtividade(db) -> list:
+    resultado = await db.execute(select(CategoriaProdutividade).order_by(CategoriaProdutividade.categoria))
+    return [
+        {"categoria": l.categoria, "tipo": l.tipo}
+        for l in resultado.scalars().all()
+    ]
+
+
+async def definir_categoria_produtividade(db, categoria: str, tipo: str, usuario: str) -> None:
+    if tipo not in ("produtivo", "nao_produtivo", "neutro"):
+        raise ValueError("tipo invalido")
+    resultado = await db.execute(select(CategoriaProdutividade).where(CategoriaProdutividade.categoria == categoria))
+    registro = resultado.scalar_one_or_none()
+    if registro:
+        registro.tipo = tipo
+        registro.atualizado_por = usuario
+    else:
+        registro = CategoriaProdutividade(categoria=categoria, tipo=tipo, atualizado_por=usuario)
+        db.add(registro)
+    await db.commit()
+
+
+async def calcular_produtividade_dispositivo(db, mac: str, horas: float = 1440, sessoes: list = None) -> dict:
+    """Calcula quanto tempo do periodo o dispositivo passou em atividade
+    'produtivo', 'nao_produtivo' ou 'neutro' (categoria ainda nao
+    classificada). O calculo e por TEMPO com atividade (nao por volume de
+    bytes - trafego de CDN/infra domina o volume sem refletir uso real) e,
+    quando duas categorias de tipos diferentes rodam ao mesmo tempo (ex:
+    Spotify tocando enquanto usa o Fluig), produtivo sempre vence."""
+    if sessoes is None:
+        sessoes = await get_sessoes_acesso(db, horas=horas, mac=mac)
+
+    vazio = {
+        "produtivo_segundos": 0, "nao_produtivo_segundos": 0, "neutro_segundos": 0,
+        "produtivo_pct": 0.0, "nao_produtivo_pct": 0.0, "neutro_pct": 0.0,
+        "total_segundos": 0,
+    }
+    if not sessoes:
+        return vazio
+
+    mapa_tipo = await _obter_mapa_produtividade(db)
+
+    eventos = []
+    for s in sessoes:
+        tipo = mapa_tipo.get(s["categoria"], "neutro")
+        eventos.append((datetime.fromisoformat(s["inicio"]), 1, tipo))
+        eventos.append((datetime.fromisoformat(s["fim"]), -1, tipo))
+    eventos.sort(key=lambda e: (e[0], e[1]))
+
+    ativos = {"produtivo": 0, "nao_produtivo": 0, "neutro": 0}
+    totais = {"produtivo": 0.0, "nao_produtivo": 0.0, "neutro": 0.0}
+    tempo_anterior = eventos[0][0]
+
+    for tempo, delta, tipo in eventos:
+        if tempo > tempo_anterior:
+            vencedor = None
+            for candidato in ("produtivo", "nao_produtivo", "neutro"):
+                if ativos[candidato] > 0:
+                    vencedor = candidato
+                    break
+            if vencedor:
+                totais[vencedor] += (tempo - tempo_anterior).total_seconds()
+        ativos[tipo] += delta
+        tempo_anterior = tempo
+
+    total_segundos = sum(totais.values())
+
+    def pct(valor):
+        return round(valor / total_segundos * 100, 1) if total_segundos > 0 else 0.0
+
+    return {
+        "produtivo_segundos": round(totais["produtivo"]),
+        "nao_produtivo_segundos": round(totais["nao_produtivo"]),
+        "neutro_segundos": round(totais["neutro"]),
+        "produtivo_pct": pct(totais["produtivo"]),
+        "nao_produtivo_pct": pct(totais["nao_produtivo"]),
+        "neutro_pct": pct(totais["neutro"]),
+        "total_segundos": round(total_segundos),
+    }
 
 
 async def get_detalhe_dispositivo(db, mac: str, horas: float = 1440):
@@ -1081,7 +1768,7 @@ async def get_detalhe_dispositivo(db, mac: str, horas: float = 1440):
     dominios_distintos = set()
     volume_total = 0
     ultima_atividade = None
-    hostname = ip = ap = None
+    hostname = ip = ap = mac_repr = None
 
     for s in sessoes:
         cat = s["categoria"]
@@ -1094,6 +1781,7 @@ async def get_detalhe_dispositivo(db, mac: str, horas: float = 1440):
         if ultima_atividade is None or fim_dt > ultima_atividade:
             ultima_atividade = fim_dt
             hostname, ip, ap = s["hostname"], s["ip"], s["ap"]
+            mac_repr = s["mac"]
 
     top_sites = sorted(
         [
@@ -1106,11 +1794,16 @@ async def get_detalhe_dispositivo(db, mac: str, horas: float = 1440):
         ],
         key=lambda x: x["volume_bytes"], reverse=True,
     )
+    mapa_tipo = await _obter_mapa_produtividade(db)
     for item in top_sites:
         item["percentual"] = round(item["volume_bytes"] / volume_total * 100, 1) if volume_total else 0
+        item["tipo"] = mapa_tipo.get(item["categoria"], "neutro")
+
+    produtividade = await calcular_produtividade_dispositivo(db, mac, horas, sessoes=sessoes)
+    mac_final = mac_repr or (mac if isinstance(mac, str) else (list(mac)[0] if mac else None))
 
     return {
-        "mac": mac,
+        "mac": mac_final,
         "hostname": hostname,
         "ip": ip,
         "ap": ap,
@@ -1119,6 +1812,7 @@ async def get_detalhe_dispositivo(db, mac: str, horas: float = 1440):
         "ultima_atividade": ultima_atividade.isoformat() if ultima_atividade else None,
         "top_sites": top_sites,
         "linha_do_tempo": sessoes[:200],
+        "produtividade": produtividade,
     }
 
 

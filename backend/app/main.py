@@ -526,12 +526,13 @@ async def dashboard_acessos_dispositivo_relatorio_pdf(
     usuario: User = Depends(exigir_papel("admin", "super_admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.acessos import get_detalhe_dispositivo
+    from app.acessos import get_detalhe_dispositivo, resolver_macs_dispositivo
     from app.dashboard import gerar_html_relatorio_dispositivo
     from weasyprint import HTML
     import io
-    detalhe = await get_detalhe_dispositivo(db, mac, horas)
-    html_str = gerar_html_relatorio_dispositivo(detalhe, periodo_label or f"Últimas {horas:.0f}h")
+    macs = await resolver_macs_dispositivo(db, mac)
+    detalhe = await get_detalhe_dispositivo(db, macs, horas)
+    html_str = gerar_html_relatorio_dispositivo(detalhe, periodo_label or f"Últimas {horas:.0f}h", interativo=False)
     pdf_bytes = HTML(string=html_str).write_pdf()
     buffer = io.BytesIO(pdf_bytes)
     nome_arquivo = (detalhe.get("hostname") or mac).replace(" ", "-")
@@ -548,10 +549,11 @@ async def dashboard_acessos_dispositivo_relatorio_html(
     usuario: User = Depends(exigir_papel("admin", "super_admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.acessos import get_detalhe_dispositivo
+    from app.acessos import get_detalhe_dispositivo, resolver_macs_dispositivo
     from app.dashboard import gerar_html_relatorio_dispositivo
     from fastapi.responses import Response
-    detalhe = await get_detalhe_dispositivo(db, mac, horas)
+    macs = await resolver_macs_dispositivo(db, mac)
+    detalhe = await get_detalhe_dispositivo(db, macs, horas)
     html_str = gerar_html_relatorio_dispositivo(detalhe, periodo_label or f"Últimas {horas:.0f}h")
     nome_arquivo = (detalhe.get("hostname") or mac).replace(" ", "-")
     return Response(
@@ -1017,7 +1019,7 @@ async def loop_resumo_diario_acessos():
 
 
 async def loop_recategorizacao_diaria():
-    from app.acessos import recategorizar_dominios_outros, atualizar_lista_ads_se_necessario, atualizar_lista_ameacas_se_necessario
+    from app.acessos import recategorizar_dominios_outros, atualizar_lista_ads_se_necessario, atualizar_lista_ameacas_se_necessario, atualizar_lista_vpn_se_necessario, atualizar_lista_vpn_ips_se_necessario
     while True:
         await asyncio.sleep(86400)
         try:
@@ -1028,6 +1030,15 @@ async def loop_recategorizacao_diaria():
             await atualizar_lista_ameacas_se_necessario()
         except Exception as e:
             print(f"ERRO em atualizar_lista_ameacas_se_necessario: {e}")
+        try:
+            await atualizar_lista_vpn_se_necessario()
+        except Exception as e:
+            print(f"ERRO em atualizar_lista_vpn_se_necessario: {e}")
+
+        try:
+            await atualizar_lista_vpn_ips_se_necessario()
+        except Exception as e:
+            print(f"ERRO em atualizar_lista_vpn_ips_se_necessario: {e}")
         async with AsyncSessionLocal() as db:
             try:
                 atualizados = await recategorizar_dominios_outros(db)
@@ -1090,6 +1101,9 @@ async def iniciar_verificacao_agentes():
     asyncio.create_task(loop_resumo_diario())
     asyncio.create_task(loop_consumo_rede())
     asyncio.create_task(loop_acessos_suricata())
+    # DESATIVADO TEMPORARIAMENTE - lista combinada gerando falso positivo
+    # from app.acessos import loop_pfctl_vpn_ativo
+    # asyncio.create_task(loop_pfctl_vpn_ativo())
     asyncio.create_task(loop_resumo_diario_acessos())
     asyncio.create_task(loop_recategorizacao_diaria())
     from app.protheus import loop_protheus_icmp
@@ -1195,6 +1209,15 @@ async def dashboard_acessos_dispositivos(
     from app.acessos import get_dispositivos_acessos
     incluir_apelido = usuario.role in ("admin", "super_admin")
     return await get_dispositivos_acessos(db, horas, incluir_apelido=incluir_apelido)
+@app.get("/dashboard/acessos/vpn")
+@cache_ttl(20)
+async def dashboard_acessos_vpn(
+    horas: float = 168,
+    usuario: User = Depends(exigir_papel("super_admin", "admin", "operador")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_dispositivos_vpn
+    return await get_dispositivos_vpn(db, horas)
 @app.get("/dashboard/acessos/categorias")
 async def dashboard_acessos_categorias(
     dias: int = 15,
@@ -1220,8 +1243,9 @@ async def dashboard_acessos_dispositivo(
     usuario: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.acessos import get_detalhe_dispositivo
-    return await get_detalhe_dispositivo(db, mac, horas)
+    from app.acessos import get_detalhe_dispositivo, resolver_macs_dispositivo
+    macs = await resolver_macs_dispositivo(db, mac)
+    return await get_detalhe_dispositivo(db, macs, horas)
 @app.get("/dashboard/acessos/identidade-vpn")
 async def dashboard_acessos_identidade_vpn(
     ip: str,
@@ -1236,8 +1260,29 @@ async def dashboard_acessos_dispositivo_ameacas(
     usuario: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.acessos import get_ameacas_dispositivo
-    return await get_ameacas_dispositivo(db, mac)
+    from app.acessos import get_ameacas_dispositivo, resolver_macs_dispositivo
+    macs = await resolver_macs_dispositivo(db, mac)
+    return await get_ameacas_dispositivo(db, macs)
+@app.get("/dashboard/acessos/categorias-produtividade")
+async def dashboard_acessos_categorias_produtividade(
+    usuario: User = Depends(exigir_papel("admin", "super_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import listar_categorias_produtividade
+    return await listar_categorias_produtividade(db)
+@app.put("/dashboard/acessos/categorias-produtividade")
+async def dashboard_acessos_definir_categoria_produtividade(
+    categoria: str,
+    tipo: str,
+    usuario: User = Depends(exigir_papel("admin", "super_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import definir_categoria_produtividade
+    if tipo not in ("produtivo", "nao_produtivo", "neutro"):
+        raise HTTPException(status_code=400, detail="tipo invalido")
+    await definir_categoria_produtividade(db, categoria, tipo, usuario.username)
+    await registrar_log(db, usuario.username, "definir_categoria_produtividade", "sucesso", detalhes=f"categoria={categoria} tipo={tipo}")
+    return {"status": "ok", "categoria": categoria, "tipo": tipo}
 @app.get("/dashboard/acessos/dispositivo/{mac}/apelido")
 async def dashboard_acessos_obter_apelido(
     mac: str,
@@ -1265,8 +1310,9 @@ async def dashboard_acessos_por_hora(
     usuario: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.acessos import get_atividade_por_hora
-    return await get_atividade_por_hora(db, mac, horas)
+    from app.acessos import get_atividade_por_hora, resolver_macs_dispositivo
+    macs = await resolver_macs_dispositivo(db, mac)
+    return await get_atividade_por_hora(db, macs, horas)
 
 
 @app.get("/dashboard/ameacas/resumo")

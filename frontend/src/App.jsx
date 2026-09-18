@@ -19,6 +19,7 @@ import Usuarios from './components/Usuarios';
 import Solicitacoes from './components/Solicitacoes';
 import Relatorios from './components/Relatorios';
 import AmeacasPotenciais from './components/AmeacasPotenciais';
+import VpnExterna from './components/VpnExterna';
 import ConsumoRede from './components/ConsumoRede';
 import Acessos from './components/Acessos';
 import './App.css';
@@ -439,7 +440,13 @@ function App() {
                   className={`btn ${subAbaRede === 'vpns' ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => setSubAbaRede('vpns')}
                 >
-                  VPNs
+                  VPN Interna
+                </button>
+                <button
+                  className={`btn ${subAbaRede === 'vpn_externa' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setSubAbaRede('vpn_externa')}
+                >
+                  VPN Externa
                 </button>
                 <button
                   className={`btn ${subAbaRede === 'vlans' ? 'btn-primary' : 'btn-secondary'}`}
@@ -617,6 +624,7 @@ function App() {
               {subAbaRede === 'consumo' && <ConsumoRede token={token} />}
               {subAbaRede === 'acessos' && <Acessos token={token} role={usuario?.role} macInicial={macAcessosAlvo} onMacInicialConsumido={() => setMacAcessosAlvo(null)} />}
               {subAbaRede === 'ameacas' && <AmeacasPotenciais token={token} role={usuario?.role} />}
+              {subAbaRede === 'vpn_externa' && <VpnExterna token={token} />}
             </div>
           )}
           {abaAtiva === 'backups' && (

@@ -206,6 +206,18 @@ class EventoSistema(Base):
     criado_em = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class AcessoVpnDetectado(Base):
+    __tablename__ = "acessos_vpn_detectados"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mac = Column(String, nullable=False, index=True)
+    hostname = Column(String, nullable=True)
+    ip = Column(String, nullable=True)
+    dominio = Column(String, nullable=False)
+    provedor = Column(String, nullable=False)
+    detectado_em = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
 class AmeacaDetectada(Base):
     __tablename__ = "ameacas_detectadas"
 
@@ -278,8 +290,8 @@ class AcessoDominio(Base):
     inicio = Column(DateTime(timezone=True), nullable=False, index=True)
     fim = Column(DateTime(timezone=True), nullable=False)
     duracao_segundos = Column(Integer, nullable=False, default=0)
-    bytes_download = Column(Integer, nullable=False, default=0)
-    bytes_upload = Column(Integer, nullable=False, default=0)
+    bytes_download = Column(BigInteger, nullable=False, default=0)
+    bytes_upload = Column(BigInteger, nullable=False, default=0)
     criado_em = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -289,6 +301,38 @@ class ApelidoDispositivo(Base):
     id = Column(Integer, primary_key=True, index=True)
     mac = Column(String, nullable=False, unique=True, index=True)
     apelido = Column(String, nullable=False)
+    atualizado_por = Column(String, nullable=True)
+    atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class DispositivoLogico(Base):
+    __tablename__ = "dispositivo_logico"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hostname_normalizado = Column(String, nullable=False, unique=True, index=True)
+    hostname_exibicao = Column(String, nullable=True)
+    apelido = Column(String, nullable=True)
+    atualizado_por = Column(String, nullable=True)
+    criado_em = Column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class DispositivoMac(Base):
+    __tablename__ = "dispositivo_mac"
+
+    mac = Column(String, primary_key=True)
+    dispositivo_logico_id = Column(Integer, nullable=False, index=True)
+    hostname_visto = Column(String, nullable=True)
+    primeira_vez = Column(DateTime(timezone=True), server_default=func.now())
+    ultima_vez = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CategoriaProdutividade(Base):
+    __tablename__ = "categoria_produtividade"
+
+    id = Column(Integer, primary_key=True, index=True)
+    categoria = Column(String, nullable=False, unique=True, index=True)
+    tipo = Column(String, nullable=False, default="neutro")  # produtivo | nao_produtivo | neutro
     atualizado_por = Column(String, nullable=True)
     atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

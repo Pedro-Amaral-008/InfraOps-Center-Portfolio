@@ -1223,6 +1223,8 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
     * {{ box-sizing: border-box; }}
     body {{ font-family: Arial, Helvetica, sans-serif; background: #0b0f16; color: {CORES['tinta']}; margin: 0; padding: 0; }}
     .pagina {{ background: {CORES['fundo']}; border: 1px solid {CORES['borda']}; border-radius: 14px; padding: 22px 26px; margin-bottom: 16px; page-break-inside: avoid; }}
+    .pagina-tabela {{ background: {CORES['fundo']}; border: 1px solid {CORES['borda']}; border-radius: 14px; padding: 22px 26px; margin-bottom: 16px; }}
+    .bloco-secao {{ page-break-inside: avoid; }}
     .titulo {{ font-size: 18px; font-weight: 800; margin: 0 0 4px; }}
     .sub {{ font-size: 11.5px; color: {CORES['suave']}; margin-bottom: 14px; }}
     .kpi-linha {{ display: flex; margin-bottom: 16px; }}
@@ -1530,7 +1532,7 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
     return html_final
 
 
-def gerar_html_relatorio_dispositivo(detalhe: dict, periodo_label: str) -> str:
+def gerar_html_relatorio_dispositivo(detalhe: dict, periodo_label: str, interativo: bool = True) -> str:
     """Monta o HTML do relatorio de acessos de UM dispositivo especifico,
     reaproveitando a mesma paleta visual do relatorio geral. Retorna uma
     string HTML pronta pra converter em PDF (WeasyPrint) ou baixar como
@@ -1595,6 +1597,8 @@ def gerar_html_relatorio_dispositivo(detalhe: dict, periodo_label: str) -> str:
     * {{ box-sizing: border-box; }}
     body {{ font-family: Arial, Helvetica, sans-serif; background: #0b0f16; color: {CORES['tinta']}; margin: 0; padding: 0; }}
     .pagina {{ background: {CORES['fundo']}; border: 1px solid {CORES['borda']}; border-radius: 14px; padding: 22px 26px; margin-bottom: 16px; page-break-inside: avoid; }}
+    .pagina-tabela {{ background: {CORES['fundo']}; border: 1px solid {CORES['borda']}; border-radius: 14px; padding: 22px 26px; margin-bottom: 16px; }}
+    .bloco-secao {{ page-break-inside: avoid; }}
     .titulo {{ font-size: 18px; font-weight: 800; margin: 0 0 4px; }}
     .sub {{ font-size: 11.5px; color: {CORES['suave']}; margin-bottom: 14px; }}
     .kpi-linha {{ display: flex; margin-bottom: 16px; }}
@@ -1621,56 +1625,123 @@ def gerar_html_relatorio_dispositivo(detalhe: dict, periodo_label: str) -> str:
     top_sites = detalhe.get("top_sites") or []
     paleta = [CORES["marca"], CORES["verde"], CORES["ambar"], CORES["vermelho"], CORES["suave"]]
 
-    donut_categorias = gerar_donut_dispositivo(
-        [{"valor": s["volume_bytes"], "cor": paleta[i % len(paleta)]} for i, s in enumerate(top_sites)],
-        raio=42, rotulo_central="tráfego", valor_central=fmt_bytes(detalhe.get("volume_total_bytes")),
-    ) if top_sites else ""
+    mapa_tipo_local = {s["categoria"]: s.get("tipo", "neutro") for s in top_sites}
+    linha_do_tempo_geral = detalhe.get("linha_do_tempo") or []
 
-    legenda_categorias = "".join(
-        f'<div class="item"><span class="dot" style="background:{paleta[i % len(paleta)]};"></span>'
-        f'<span class="nome">{escapar(s["categoria"])}</span><b>{s["percentual"]}%</b></div>'
-        for i, s in enumerate(top_sites)
-    )
+    CORES_TIPO = {"produtivo": CORES["verde"], "nao_produtivo": CORES["ambar"], "neutro": CORES["fraca"]}
+    ROTULOS_TIPO = {"produtivo": "produtivo", "nao_produtivo": "não produtivo", "neutro": "neutro"}
 
-    linhas_timeline = "".join(
-        f'<tr><td>{formatar_data_hora(s.get("inicio"))} – {formatar_data_hora(s.get("fim"))}</td>'
-        f'<td>{escapar(s.get("categoria"))}</td>'
-        f'<td>{escapar(", ".join((s.get("dominios") or [])[:3]))}</td>'
-        f'<td>{fmt_bytes((s.get("bytes_download") or 0) + (s.get("bytes_upload") or 0))}</td></tr>'
-        for s in (detalhe.get("linha_do_tempo") or [])[:150]
-    ) or f'<tr><td colspan="4" style="text-align:center;color:{CORES["fraca"]};">Sem sessões registradas no período</td></tr>'
+    def montar_resumo(rotulo, top_sites_filtrados):
+        volume_secao = sum(s["volume_bytes"] for s in top_sites_filtrados)
+        total_filtrado = volume_secao or 1
+        top_sites_recalc = [
+            {**s, "percentual": round(s["volume_bytes"] / total_filtrado * 100, 1)}
+            for s in top_sites_filtrados
+        ]
+        donut = gerar_donut_dispositivo(
+            [{"valor": s["volume_bytes"], "cor": paleta[i % len(paleta)]} for i, s in enumerate(top_sites_recalc)],
+            raio=42, rotulo_central="tráfego", valor_central=fmt_bytes(volume_secao),
+        ) if top_sites_recalc else ""
+        legenda = "".join(
+            f'<div class="item"><span class="dot" style="background:{paleta[i % len(paleta)]};"></span>'
+            f'<span class="nome">{escapar(s["categoria"])}</span><b>{s["percentual"]}%</b></div>'
+            for i, s in enumerate(top_sites_recalc)
+        ) or f'<div style="color:{CORES["fraca"]};font-size:11px;">Sem categorias nesse recorte.</div>'
 
-    pagina_capa = f'''
+        return f'''
     <div class="pagina">
+      <div class="titulo" style="font-size:11px;opacity:0.6;letter-spacing:0.6px;text-transform:uppercase;margin:0 0 10px;">{escapar(rotulo)}</div>
       <div class="titulo">Relatório de Acessos — {escapar(nome_dispositivo)}</div>
-      <div class="sub">{escapar(detalhe.get("ip") or "")} · {escapar(periodo_label)}</div>
+      <div class="sub">{escapar(detalhe.get("ip") or "")} · {escapar(periodo_label)} · {escapar(rotulo)}</div>
       <div class="kpi-linha">
-        <div class="kpi"><div class="rot">Volume total</div><div class="val">{fmt_bytes(detalhe.get("volume_total_bytes"))}</div></div>
-        <div class="kpi"><div class="rot">Sites diferentes</div><div class="val">{detalhe.get("sites_diferentes", 0)}</div></div>
+        <div class="kpi"><div class="rot">Volume total</div><div class="val">{fmt_bytes(volume_secao)}</div></div>
+        <div class="kpi"><div class="rot">Sites diferentes</div><div class="val">{len(top_sites_filtrados)}</div></div>
         <div class="kpi"><div class="rot">Última atividade</div><div class="val" style="font-size:14px;">{formatar_data_hora(detalhe.get("ultima_atividade"))}</div></div>
       </div>
       <div class="caixa">
         <div class="caixa-titulo">Categorias mais acessadas</div>
         <div class="donut-wrap">
-          {donut_categorias}
-          <div class="donut-legenda">{legenda_categorias}</div>
+          {donut}
+          <div class="donut-legenda">{legenda}</div>
         </div>
       </div>
     </div>'''
 
-    pagina_timeline = f'''
+    def montar_timeline_completa(sessoes):
+        linhas = "".join(
+            f'<tr><td>{formatar_data_hora(s.get("inicio"))} – {formatar_data_hora(s.get("fim"))}</td>'
+            f'<td>{escapar(s.get("categoria"))}</td>'
+            f'<td>{escapar(", ".join((s.get("dominios") or [])[:3]))}</td>'
+            f'<td><span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:9px;'
+            f'background:{CORES_TIPO.get(mapa_tipo_local.get(s.get("categoria"), "neutro"))}26;'
+            f'color:{CORES_TIPO.get(mapa_tipo_local.get(s.get("categoria"), "neutro"))};">'
+            f'{ROTULOS_TIPO.get(mapa_tipo_local.get(s.get("categoria"), "neutro"))}</span></td>'
+            f'<td>{fmt_bytes((s.get("bytes_download") or 0) + (s.get("bytes_upload") or 0))}</td></tr>'
+            for s in sessoes[:200]
+        ) or f'<tr><td colspan="5" style="text-align:center;color:{CORES["fraca"]};">Sem sessões registradas nesse recorte</td></tr>'
+
+        return f'''
     <div class="pagina">
-      <div class="titulo" style="font-size:15px;">Linha do tempo de acessos</div>
-      <div class="sub">Sessões registradas no período (mais recentes primeiro)</div>
+      <div class="titulo" style="font-size:15px;">Linha do tempo completa</div>
+      <div class="sub">Histórico do período selecionado ({escapar(periodo_label)}), mais recentes primeiro</div>
       <table class="anexo">
-        <thead><tr><th>Período</th><th>Categoria</th><th>Domínios</th><th>Volume</th></tr></thead>
-        <tbody>{linhas_timeline}</tbody>
+        <thead><tr><th>Período</th><th>Categoria</th><th>Domínios</th><th>Tipo</th><th>Volume</th></tr></thead>
+        <tbody>{linhas}</tbody>
       </table>
     </div>'''
 
+    top_sites_produtivo = [s for s in top_sites if s.get("tipo") == "produtivo"]
+    top_sites_nao_produtivo = [s for s in top_sites if s.get("tipo") == "nao_produtivo"]
+    linha_do_tempo_produtivo = [s for s in linha_do_tempo_geral if mapa_tipo_local.get(s.get("categoria"), "neutro") == "produtivo"]
+    linha_do_tempo_nao_produtivo = [s for s in linha_do_tempo_geral if mapa_tipo_local.get(s.get("categoria"), "neutro") == "nao_produtivo"]
+
+    resumo_geral = montar_resumo("Geral", top_sites)
+    resumo_produtivo = montar_resumo("Produtivo", top_sites_produtivo)
+    resumo_nao_produtivo = montar_resumo("Não produtivo", top_sites_nao_produtivo)
+    timeline_geral = montar_timeline_completa(linha_do_tempo_geral)
+    timeline_produtivo = montar_timeline_completa(linha_do_tempo_produtivo)
+    timeline_nao_produtivo = montar_timeline_completa(linha_do_tempo_nao_produtivo)
+
+    if interativo:
+        css_abas = f'''
+    .abas-relatorio {{ display: flex; gap: 6px; margin-bottom: 14px; }}
+    .aba-relatorio {{ font-size: 12px; padding: 7px 14px; border-radius: 8px; border: 1px solid {CORES['borda']}; background: {CORES['elevado']}; color: {CORES['suave']}; cursor: pointer; }}
+    .aba-relatorio.ativa {{ background: {CORES['marca']}; color: #fff; border-color: {CORES['marca']}; }}
+    '''
+        js_abas = '''
+    <script>
+    function mostrarSecaoRelatorio(nome) {
+      ["geral", "produtivo", "nao_produtivo"].forEach(function (n) {
+        document.getElementById("secao-" + n).style.display = (n === nome) ? "block" : "none";
+        document.getElementById("aba-" + n).classList.toggle("ativa", n === nome);
+      });
+    }
+    </script>'''
+        corpo = f'''
+    <div class="abas-relatorio">
+      <div id="aba-geral" class="aba-relatorio ativa" onclick="mostrarSecaoRelatorio('geral')">Geral</div>
+      <div id="aba-produtivo" class="aba-relatorio" onclick="mostrarSecaoRelatorio('produtivo')">Produtivo</div>
+      <div id="aba-nao_produtivo" class="aba-relatorio" onclick="mostrarSecaoRelatorio('nao_produtivo')">Não produtivo</div>
+    </div>
+    <div id="secao-geral" style="display:block;">{resumo_geral}{timeline_geral}</div>
+    <div id="secao-produtivo" style="display:none;">{resumo_produtivo}{timeline_produtivo}</div>
+    <div id="secao-nao_produtivo" style="display:none;">{resumo_nao_produtivo}{timeline_nao_produtivo}</div>
+    {js_abas}'''
+        return f'''<!doctype html>
+<html><head><meta charset="utf-8"><style>{css}{css_abas}</style></head>
+<body>
+{corpo}
+</body></html>'''
+
+    corpo_pdf = f'''
+    {resumo_geral}
+    {timeline_geral}
+    {resumo_produtivo}
+    {timeline_produtivo}
+    {resumo_nao_produtivo}
+    {timeline_nao_produtivo}'''
     return f'''<!doctype html>
 <html><head><meta charset="utf-8"><style>{css}</style></head>
 <body>
-{pagina_capa}
-{pagina_timeline}
+{corpo_pdf}
 </body></html>'''
