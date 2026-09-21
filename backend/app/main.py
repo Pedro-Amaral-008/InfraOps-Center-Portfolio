@@ -953,7 +953,9 @@ async def loop_acessos_suricata():
     while True:
         async with AsyncSessionLocal() as db:
             try:
-                await sincronizar_acessos_suricata(db)
+                await asyncio.wait_for(sincronizar_acessos_suricata(db), timeout=180)
+            except asyncio.TimeoutError:
+                print("ERRO em sincronizar_acessos_suricata: ciclo excedeu 180s, cancelado (tenta de novo no proximo)")
             except Exception as e:
                 print(f"ERRO em sincronizar_acessos_suricata: {e}")
         await asyncio.sleep(60)
@@ -966,12 +968,31 @@ async def loop_prewarm_pesados():
     Assim quando o usuario clica na aba, na maioria das vezes o dado ja
     esta pronto na memoria em vez de rodar a consulta pesada no HD externo
     na hora, que e o que estava travando o painel inteiro."""
+    # 1h e 1 dia mudam bastante e sao os filtros mais usados - continuam
+    # sendo recalculados a cada ciclo (15s). Os periodos longos (15 dias,
+    # 1 mes, 2 meses) mudam pouco de um minuto pro outro e a tabela e
+    # pesada num HD externo lento - recalcular eles toda hora satura o
+    # disco fisico e ja quase travou a sincronizacao do Suricata. Rodam
+    # bem mais devagar (1 a cada 8 ciclos, ~2 minutos), revezando um por
+    # vez pra nunca empilhar todos juntos.
+    PERIODOS_PREWARM_RAPIDOS = [1, 24]
+    PERIODOS_PREWARM_LENTOS = [360, 720, 1440]  # 15 dias, 1 mes, 2 meses
+    ciclo = 0
     while True:
-        async with AsyncSessionLocal() as db:
-            try:
-                await dashboard_acessos_dispositivos(horas=24, usuario=None, db=db)
-            except Exception as e:
-                print(f"ERRO no prewarm de acessos/dispositivos: {e}")
+        for horas_prewarm in PERIODOS_PREWARM_RAPIDOS:
+            async with AsyncSessionLocal() as db:
+                try:
+                    await dashboard_acessos_dispositivos(horas=horas_prewarm, usuario=None, db=db)
+                except Exception as e:
+                    print(f"ERRO no prewarm de acessos/dispositivos (horas={horas_prewarm}): {e}")
+        if ciclo % 8 == 0:
+            horas_lento = PERIODOS_PREWARM_LENTOS[(ciclo // 8) % len(PERIODOS_PREWARM_LENTOS)]
+            async with AsyncSessionLocal() as db:
+                try:
+                    await dashboard_acessos_dispositivos(horas=horas_lento, usuario=None, db=db)
+                except Exception as e:
+                    print(f"ERRO no prewarm de acessos/dispositivos (horas={horas_lento}): {e}")
+        ciclo += 1
         async with AsyncSessionLocal() as db:
             try:
                 await dashboard_acessos_top_sites(horas=24, limite=8, usuario=None, db=db)

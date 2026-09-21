@@ -685,7 +685,7 @@ def _parse_timestamp(valor):
         return None
 
 
-MAX_BYTES_POR_CICLO = 20_000_000  # 20 MB por ciclo - nunca tenta puxar um backlog inteiro de uma vez
+MAX_BYTES_POR_CICLO = 4194304_000_000  # 20 MB por ciclo - nunca tenta puxar um backlog inteiro de uma vez
 LIMITE_BACKLOG_DESCARTAVEL = 500_000_000  # 500 MB - acima disso, pula pro fim e descarta backlog velho
 
 
@@ -710,12 +710,20 @@ def _puxar_novas_linhas_sync(offset: int):
         timeout=10,
     )
     try:
-        _, stdout, _ = cliente.exec_command(f"wc -c < {EVE_JSON_REMOTE_PATH}")
-        stdout.channel.settimeout(15)
+        # SFTP em vez de "wc -c"/"tail -c" via shell: o eve.json do Suricata
+        # pode chegar a dezenas de GB, e tanto "wc -c" quanto "tail -c +N"
+        # podem precisar escanear o arquivo inteiro desde o inicio em vez de
+        # pular direto pra posicao (dependendo da implementacao do sistema,
+        # incluindo o FreeBSD do pfSense) - isso ficava cada vez mais lento
+        # conforme o arquivo crescia ao longo do dia, ate estourar qualquer
+        # timeout. SFTP faz leitura por posicao (seek) de verdade, direto no
+        # protocolo, sem depender de escanear o arquivo.
+        sftp = cliente.open_sftp()
+        sftp.get_channel().settimeout(20)
         try:
-            tamanho_atual = int((stdout.read().decode().strip() or "0"))
+            tamanho_atual = sftp.stat(EVE_JSON_REMOTE_PATH).st_size
         except socket.timeout:
-            print("AVISO sync suricata: leitura do tamanho do arquivo excedeu 15s, pulando este ciclo")
+            print("AVISO sync suricata: leitura do tamanho do arquivo excedeu 20s, pulando este ciclo")
             return b"", offset, offset
 
         offset_efetivo = offset
@@ -731,14 +739,12 @@ def _puxar_novas_linhas_sync(offset: int):
             return b"", offset_efetivo, tamanho_atual
 
         bytes_a_ler = min(tamanho_atual - offset_efetivo, MAX_BYTES_POR_CICLO)
-        _, stdout, _ = cliente.exec_command(
-            f"tail -c +{offset_efetivo + 1} {EVE_JSON_REMOTE_PATH} | head -c {bytes_a_ler}"
-        )
-        stdout.channel.settimeout(30)
         try:
-            dados = stdout.read()
+            with sftp.open(EVE_JSON_REMOTE_PATH, "rb") as arquivo_remoto:
+                arquivo_remoto.seek(offset_efetivo)
+                dados = arquivo_remoto.read(bytes_a_ler)
         except socket.timeout:
-            print("AVISO sync suricata: leitura SSH excedeu 30s, pulando este ciclo (tenta de novo em 60s)")
+            print("AVISO sync suricata: leitura SFTP excedeu 20s, pulando este ciclo (tenta de novo em 60s)")
             return b"", offset_efetivo, tamanho_atual
         if len(dados) == bytes_a_ler and tamanho_atual - offset_efetivo > bytes_a_ler:
             ultimo_nl = dados.rfind(b"\n")
@@ -769,7 +775,12 @@ def _buscar_ip_dinamico_excluido_sync(identificador: str):
             f"grep -a 'MULTI_sva' | tail -1"
         )
         _, stdout, _ = cliente.exec_command(comando)
-        linha = stdout.read().decode(errors="ignore").strip()
+        stdout.channel.settimeout(15)
+        try:
+            linha = stdout.read().decode(errors="ignore").strip()
+        except socket.timeout:
+            print("AVISO: leitura SSH do log de VPN excedeu 15s, abortando")
+            return None
         if not linha:
             return None
         match = re.search(r"IPv4=([0-9.]+)", linha)
@@ -821,7 +832,12 @@ def _buscar_cn_por_ip_sync(ip: str):
         padrao_busca = f"IPv4={ip},"
         comando = f"grep -a {padrao_busca!r} {OPENVPN_LOG_REMOTE_PATH} | tail -1"
         _, stdout, _ = cliente.exec_command(comando)
-        linha = stdout.read().decode(errors="ignore").strip()
+        stdout.channel.settimeout(15)
+        try:
+            linha = stdout.read().decode(errors="ignore").strip()
+        except socket.timeout:
+            print("AVISO: leitura SSH do log de VPN excedeu 15s, abortando")
+            return None
         if not linha:
             return None
         match = re.search(r"\]: ([^/\s]+)/\S+ MULTI_sva: pool returned IPv4=", linha)
@@ -1113,12 +1129,23 @@ async def sincronizar_acessos_suricata(db):
 
     await _registrar_dispositivos_logicos(db, macs_hostnames_vistos)
 
-    for evento in eventos_para_gravar:
-        db.add(evento)
-    for evento_vpn in vpn_eventos_para_gravar:
-        db.add(evento_vpn)
+    # grava em lotes com flush parcial - um INSERT so com milhares de
+    # linhas (backlog grande apos alguma pausa na sincronizacao) estoura o
+    # statement_timeout do Postgres e derruba a transacao inteira. Aqui a
+    # transacao continua sendo uma unica (commit no final, tudo ou nada),
+    # so o SQL de insercao em si e quebrado em pedacos menores.
+    TAMANHO_LOTE_INSERT = 300
+    for i in range(0, len(eventos_para_gravar), TAMANHO_LOTE_INSERT):
+        for evento in eventos_para_gravar[i:i + TAMANHO_LOTE_INSERT]:
+            db.add(evento)
+        await db.flush()
+    for i in range(0, len(vpn_eventos_para_gravar), TAMANHO_LOTE_INSERT):
+        for evento_vpn in vpn_eventos_para_gravar[i:i + TAMANHO_LOTE_INSERT]:
+            db.add(evento_vpn)
+        await db.flush()
     for alerta in alertas_novos:
         db.add(alerta)
+    await db.flush()
 
     for flow_id in flow_ids_consumidos:
         await db.execute(delete(SuricataFlowSni).where(SuricataFlowSni.flow_id == flow_id))
@@ -1381,7 +1408,9 @@ async def get_dispositivos_acessos(db, horas: float = 1440, incluir_apelido: boo
     # vinculo ainda (nao deveria ocorrer em uso normal - a sincronizacao
     # registra na hora) cai num id sintetico proprio (hashtext do mac) pra
     # nao se misturar com outro dispositivo.
-    agregados = await db.execute(
+    # Passo 1: agregados por MAC puro (rapido - so toca acesso_dominio no
+    # trecho parcial do periodo, o resto vem do resumo diario ja agregado).
+    agregados_mac = await db.execute(
         text(
             """
             WITH eventos AS (
@@ -1392,41 +1421,47 @@ async def get_dispositivos_acessos(db, horas: float = 1440, incluir_apelido: boo
                 SELECT mac, dominio, bytes_download, bytes_upload, fim
                 FROM acesso_dominio
                 WHERE inicio >= :desde AND (inicio < :primeiro_dia_completo_ts OR inicio >= :hoje_ts)
-            ),
-            eventos_agrupados AS (
-                SELECT
-                    COALESCE(dm.dispositivo_logico_id, -abs(hashtext(e.mac))) AS logico_id,
-                    e.dominio, e.bytes_download, e.bytes_upload, e.fim
-                FROM eventos e
-                LEFT JOIN dispositivo_mac dm ON dm.mac = e.mac
             )
-            SELECT logico_id,
-                   count(DISTINCT dominio) AS sites_diferentes,
+            SELECT mac,
+                   array_agg(DISTINCT dominio) AS dominios,
                    sum(bytes_download + bytes_upload) AS volume_bytes,
                    max(fim) AS ultima_atividade
-            FROM eventos_agrupados
-            GROUP BY logico_id
+            FROM eventos
+            GROUP BY mac
             """
         ),
         params,
     )
-    mapa_agregados = {linha.logico_id: linha for linha in agregados.all()}
 
-    ultimos = await db.execute(
+    # Passo 2: info mais recente por MAC (hostname/ip/ap) - so pelo mac
+    # puro (usa o indice ix_acesso_dominio_mac_inicio_cobertura), mas
+    # limitado a uma janela CURTA e recente, nunca o periodo completo do
+    # relatorio - senao em 15 dias/1 mes ela varre a tabela inteira nesse
+    # unico SELECT DISTINCT ON e estoura o timeout de novo. E so um dado
+    # cosmetico (ultimo hostname/ip visto); o mac representativo de cada
+    # grupo ja vem garantido do Passo 1 (agregados_mac), nao daqui.
+    desde_info = max(desde, agora_calc - timedelta(days=3))
+    ultimos_mac = await db.execute(
         text(
             """
-            SELECT DISTINCT ON (logico_id)
-                   COALESCE(dm.dispositivo_logico_id, -abs(hashtext(ad.mac))) AS logico_id,
-                   ad.mac, ad.hostname, ad.ip, ad.ap
-            FROM acesso_dominio ad
-            LEFT JOIN dispositivo_mac dm ON dm.mac = ad.mac
-            WHERE ad.inicio >= :desde
-            ORDER BY logico_id, ad.inicio DESC
+            SELECT DISTINCT ON (mac)
+                   mac, hostname, ip, ap, inicio AS ultima_atividade_registro
+            FROM acesso_dominio
+            WHERE inicio >= :desde_info
+            ORDER BY mac, inicio DESC
             """
         ),
-        {"desde": desde},
+        {"desde_info": desde_info},
     )
-    mapa_info = {linha.logico_id: linha for linha in ultimos.all()}
+
+    mac_logico_rows = await db.execute(
+        text("SELECT mac, dispositivo_logico_id FROM dispositivo_mac")
+    )
+    mapa_mac_logico = {linha.mac: linha.dispositivo_logico_id for linha in mac_logico_rows.all()}
+
+    def _chave(mac):
+        logico_id = mapa_mac_logico.get(mac)
+        return logico_id if logico_id else f"mac:{mac}"
 
     mapa_apelido = {}
     if incluir_apelido:
@@ -1446,21 +1481,49 @@ async def get_dispositivos_acessos(db, horas: float = 1440, incluir_apelido: boo
     )
     mapa_qtd_macs = {linha.logico_id: linha.qtd for linha in qtd_macs_rows.all()}
 
+    # agrega por dispositivo logico (ou pelo proprio mac, se ainda sem
+    # vinculo) em Python - evita qualquer ORDER BY/GROUP BY calculado no
+    # banco que derrube o uso dos indices.
+    grupos = {}
+    for linha in agregados_mac.all():
+        chave = _chave(linha.mac)
+        logico_id = mapa_mac_logico.get(linha.mac)
+        g = grupos.setdefault(chave, {
+            "logico_id": logico_id if logico_id else None,
+            "dominios": set(),
+            "volume_bytes": 0,
+            "ultima_atividade": None,
+            "mac_recente": linha.mac,
+        })
+        g["dominios"].update(d for d in (linha.dominios or []) if d)
+        g["volume_bytes"] += int(linha.volume_bytes or 0)
+        if linha.ultima_atividade and (g["ultima_atividade"] is None or linha.ultima_atividade > g["ultima_atividade"]):
+            g["ultima_atividade"] = linha.ultima_atividade
+            g["mac_recente"] = linha.mac
+
+    info_por_grupo = {}
+    for linha in ultimos_mac.all():
+        chave = _chave(linha.mac)
+        atual = info_por_grupo.get(chave)
+        if atual is None or linha.ultima_atividade_registro > atual.ultima_atividade_registro:
+            info_por_grupo[chave] = linha
+
     agora = datetime.now(timezone.utc)
     resultado = []
-    for logico_id, agg in mapa_agregados.items():
-        info = mapa_info.get(logico_id)
-        segundos_desde_ultima = (agora - agg.ultima_atividade).total_seconds() if agg.ultima_atividade else None
+    for chave, agg in grupos.items():
+        info = info_por_grupo.get(chave)
+        logico_id = agg["logico_id"]
+        segundos_desde_ultima = (agora - agg["ultima_atividade"]).total_seconds() if agg["ultima_atividade"] else None
         resultado.append({
-            "mac": info.mac if info else None,
-            "dispositivo_logico_id": logico_id if logico_id > 0 else None,
+            "mac": info.mac if info else agg["mac_recente"],
+            "dispositivo_logico_id": logico_id,
             "qtd_macs": mapa_qtd_macs.get(logico_id, 1),
             "hostname": info.hostname if info else "Desconhecido",
             "ip": info.ip if info else "",
             "ap": info.ap if info else None,
-            "sites_diferentes": agg.sites_diferentes,
-            "volume_bytes": int(agg.volume_bytes or 0),
-            "ultima_atividade": agg.ultima_atividade.isoformat() if agg.ultima_atividade else None,
+            "sites_diferentes": len(agg["dominios"]),
+            "volume_bytes": agg["volume_bytes"],
+            "ultima_atividade": agg["ultima_atividade"].isoformat() if agg["ultima_atividade"] else None,
             "ativo_agora": segundos_desde_ultima is not None and segundos_desde_ultima <= 600,
         })
     if incluir_apelido:
