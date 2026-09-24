@@ -15,6 +15,7 @@ PFSENSE_SSH_USER = "infraops-readonly"
 PFSENSE_SSH_KEY = "/home/appuser/.ssh/pfsense_readonly"
 PATIO2_SSH_USER = "e-ops-readonly"  # mesma chave SSH, usuario criado no pfSense do Patio 2
 MINUTOS_PARA_ALERTA_CONFIRMADO = 2
+MINUTOS_PARA_ALERTA_APP = 2  # quanto tempo a aplicacao (HTTP) pode ficar sem responder OK antes de alertar
 PROTHEUS_PORTA_SERVICO = 1000  # porta real do webapp do Protheus (nao a 443)
 PROTHEUS_SITE_HOST = "protheus.elcop.eng.br"
 PROTHEUS_SITE_CAMINHO = "/webapp/"
@@ -183,6 +184,47 @@ async def testar_site_protheus(timeout: float = 8.0) -> str:
         return "❌ Site não respondeu com um HTTP válido"
     except Exception as e:
         return f"❌ Site não respondeu ({type(e).__name__})"
+
+
+async def verificar_saude_app_protheus(timeout: float = 8.0):
+    """Faz uma requisicao HTTPS real no site do Protheus e considera saudavel
+    so quando a resposta vem com um HTTP 2xx/3xx. Detecta quedas da
+    APLICACAO (ex: manutencao, erro interno) mesmo quando rede, ping e porta
+    TCP continuam OK - o que o teste de ping/porta sozinho nao pega."""
+    import ssl
+    CRLF = chr(13) + chr(10)
+    try:
+        contexto = ssl.create_default_context()
+        contexto.check_hostname = False
+        contexto.verify_mode = ssl.CERT_NONE
+
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(PROTHEUS_SITE_HOST, PROTHEUS_PORTA_SERVICO, ssl=contexto),
+            timeout=timeout,
+        )
+        pedido = (
+            "GET " + PROTHEUS_SITE_CAMINHO + " HTTP/1.1" + CRLF
+            + "Host: " + PROTHEUS_SITE_HOST + CRLF + "Connection: close" + CRLF + CRLF
+        )
+        writer.write(pedido.encode())
+        await writer.drain()
+        resposta = await asyncio.wait_for(reader.read(200), timeout=timeout)
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+        primeira_linha = resposta.decode(errors="ignore").splitlines()[0] if resposta else ""
+        if primeira_linha.startswith("HTTP/"):
+            partes = primeira_linha.split(" ")
+            codigo = partes[1] if len(partes) > 1 else "?"
+            if codigo.isdigit() and 200 <= int(codigo) < 400:
+                return True, "HTTP " + codigo
+            return False, "HTTP " + codigo
+        return False, "resposta sem HTTP valido"
+    except Exception as e:
+        return False, type(e).__name__
 
 
 def _analisar_traceroute(saida: str, ip_destino: str):
@@ -400,11 +442,14 @@ _confirmado_offline_desde = None
 _alerta_confirmado_enviado = False
 _porta_fechada_vista_na_janela = False
 _confirmacao_externa_vista_na_janela = False
+_app_offline_desde = None
+_alerta_app_confirmado_enviado = False
 
 
 async def verificar_protheus(db):
     global _confirmado_offline_desde, _alerta_confirmado_enviado
     global _porta_fechada_vista_na_janela, _confirmacao_externa_vista_na_janela
+    global _app_offline_desde, _alerta_app_confirmado_enviado
 
     (
         (perda, latencia),
@@ -572,6 +617,43 @@ async def verificar_protheus(db):
         _alerta_confirmado_enviado = False
         _porta_fechada_vista_na_janela = False
         _confirmacao_externa_vista_na_janela = False
+
+    # --- Verificacao separada: saude da APLICACAO Protheus via HTTP ---
+    # Roda em paralelo a checagem de rede acima. Cobre o caso em que rede,
+    # porta TCP e ping estao todos OK mas o webapp em si nao responde certo
+    # (erro 5xx, manutencao, timeout na aplicacao) - isso a checagem de rede
+    # sozinha nunca detecta.
+    app_ok, app_detalhe = await verificar_saude_app_protheus()
+
+    if not app_ok:
+        if _app_offline_desde is None:
+            _app_offline_desde = agora
+
+        duracao_app = (agora - _app_offline_desde).total_seconds()
+
+        if duracao_app >= MINUTOS_PARA_ALERTA_APP * 60 and not _alerta_app_confirmado_enviado:
+            msg_app = (
+                "🟠 *InfraOps Center — PROTHEUS (APLICAÇÃO) INDISPONÍVEL*" + '\n\n' +
+                "🖥️ Site/webapp do Protheus não responde corretamente há " + str(MINUTOS_PARA_ALERTA_APP) + "+ min" + '\n' +
+                "Detalhe: " + app_detalhe + '\n\n' +
+                "✅ Rede, porta " + str(PROTHEUS_PORTA_SERVICO) + " e ping continuam OK — o problema é na aplicação (ex: manutenção, erro interno), não na rede/infraestrutura." + '\n\n' +
+                "🕐 *Horário:* " + datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+            )
+            await enviar_telegram(msg_app)
+            _alerta_app_confirmado_enviado = True
+    else:
+        if _alerta_app_confirmado_enviado:
+            duracao_app_total_str = (
+                _formatar_duracao((agora - _app_offline_desde).total_seconds())
+                if _app_offline_desde else "tempo desconhecido"
+            )
+            msg_app_recuperado = (
+                "🟢 *Protheus (aplicação) voltou* — ficou indisponível por " + duracao_app_total_str + '\n\n' +
+                "🕐 *Horário:* " + datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+            )
+            await enviar_telegram(msg_app_recuperado)
+        _app_offline_desde = None
+        _alerta_app_confirmado_enviado = False
 
 
 _ultimo_resumo_protheus_enviado = None  # (data, hora) do ultimo resumo ja mandado

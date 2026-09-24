@@ -83,15 +83,24 @@ async def get_status_operstatus(indice: int):
     return "online" if "1" in valor else "offline"
 
 
-async def registrar_status_links(db):
+async def registrar_status_links(db, links=None):
     from app.models import PfsenseLinkStatus
-    links = await get_status_links()
+    if links is None:
+        links = await get_status_links()
     for link in links:
         if link["status"] == "desconhecido":
-            continue
+            # Nao conseguimos nem consultar o pfSense (SSH falhou/expirou) -
+            # na pratica isso quase sempre significa que o roteador ou a rede
+            # caiu de vez, nao que "nao sabemos". Antes isso pulava o
+            # registro e a queda ficava invisivel pro uptime/relatorio -
+            # agora conta como offline, pra refletir o que realmente
+            # aconteceu em qualquer periodo que for selecionado depois.
+            online = False
+        else:
+            online = (link["status"] == "online")
         registro = PfsenseLinkStatus(
             nome_link=link["nome"],
-            online=(link["status"] == "online"),
+            online=online,
         )
         db.add(registro)
     await db.commit()
@@ -220,11 +229,12 @@ async def get_vlans_status_trafego():
     return resultado
 
 
-async def verificar_alertas_links(db):
+async def verificar_alertas_links(db, links=None):
     from datetime import datetime
     from app.agent_alerts import obter_estado, definir_estado, enviar_telegram
 
-    links = await get_status_links()
+    if links is None:
+        links = await get_status_links()
     for link in links:
         nome = link["nome"]
         offline = link["status"] == "offline"

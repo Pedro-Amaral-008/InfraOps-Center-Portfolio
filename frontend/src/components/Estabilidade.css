@@ -77,3 +77,13 @@
   .estab-grafico    { grid-column: 1 / -1; grid-row: 2; }
   .estab-media      { grid-column: 1 / -1; grid-row: 3; font-size: 26px; }
 }
+
+/* --- Dois paineis + barras (atualização 23/09) --- */
+.estab-grupo { display: flex; flex-direction: column; gap: 20px; width: 100%; }
+.estab-barra { transition: opacity .15s ease; cursor: default; }
+.estab-barra:hover { opacity: 0.82; }
+.estab-barra[data-status="verde"] { fill: var(--estab-verde); }
+.estab-barra[data-status="ambar"] { fill: var(--estab-ambar); }
+.estab-barra[data-status="vermelho"] { fill: var(--estab-vermelho); }
+.estab-barra[data-status="vazio"] { fill: var(--estab-linha); }
+.estab-barra[data-hoje="true"] { stroke: var(--estab-tinta); stroke-opacity: 0.35; stroke-width: 1; }

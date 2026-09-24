@@ -1000,132 +1000,138 @@ async def sincronizar_acessos_suricata(db):
     vpn_alertas_novos = []
     vpn_macs_alertados_neste_ciclo = set()
 
-    for linha in dados.decode("utf-8", errors="ignore").splitlines():
-        linha = linha.strip()
-        if not linha:
-            continue
-        try:
-            evento = json.loads(linha)
-        except json.JSONDecodeError:
-            continue
+    def _processar_eventos_sync():
+        for linha in dados.decode("utf-8", errors="ignore").splitlines():
+            linha = linha.strip()
+            if not linha:
+                continue
+            try:
+                evento = json.loads(linha)
+            except json.JSONDecodeError:
+                continue
 
-        tipo = evento.get("event_type")
-        if tipo == "alert":
-            alerta_info = evento.get("alert") or {}
-            categoria_regra = alerta_info.get("category") or "Desconhecida"
-            assinatura = alerta_info.get("signature") or ""
-            sid_bruto = alerta_info.get("signature_id")
-            sid = str(sid_bruto) if sid_bruto else None
-            severidade = alerta_info.get("severity")
-            acao = alerta_info.get("action")
-            src_ip_alerta = evento.get("src_ip", "")
-            dest_ip_alerta = evento.get("dest_ip", "")
-            if _eh_ip_lan(src_ip_alerta):
-                ip_disp_alerta, ip_destino_alerta = src_ip_alerta, dest_ip_alerta
-            elif _eh_ip_lan(dest_ip_alerta):
-                ip_disp_alerta, ip_destino_alerta = dest_ip_alerta, src_ip_alerta
+            tipo = evento.get("event_type")
+            if tipo == "alert":
+                alerta_info = evento.get("alert") or {}
+                categoria_regra = alerta_info.get("category") or "Desconhecida"
+                assinatura = alerta_info.get("signature") or ""
+                sid_bruto = alerta_info.get("signature_id")
+                sid = str(sid_bruto) if sid_bruto else None
+                severidade = alerta_info.get("severity")
+                acao = alerta_info.get("action")
+                src_ip_alerta = evento.get("src_ip", "")
+                dest_ip_alerta = evento.get("dest_ip", "")
+                if _eh_ip_lan(src_ip_alerta):
+                    ip_disp_alerta, ip_destino_alerta = src_ip_alerta, dest_ip_alerta
+                elif _eh_ip_lan(dest_ip_alerta):
+                    ip_disp_alerta, ip_destino_alerta = dest_ip_alerta, src_ip_alerta
+                else:
+                    ip_disp_alerta, ip_destino_alerta = None, (dest_ip_alerta or src_ip_alerta)
+                dominio_alerta = (evento.get("tls") or {}).get("sni") or (evento.get("http") or {}).get("hostname")
+                cliente_alerta = mapa_clientes.get(ip_disp_alerta) if ip_disp_alerta else None
+                if cliente_alerta and cliente_alerta.get("mac"):
+                    mac_alerta = cliente_alerta["mac"]
+                elif ip_disp_alerta:
+                    mac_alerta = f"desconhecido-{ip_disp_alerta}"
+                else:
+                    mac_alerta = None
+                hostname_alerta = cliente_alerta["hostname"] if cliente_alerta else "Desconhecido"
+                if mac_alerta:
+                    macs_hostnames_vistos[mac_alerta] = hostname_alerta
+                alertas_novos.append(AlertaSuricata(
+                    mac=mac_alerta,
+                    ip=ip_disp_alerta,
+                    hostname=hostname_alerta,
+                    categoria=categoria_regra,
+                    assinatura=assinatura,
+                    sid=sid,
+                    severidade=severidade,
+                    dominio=dominio_alerta,
+                    ip_destino=ip_destino_alerta,
+                    acao=acao,
+                ))
+                continue
+            flow_id = evento.get("flow_id")
+            if flow_id is None:
+                continue
+            flow_id = str(flow_id)
+
+            if tipo == "tls":
+                sni = evento.get("tls", {}).get("sni")
+                if sni:
+                    cache_sni[flow_id] = sni
+                    novos_no_cache[flow_id] = sni
+                continue
+
+            if tipo != "flow":
+                continue
+
+            sni = cache_sni.get(flow_id)
+            if not sni:
+                continue
+
+            flow_info = evento.get("flow") or {}
+            inicio = _parse_timestamp(flow_info.get("start"))
+            fim = _parse_timestamp(flow_info.get("end"))
+            if not inicio or not fim:
+                continue
+
+            src_ip = evento.get("src_ip", "")
+            dest_ip = evento.get("dest_ip", "")
+            bytes_toserver = flow_info.get("bytes_toserver", 0) or 0
+            bytes_toclient = flow_info.get("bytes_toclient", 0) or 0
+
+            if _eh_ip_lan(src_ip):
+                ip_dispositivo = src_ip
+                bytes_upload, bytes_download = bytes_toserver, bytes_toclient
+            elif _eh_ip_lan(dest_ip):
+                ip_dispositivo = dest_ip
+                bytes_upload, bytes_download = bytes_toclient, bytes_toserver
             else:
-                ip_disp_alerta, ip_destino_alerta = None, (dest_ip_alerta or src_ip_alerta)
-            dominio_alerta = (evento.get("tls") or {}).get("sni") or (evento.get("http") or {}).get("hostname")
-            cliente_alerta = mapa_clientes.get(ip_disp_alerta) if ip_disp_alerta else None
-            if cliente_alerta and cliente_alerta.get("mac"):
-                mac_alerta = cliente_alerta["mac"]
-            elif ip_disp_alerta:
-                mac_alerta = f"desconhecido-{ip_disp_alerta}"
-            else:
-                mac_alerta = None
-            hostname_alerta = cliente_alerta["hostname"] if cliente_alerta else "Desconhecido"
-            if mac_alerta:
-                macs_hostnames_vistos[mac_alerta] = hostname_alerta
-            alertas_novos.append(AlertaSuricata(
-                mac=mac_alerta,
-                ip=ip_disp_alerta,
-                hostname=hostname_alerta,
-                categoria=categoria_regra,
-                assinatura=assinatura,
-                sid=sid,
-                severidade=severidade,
-                dominio=dominio_alerta,
-                ip_destino=ip_destino_alerta,
-                acao=acao,
+                flow_ids_consumidos.add(flow_id)
+                continue
+
+            if ip_dispositivo in ips_excluidos:
+                flow_ids_consumidos.add(flow_id)
+                continue
+            cliente = mapa_clientes.get(ip_dispositivo)
+            mac = cliente["mac"] if cliente and cliente.get("mac") else f"desconhecido-{ip_dispositivo}"
+            hostname = cliente["hostname"] if cliente else "Desconhecido"
+            ap = cliente.get("ap") if cliente else None
+            macs_hostnames_vistos[mac] = hostname
+            if _bate_lista_ameacas(sni) and (mac, sni) not in ameacas_ja_alertadas:
+                ameacas_ja_alertadas.add((mac, sni))
+                ameacas_novas.append((mac, hostname, ip_dispositivo, sni))
+
+            provedor_vpn = identificar_provedor_vpn(sni)
+            if provedor_vpn:
+                vpn_eventos_para_gravar.append(AcessoVpnDetectado(
+                    mac=mac, hostname=hostname, ip=ip_dispositivo, dominio=sni,
+                    provedor=provedor_vpn, detectado_em=fim,
+                ))
+                if mac not in vpn_ja_alertados_hoje and mac not in vpn_macs_alertados_neste_ciclo:
+                    vpn_macs_alertados_neste_ciclo.add(mac)
+                    vpn_alertas_novos.append((mac, hostname, ip_dispositivo, provedor_vpn, sni))
+
+            eventos_para_gravar.append(AcessoDominio(
+                mac=mac,
+                ip=ip_dispositivo,
+                hostname=hostname,
+                ap=ap,
+                dominio=sni,
+                categoria=categorizar_dominio(sni),
+                inicio=inicio,
+                fim=fim,
+                duracao_segundos=max(0, round((fim - inicio).total_seconds())),
+                bytes_download=bytes_download,
+                bytes_upload=bytes_upload,
             ))
-            continue
-        flow_id = evento.get("flow_id")
-        if flow_id is None:
-            continue
-        flow_id = str(flow_id)
-
-        if tipo == "tls":
-            sni = evento.get("tls", {}).get("sni")
-            if sni:
-                cache_sni[flow_id] = sni
-                novos_no_cache[flow_id] = sni
-            continue
-
-        if tipo != "flow":
-            continue
-
-        sni = cache_sni.get(flow_id)
-        if not sni:
-            continue
-
-        flow_info = evento.get("flow") or {}
-        inicio = _parse_timestamp(flow_info.get("start"))
-        fim = _parse_timestamp(flow_info.get("end"))
-        if not inicio or not fim:
-            continue
-
-        src_ip = evento.get("src_ip", "")
-        dest_ip = evento.get("dest_ip", "")
-        bytes_toserver = flow_info.get("bytes_toserver", 0) or 0
-        bytes_toclient = flow_info.get("bytes_toclient", 0) or 0
-
-        if _eh_ip_lan(src_ip):
-            ip_dispositivo = src_ip
-            bytes_upload, bytes_download = bytes_toserver, bytes_toclient
-        elif _eh_ip_lan(dest_ip):
-            ip_dispositivo = dest_ip
-            bytes_upload, bytes_download = bytes_toclient, bytes_toserver
-        else:
             flow_ids_consumidos.add(flow_id)
-            continue
 
-        if ip_dispositivo in ips_excluidos:
-            flow_ids_consumidos.add(flow_id)
-            continue
-        cliente = mapa_clientes.get(ip_dispositivo)
-        mac = cliente["mac"] if cliente and cliente.get("mac") else f"desconhecido-{ip_dispositivo}"
-        hostname = cliente["hostname"] if cliente else "Desconhecido"
-        ap = cliente.get("ap") if cliente else None
-        macs_hostnames_vistos[mac] = hostname
-        if _bate_lista_ameacas(sni) and (mac, sni) not in ameacas_ja_alertadas:
-            ameacas_ja_alertadas.add((mac, sni))
-            ameacas_novas.append((mac, hostname, ip_dispositivo, sni))
-
-        provedor_vpn = identificar_provedor_vpn(sni)
-        if provedor_vpn:
-            vpn_eventos_para_gravar.append(AcessoVpnDetectado(
-                mac=mac, hostname=hostname, ip=ip_dispositivo, dominio=sni,
-                provedor=provedor_vpn, detectado_em=fim,
-            ))
-            if mac not in vpn_ja_alertados_hoje and mac not in vpn_macs_alertados_neste_ciclo:
-                vpn_macs_alertados_neste_ciclo.add(mac)
-                vpn_alertas_novos.append((mac, hostname, ip_dispositivo, provedor_vpn, sni))
-
-        eventos_para_gravar.append(AcessoDominio(
-            mac=mac,
-            ip=ip_dispositivo,
-            hostname=hostname,
-            ap=ap,
-            dominio=sni,
-            categoria=categorizar_dominio(sni),
-            inicio=inicio,
-            fim=fim,
-            duracao_segundos=max(0, round((fim - inicio).total_seconds())),
-            bytes_download=bytes_download,
-            bytes_upload=bytes_upload,
-        ))
-        flow_ids_consumidos.add(flow_id)
+    # roda em thread separada - esse loop e 100% sincrono (sem await) e
+    # processa milhares de linhas por ciclo; rodando direto na coroutine
+    # ele travava o event loop inteiro, derrubando ate o login no painel.
+    await asyncio.to_thread(_processar_eventos_sync)
 
     await _registrar_dispositivos_logicos(db, macs_hostnames_vistos)
 
@@ -1336,17 +1342,23 @@ async def get_atividade_por_hora(db, mac: str, horas: float = 1440):
     sessoes = await get_sessoes_acesso(db, horas=horas, mac=mac)
     mapa_tipo = await _obter_mapa_produtividade(db)
 
+    # so horario comercial (8h-18h, ou seja horas 8 a 17) de segunda a sexta -
+    # fora disso nao faz sentido falar em "produtivo/nao produtivo" porque nao
+    # e expediente, entao fica de fora do CALCULO (nao so escondido na tela)
+    HORAS_COMERCIAIS = range(8, 18)
     baldes = {
         h: {
             "hora": h, "acessos": 0, "bytes_total": 0, "dias": set(),
             "produtivo_segundos": 0, "nao_produtivo_segundos": 0, "neutro_segundos": 0,
         }
-        for h in range(24)
+        for h in HORAS_COMERCIAIS
     }
     for sessao in sessoes:
         inicio_dt = datetime.fromisoformat(sessao["inicio"])
         inicio_local = inicio_dt.astimezone(fuso_local)
         h = inicio_local.hour
+        if inicio_local.weekday() >= 5 or h not in baldes:
+            continue
         balde = baldes[h]
         balde["acessos"] += 1
         balde["bytes_total"] += sessao["bytes_download"] + sessao["bytes_upload"]
@@ -1360,7 +1372,7 @@ async def get_atividade_por_hora(db, mac: str, horas: float = 1440):
         balde[chave] += min(sessao["duracao_segundos"], 3600)
 
     resultado = []
-    for h in range(24):
+    for h in HORAS_COMERCIAIS:
         balde = baldes[h]
         dias_amostrados = len(balde["dias"])
         divisor = dias_amostrados or 1

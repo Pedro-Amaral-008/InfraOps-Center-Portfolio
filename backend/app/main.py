@@ -526,12 +526,13 @@ async def dashboard_acessos_dispositivo_relatorio_pdf(
     usuario: User = Depends(exigir_papel("admin", "super_admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.acessos import get_detalhe_dispositivo, resolver_macs_dispositivo
+    from app.acessos import get_detalhe_dispositivo, resolver_macs_dispositivo, get_atividade_por_hora
     from app.dashboard import gerar_html_relatorio_dispositivo
     from weasyprint import HTML
     import io
     macs = await resolver_macs_dispositivo(db, mac)
     detalhe = await get_detalhe_dispositivo(db, macs, horas)
+    detalhe["por_hora"] = await get_atividade_por_hora(db, macs, horas)
     html_str = gerar_html_relatorio_dispositivo(detalhe, periodo_label or f"Últimas {horas:.0f}h", interativo=False)
     pdf_bytes = HTML(string=html_str).write_pdf()
     buffer = io.BytesIO(pdf_bytes)
@@ -549,11 +550,12 @@ async def dashboard_acessos_dispositivo_relatorio_html(
     usuario: User = Depends(exigir_papel("admin", "super_admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.acessos import get_detalhe_dispositivo, resolver_macs_dispositivo
+    from app.acessos import get_detalhe_dispositivo, resolver_macs_dispositivo, get_atividade_por_hora
     from app.dashboard import gerar_html_relatorio_dispositivo
     from fastapi.responses import Response
     macs = await resolver_macs_dispositivo(db, mac)
     detalhe = await get_detalhe_dispositivo(db, macs, horas)
+    detalhe["por_hora"] = await get_atividade_por_hora(db, macs, horas)
     html_str = gerar_html_relatorio_dispositivo(detalhe, periodo_label or f"Últimas {horas:.0f}h")
     nome_arquivo = (detalhe.get("hostname") or mac).replace(" ", "-")
     return Response(
@@ -580,6 +582,24 @@ async def dashboard_pior_desempenho_semana(
     from app.dashboard import get_estabilidade_semanal, get_pior_desempenho_semana
     estabilidade = await get_estabilidade_semanal(db)
     return await get_pior_desempenho_semana(db, estabilidade)
+@cache_ttl(120)
+@app.get("/dashboard/pior-desempenho-operacao")
+async def dashboard_pior_desempenho_operacao(
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_estabilidade_semanal, get_pior_desempenho_semana
+    estabilidade = await get_estabilidade_semanal(db)
+    return await get_pior_desempenho_semana(db, estabilidade, categorias_permitidas=["servidores", "links", "backups"])
+@cache_ttl(120)
+@app.get("/dashboard/pior-desempenho-local")
+async def dashboard_pior_desempenho_local(
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.dashboard import get_estabilidade_semanal, get_pior_desempenho_semana
+    estabilidade = await get_estabilidade_semanal(db)
+    return await get_pior_desempenho_semana(db, estabilidade, categorias_permitidas=["access_points", "impressoras"])
 @app.get("/dashboard/ocorrencias-semana/{nome_equipamento}")
 async def dashboard_ocorrencias_semana(
     nome_equipamento: str,
@@ -891,7 +911,7 @@ async def dashboard_agent_history(
 import asyncio
 from app.agent_alerts import verificar_limites_agentes, verificar_disponibilidade_agentes, verificar_failover_srv_arquivos
 from app.controller_alerts import verificar_limites_controller
-from app.pfsense import registrar_status_links, registrar_trafego, verificar_alertas_links, verificar_alertas_vpns_vlans, registrar_status_vpns_vlans
+from app.pfsense import registrar_status_links, registrar_trafego, verificar_alertas_links, verificar_alertas_vpns_vlans, registrar_status_vpns_vlans, get_status_links
 from app.database import AsyncSessionLocal, limitar_concorrencia_sync
 
 
@@ -920,7 +940,13 @@ async def loop_verificacao_agentes():
                 print(f"ERRO em verificar_limites_controller: {e}")
 
             try:
-                await verificar_alertas_links(db)
+                links_pfsense = await get_status_links()
+            except Exception as e:
+                links_pfsense = None
+                print(f"ERRO ao consultar get_status_links: {e}")
+
+            try:
+                await verificar_alertas_links(db, links_pfsense)
             except Exception as e:
                 print(f"ERRO em verificar_alertas_links: {e}")
             try:
@@ -929,7 +955,7 @@ async def loop_verificacao_agentes():
                 print(f"ERRO em verificar_alertas_vpns_vlans: {e}")
 
             try:
-                await registrar_status_links(db)
+                await registrar_status_links(db, links_pfsense)
             except Exception as e:
                 print(f"ERRO em registrar_status_links: {e}")
             try:
@@ -958,7 +984,7 @@ async def loop_acessos_suricata():
                 print("ERRO em sincronizar_acessos_suricata: ciclo excedeu 180s, cancelado (tenta de novo no proximo)")
             except Exception as e:
                 print(f"ERRO em sincronizar_acessos_suricata: {e}")
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)
 
 
 async def loop_prewarm_pesados():
@@ -975,23 +1001,26 @@ async def loop_prewarm_pesados():
     # disco fisico e ja quase travou a sincronizacao do Suricata. Rodam
     # bem mais devagar (1 a cada 8 ciclos, ~2 minutos), revezando um por
     # vez pra nunca empilhar todos juntos.
-    PERIODOS_PREWARM_RAPIDOS = [1, 24]
-    PERIODOS_PREWARM_LENTOS = [360, 720, 1440]  # 15 dias, 1 mes, 2 meses
+    # Carga reduzida: o prewarm de 5 periodos simultaneos derrubou o
+    # servidor inteiro (mini PC ficou sem responder nem SSH). Agora so
+    # 24h roda todo ciclo; 1h e os periodos longos revezam devagar, e o
+    # ciclo inteiro passou de 15s para 45s pra dar respiro real ao
+    # Postgres/HD entre as rodadas.
+    PERIODOS_PREWARM_REVEZAM = [1, 360, 720, 1440]  # 1h, 15 dias, 1 mes, 2 meses
     ciclo = 0
     while True:
-        for horas_prewarm in PERIODOS_PREWARM_RAPIDOS:
+        async with AsyncSessionLocal() as db:
+            try:
+                await dashboard_acessos_dispositivos(horas=24, usuario=None, db=db)
+            except Exception as e:
+                print(f"ERRO no prewarm de acessos/dispositivos (horas=24): {e}")
+        if ciclo % 4 == 0:
+            horas_revezar = PERIODOS_PREWARM_REVEZAM[(ciclo // 4) % len(PERIODOS_PREWARM_REVEZAM)]
             async with AsyncSessionLocal() as db:
                 try:
-                    await dashboard_acessos_dispositivos(horas=horas_prewarm, usuario=None, db=db)
+                    await dashboard_acessos_dispositivos(horas=horas_revezar, usuario=None, db=db)
                 except Exception as e:
-                    print(f"ERRO no prewarm de acessos/dispositivos (horas={horas_prewarm}): {e}")
-        if ciclo % 8 == 0:
-            horas_lento = PERIODOS_PREWARM_LENTOS[(ciclo // 8) % len(PERIODOS_PREWARM_LENTOS)]
-            async with AsyncSessionLocal() as db:
-                try:
-                    await dashboard_acessos_dispositivos(horas=horas_lento, usuario=None, db=db)
-                except Exception as e:
-                    print(f"ERRO no prewarm de acessos/dispositivos (horas={horas_lento}): {e}")
+                    print(f"ERRO no prewarm de acessos/dispositivos (horas={horas_revezar}): {e}")
         ciclo += 1
         async with AsyncSessionLocal() as db:
             try:
@@ -1013,7 +1042,7 @@ async def loop_prewarm_pesados():
                 await dashboard_ameacas_lista(horas=24, usuario=None, db=db)
             except Exception as e:
                 print(f"ERRO no prewarm de ameacas/lista: {e}")
-        await asyncio.sleep(15)
+        await asyncio.sleep(25)
 @limitar_concorrencia_sync
 async def _atualizar_resumo_diario_acessos(db):
     from sqlalchemy import text
@@ -1144,7 +1173,7 @@ async def dashboard_controller_current(
     ram = await query_prometheus('(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100')
     disco = await query_prometheus('100 - ((node_filesystem_avail_bytes{mountpoint="/"} * 100) / node_filesystem_size_bytes{mountpoint="/"})')
     ram_total = await query_prometheus('node_memory_MemTotal_bytes')
-    temperatura = await query_prometheus('node_thermal_zone_temp{type="cpu-thermal"}')
+    temperatura = await query_prometheus('node_thermal_zone_temp{type="x86_pkg_temp"}')
     disco_total = await query_prometheus('node_filesystem_size_bytes{mountpoint="/"}')
     disco_hd_percent = await query_prometheus('100 - ((node_filesystem_avail_bytes{mountpoint="/mnt/data"} * 100) / node_filesystem_size_bytes{mountpoint="/mnt/data"})')
     disco_hd_total = await query_prometheus('node_filesystem_size_bytes{mountpoint="/mnt/data"}')
@@ -1222,6 +1251,7 @@ async def dashboard_unifi_consumo_picos(
     from app.unifi import get_picos_sustentados
     return await get_picos_sustentados(db, minutos)
 @app.get("/dashboard/acessos/dispositivos")
+@cache_ttl(90)
 async def dashboard_acessos_dispositivos(
     horas: float = 1440,
     usuario: User = Depends(get_current_user),
@@ -1258,6 +1288,7 @@ async def dashboard_acessos_top_sites(
     from app.acessos import get_top_sites_rede
     return await get_top_sites_rede(db, horas, limite)
 @app.get("/dashboard/acessos/dispositivo/{mac}")
+@cache_ttl(60)
 async def dashboard_acessos_dispositivo(
     mac: str,
     horas: float = 1440,
@@ -1325,6 +1356,7 @@ async def dashboard_acessos_definir_apelido(
     await registrar_log(db, usuario.username, "definir_apelido_dispositivo", "sucesso", detalhes=f"mac={mac} apelido={apelido}")
     return {"status": "ok", "apelido": apelido}
 @app.get("/dashboard/acessos/dispositivo/{mac}/por-hora")
+@cache_ttl(60)
 async def dashboard_acessos_por_hora(
     mac: str,
     horas: float = 1440,

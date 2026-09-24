@@ -4,6 +4,42 @@ import './Relatorios.css';
 
 const API_URL = '';
 
+// Extrai o nome do equipamento de mensagens em formato conhecido
+// ('Servidor X ficou offline', 'Access Point X voltou online', 'Backup de X falhou').
+// Mensagens genericas sem nome de equipamento (ex: 'SERVIDOR SEM RESPOSTA',
+// 'LINK DE REDE OFFLINE', 'FALHA NO BACKUP') retornam null e ficam de fora do
+// ranking, ja que nao identificam uma maquina especifica.
+function extrairNomeEquipamento(mensagem, detalhes) {
+  let m = mensagem.match(/^(Servidor|Access Point|Impressora)\s+(.+?)\s+(ficou offline|voltou online)$/i);
+  if (m) return `${m[1]} ${m[2]}`;
+  m = mensagem.match(/^VPN\s+(.+?)\s+(ficou offline|voltou online|ainda offline)$/i);
+  if (m) return `VPN ${m[1]}`;
+  m = mensagem.match(/^VLAN\s+(.+?)\s+(ficou offline|voltou online|ainda offline)$/i);
+  if (m) return `VLAN ${m[1]}`;
+  m = mensagem.match(/^Backup de (\S+)\s+(está atrasado|falhou|normalizado)$/i);
+  if (m) return `Backup ${m[1]}`;
+  if (mensagem.toUpperCase().startsWith('LINK DE REDE') && detalhes) {
+    m = detalhes.match(/Link:\s*(\S+)/);
+    if (m) return `Link ${m[1]}`;
+  }
+  if (mensagem.toUpperCase().includes('BACKUP') && detalhes) {
+    m = detalhes.match(/Job(?:\s+Executado)?:\s*Backup\s+(.+?)\s*(?:·|$)/);
+    if (m) return `Backup ${m[1].trim()}`;
+  }
+  return null;
+}
+
+function categorizarEvento(mensagem) {
+  const up = mensagem.toUpperCase().trim();
+  if (up.startsWith('SERVIDOR ')) return 'Servidores';
+  if (up.startsWith('ACCESS POINT ')) return 'Access Points';
+  if (up.startsWith('LINK DE REDE')) return 'Links de Rede';
+  if (up.startsWith('VPN ')) return 'VPNs';
+  if (up.startsWith('VLAN ')) return 'VLANs';
+  if (up.includes('BACKUP')) return 'Backups';
+  return null;
+}
+
 const PERIODOS = [
   { id: '1', label: 'Últimas 24h' },
   { id: '15', label: 'Últimos 15 dias' },
@@ -78,6 +114,21 @@ function gerarLinhaSVG(serie, cor) {
   const path = pontos.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
   const area = `${path} L${pontos[pontos.length - 1].x.toFixed(1)},${y1} L${pontos[0].x.toFixed(1)},${y1} Z`;
   return { path, area, pontos };
+}
+
+// Mini-linha usada nos cartoes de "Uptime por categoria" - escala fixa 0-100%
+// (nao autoescala como gerarLinhaSVG) para nao exagerar variacoes pequenas,
+// e so exige 2 pontos (o minimo pra desenhar uma linha reta).
+function gerarMiniLinha(serie) {
+  if (!serie || serie.length < 2) return { path: '' };
+  const x0 = 4, x1 = 196, y0 = 6, y1 = 40;
+  const passoX = (x1 - x0) / (serie.length - 1);
+  const pontos = serie.map((p, i) => ({
+    x: x0 + i * passoX,
+    y: y1 - (Math.max(0, Math.min(100, p.v)) / 100) * (y1 - y0),
+  }));
+  const path = pontos.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  return { path };
 }
 
 // Gera os segmentos de um donut (stroke-dasharray) a partir de valores { label, valor, cor }
@@ -256,10 +307,16 @@ function Relatorios({ token, role }) {
 
     const equipamentoTop = dados.ranking[0];
 
+    const metaDisponibilidade = 95;
+    const metaAtingidaGeral = dados.resumo.uptimeGeral >= metaDisponibilidade;
+    const metaCorGeral = metaAtingidaGeral ? 'var(--rel-verde)' : 'var(--rel-vermelho)';
+    const metaTextoGeral = metaAtingidaGeral ? '✅ Atingida' : '❌ Não atingida';
+
     let htmlResumo = `<div class="rel-pagina" data-secao="geral">
       <div class="rel-sec-cabecalho"><div><div class="rel-titulo">Resumo geral</div></div></div>
       <div class="rel-kpi-grade">
         <div class="rel-kpi"><div class="rel-rot">Uptime médio geral</div><div class="rel-val ${classeFaixa(dados.resumo.uptimeGeral)}">${dados.resumo.uptimeGeral}%</div>${deltaGeralHtml}</div>
+        <div class="rel-kpi"><div class="rel-rot">Meta de disponibilidade</div><div class="rel-val mid">${metaDisponibilidade}%</div><div style="font-size:10px;color:${metaCorGeral};margin-top:4px;">${metaTextoGeral}</div></div>
         <div class="rel-kpi"><div class="rel-rot">Total de incidentes</div><div class="rel-val">${dados.resumo.totalIncidentes}</div></div>
         <div class="rel-kpi"><div class="rel-rot">Total de eventos</div><div class="rel-val">${dados.eventos.length}</div></div>
         <div class="rel-kpi"><div class="rel-rot">Categorias saudáveis</div><div class="rel-val mid">${dados.resumo.categoriasSaudaveis} de ${dados.resumo.totalCategorias}</div></div>
@@ -267,7 +324,7 @@ function Relatorios({ token, role }) {
       <div class="rel-kpi-grade">
         <div class="rel-kpi"><div class="rel-rot">Melhor desempenho</div><div class="rel-val bom" style="font-size:16px;">${dados.resumo.melhorCategoria || '—'}</div><div style="font-size:11px;color:var(--rel-suave);margin-top:2px;">${dados.resumo.melhorCategoriaValor ?? '—'}%</div></div>
         <div class="rel-kpi"><div class="rel-rot">Pior desempenho</div><div class="rel-val ruim" style="font-size:16px;">${dados.resumo.piorCategoria || '—'}</div><div style="font-size:11px;color:var(--rel-suave);margin-top:2px;">${dados.resumo.piorCategoriaValor ?? '—'}%</div></div>
-        <div class="rel-kpi"><div class="rel-rot">Equipamento mais problemático</div><div class="rel-val" style="font-size:16px;">${equipamentoTop ? equipamentoTop.equipamento : '—'}</div><div style="font-size:11px;color:var(--rel-vermelho);margin-top:2px;">${equipamentoTop ? equipamentoTop.ocorrencias + 'x ocorrências' : '—'}</div></div>
+        <div class="rel-kpi"><div class="rel-rot">Equipamento com mais ocorrências</div><div class="rel-val" style="font-size:16px;">${equipamentoTop ? equipamentoTop.equipamento : '—'}</div><div style="font-size:11px;color:var(--rel-vermelho);margin-top:2px;">${equipamentoTop ? equipamentoTop.ocorrencias + 'x ocorrências' : '—'}</div></div>
       </div>
       <div class="rel-caixa">
         <div class="rel-titulo-mini">Eventos por severidade — ${dados.eventos.length} no total</div>
@@ -297,8 +354,8 @@ function Relatorios({ token, role }) {
 
       const contagem = {};
       eventosCat.filter((e) => e.tipo === 'critico').forEach((e) => {
-        const nomeEquip = e.mensagem.split(' ').slice(0, 2).join(' ');
-        contagem[nomeEquip] = (contagem[nomeEquip] || 0) + 1;
+        const nomeEquip = extrairNomeEquipamento(e.mensagem, e.detalhes);
+        if (nomeEquip) contagem[nomeEquip] = (contagem[nomeEquip] || 0) + 1;
       });
       const rankingLocal = Object.entries(contagem).sort((a, b) => b[1] - a[1]).slice(0, 5);
       const rankingHtml = rankingLocal.length
@@ -326,7 +383,7 @@ function Relatorios({ token, role }) {
             </div>
           </div>
         </div>
-        <div class="rel-caixa"><div class="rel-titulo-mini">Ranking de equipamentos problemáticos</div>${rankingHtml}</div>
+        <div class="rel-caixa"><div class="rel-titulo-mini">Ranking de ${PLURAL_RANKING[info.nome] || 'equipamentos'} com mais ocorrências</div>${rankingHtml}</div>
         <div class="rel-caixa"><div class="rel-titulo-mini">Linha do tempo de eventos</div>${timelineHtml}</div>
       </div>`;
     }).join('');
@@ -369,7 +426,7 @@ function Relatorios({ token, role }) {
     let htmlAnexo = `<div class="rel-pagina rel-oculta" data-secao="anexo">
       <div class="rel-sec-cabecalho"><div><div class="rel-titulo">Anexo — todos os eventos do período</div></div></div>
       <table class="rel-tabela-anexo"><thead><tr><th>Data/hora</th><th>Evento</th><th>Severidade</th></tr></thead><tbody>
-        ${dados.eventos.slice(0, 200).map((ev) => `<tr><td>${formatarDataHora(ev.criado_em)}</td><td>${ev.mensagem}</td><td><span class="rel-pt-faixa"><i style="background:${ev.tipo === 'critico' ? 'var(--rel-vermelho)' : ev.tipo === 'atencao' ? 'var(--rel-ambar)' : 'var(--rel-verde)'}"></i>${ev.tipo}</span></td></tr>`).join('')}
+        ${dados.eventos.map((ev) => `<tr><td>${formatarDataHora(ev.criado_em)}</td><td>${ev.mensagem}</td><td><span class="rel-pt-faixa"><i style="background:${ev.tipo === 'critico' ? 'var(--rel-vermelho)' : ev.tipo === 'atencao' ? 'var(--rel-ambar)' : 'var(--rel-verde)'}"></i>${ev.tipo}</span></td></tr>`).join('')}
       </tbody></table>
     </div>`;
 
@@ -433,20 +490,19 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
 
   const nomeCat = (chave) => CATEGORIAS_DISPONIVEIS.find((c) => c.chave === chave)?.label || chave;
 
-  // As mensagens reais dos eventos usam o singular ("Servidor X ficou offline",
-  // "Backup de Y falhou"), mas os nomes de categoria sao plural - por isso o
-  // mapeamento explicito abaixo, em vez de tentar derivar o singular por regra.
-  const PALAVRA_CHAVE_POR_CATEGORIA = {
-    'Servidores': 'Servidor',
-    'Access Points': 'Access Point',
-    'Links de Rede': 'Link',
-    'VPNs': 'VPN',
-    'VLANs': 'VLAN',
-    'Backups': 'Backup',
-  };
+  // Classificacao por PREFIXO da mensagem (ver categorizarEvento), nao mais por
+  // substring generica - antes um evento "Servidor Srv Backup Principal ficou
+  // offline" caia por engano em Backups so por conter a palavra "Backup".
   const eventosPorCategoria = (nomeCategoria) => {
-    const palavraChave = PALAVRA_CHAVE_POR_CATEGORIA[nomeCategoria] || nomeCategoria;
-    return dados.eventos.filter((e) => e.mensagem.includes(palavraChave));
+    return dados.eventos.filter((e) => categorizarEvento(e.mensagem) === nomeCategoria);
+  };
+  const PLURAL_RANKING = {
+    'Servidores': 'servidores',
+    'Access Points': 'access points',
+    'Links de Rede': 'links',
+    'VPNs': 'VPNs',
+    'VLANs': 'VLANs',
+    'Backups': 'backups',
   };
 
   const totalEventos = dados.eventos.length;
@@ -525,6 +581,13 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
               <div className={`rel-val ${classeFaixa(dados.resumo.uptimeGeral)}`}>{dados.resumo.uptimeGeral}%</div>
             </div>
             <div className="rel-kpi">
+              <div className="rel-rot">Meta de disponibilidade</div>
+              <div className="rel-val mid">95%</div>
+              <div style={{ fontSize: '10px', color: dados.resumo.uptimeGeral >= 95 ? 'var(--rel-verde)' : 'var(--rel-vermelho)', marginTop: '4px' }}>
+                {dados.resumo.uptimeGeral >= 95 ? '✅ Atingida' : '❌ Não atingida'}
+              </div>
+            </div>
+            <div className="rel-kpi">
               <div className="rel-rot">Total de incidentes</div>
               <div className="rel-val">{dados.resumo.totalIncidentes}</div>
             </div>
@@ -547,21 +610,59 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
           <div className="rel-graf-grid-2">
             <div className="rel-caixa">
               <div className="rel-titulo-mini">Uptime por categoria</div>
-              <div className="rel-sub-mini">% de disponibilidade ao longo do período</div>
-              <svg viewBox="0 0 460 140">
-                <line x1="10" y1="20" x2="450" y2="20" stroke="rgba(255,255,255,.06)" strokeDasharray="2 4" />
-                <line x1="10" y1="70" x2="450" y2="70" stroke="rgba(255,255,255,.06)" strokeDasharray="2 4" />
-                <line x1="10" y1="120" x2="450" y2="120" stroke="rgba(255,255,255,.12)" />
-                {Object.entries(dados.categorias).map(([chave, info], idx) => {
-                  const cor = CATEGORIAS_DISPONIVEIS.find((c) => c.chave === chave)?.cor || '#6172f3';
-                  const { path } = gerarLinhaSVG(info.serie, cor);
-                  return path ? <path key={chave} d={path} fill="none" stroke={cor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /> : null;
+              <div className="rel-sub-mini">% de disponibilidade por categoria selecionada no período</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+                {CATEGORIAS_DISPONIVEIS.filter((c) => categoriasSelecionadas.includes(c.chave)).map((c) => {
+                  const info = dados.categorias[c.chave];
+                  const serie = info?.serie || [];
+                  const media = info && info.media !== undefined ? info.media : null;
+                  const mediaAnterior = info ? info.mediaAnterior : null;
+                  const semDados = !info || serie.length === 0;
+                  const dadoUnico = !semDados && serie.length === 1;
+
+                  let faixaLabel = 'Sem dados', faixaCor = '#898781';
+                  if (media !== null) {
+                    if (media >= 95) { faixaLabel = 'Dentro da meta'; faixaCor = 'var(--rel-verde)'; }
+                    else if (media >= 90) { faixaLabel = 'Atenção'; faixaCor = '#eda100'; }
+                    else { faixaLabel = 'Abaixo da meta'; faixaCor = 'var(--rel-vermelho)'; }
+                  }
+
+                  let deltaTexto = null, deltaCor = '#898781';
+                  if (mediaAnterior !== null && mediaAnterior !== undefined && media !== null) {
+                    const diff = Math.round((media - mediaAnterior) * 10) / 10;
+                    if (diff > 0.05) { deltaTexto = `↑ ${diff} pts`; deltaCor = 'var(--rel-verde)'; }
+                    else if (diff < -0.05) { deltaTexto = `↓ ${Math.abs(diff)} pts`; deltaCor = 'var(--rel-vermelho)'; }
+                    else { deltaTexto = '≈ estável'; deltaCor = '#898781'; }
+                  }
+
+                  const { path } = gerarMiniLinha(serie);
+
+                  return (
+                    <div key={c.chave} style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: '10px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700 }}>
+                          <i style={{ width: '8px', height: '8px', borderRadius: '50%', background: c.cor, display: 'inline-block' }} />
+                          {c.label}
+                        </span>
+                        <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', color: faixaCor, border: `1px solid ${faixaCor}`, borderRadius: '5px', padding: '1px 5px', whiteSpace: 'nowrap' }}>{faixaLabel}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                        <span style={{ fontSize: '18px', fontWeight: 700 }}>{media !== null ? `${media}%` : '—'}</span>
+                        {deltaTexto && <span style={{ fontSize: '10px', fontWeight: 600, color: deltaCor }}>{deltaTexto}</span>}
+                      </div>
+                      {path ? (
+                        <svg viewBox="0 0 200 46" style={{ width: '100%', height: '32px', display: 'block' }}>
+                          <line x1="4" y1="7.7" x2="196" y2="7.7" stroke="rgba(255,255,255,.15)" strokeDasharray="2 3" />
+                          <path d={path} fill="none" stroke={c.cor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : (
+                        <div style={{ height: '32px', display: 'flex', alignItems: 'center', fontSize: '10px', color: '#eda100', fontWeight: 600 }}>
+                          ⚠ {semDados ? 'sem dados no período' : 'apenas 1 amostra no período'}
+                        </div>
+                      )}
+                    </div>
+                  );
                 })}
-              </svg>
-              <div className="rel-legenda">
-                {CATEGORIAS_DISPONIVEIS.filter((c) => categoriasSelecionadas.includes(c.chave)).map((c) => (
-                  <span key={c.chave}><i style={{ background: c.cor }} />{c.label}</span>
-                ))}
               </div>
             </div>
 
@@ -604,7 +705,7 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
               <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--rel-vermelho)' }}>{dados.resumo.piorCategoriaValor}%</div>
             </div>
             <div className="rel-caixa">
-              <div className="rel-titulo-mini">Equipamento mais problemático</div>
+              <div className="rel-titulo-mini">Equipamento com mais ocorrências</div>
               <div className="rel-sub-mini">Geral, todas as categorias</div>
               <div style={{ fontSize: '16px', fontWeight: 800 }}>
                 {equipamentoMaisProblematico?.equipamento || '—'}
@@ -705,13 +806,13 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
               </div>
 
               <div className="rel-caixa" style={{ marginBottom: '18px' }}>
-                <div className="rel-titulo-mini">Ranking de equipamentos problemáticos</div>
+                <div className="rel-titulo-mini">Ranking de {PLURAL_RANKING[info.nome] || 'equipamentos'} com mais ocorrências</div>
                 <div className="rel-sub-mini">Nesta categoria</div>
                 {(() => {
                   const contagem = {};
                   eventosCat.filter((e) => e.tipo === 'critico').forEach((e) => {
-                    const nomeEquip = e.mensagem.split(' ').slice(0, 2).join(' ');
-                    contagem[nomeEquip] = (contagem[nomeEquip] || 0) + 1;
+                    const nomeEquip = extrairNomeEquipamento(e.mensagem, e.detalhes);
+                    if (nomeEquip) contagem[nomeEquip] = (contagem[nomeEquip] || 0) + 1;
                   });
                   const rankingLocal = Object.entries(contagem).sort((a, b) => b[1] - a[1]).slice(0, 4);
                   if (rankingLocal.length === 0) return <div style={{ fontSize: '12px', color: 'var(--rel-fraca)' }}>Nenhuma ocorrência crítica nesta categoria.</div>;
@@ -889,7 +990,7 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
             <table className="rel-tabela-anexo">
               <thead><tr><th>Data/hora</th><th>Evento</th><th>Detalhes</th><th>Severidade</th></tr></thead>
               <tbody>
-                {dados.eventos.slice(0, 200).map((ev) => (
+                {dados.eventos.map((ev) => (
                   <tr key={ev.id}>
                     <td>{formatarDataHora(ev.criado_em)}</td>
                     <td>{ev.mensagem}</td>

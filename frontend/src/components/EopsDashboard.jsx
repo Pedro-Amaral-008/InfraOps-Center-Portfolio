@@ -66,7 +66,8 @@ function EopsDashboard({ token, dados, onAbrirDispositivo }) {
   const [tendencia, setTendencia] = useState([]);
   const [estabilidade, setEstabilidade] = useState({});
   const [alertasAtivos, setAlertasAtivos] = useState([]);
-  const [piorDesempenho, setPiorDesempenho] = useState(null);
+  const [piorOperacao, setPiorOperacao] = useState(null);
+  const [piorLocal, setPiorLocal] = useState(null);
   const [filtroFeed, setFiltroFeed] = useState('todos');
 
   useEffect(() => {
@@ -81,8 +82,10 @@ function EopsDashboard({ token, dados, onAbrirDispositivo }) {
       .then((r) => setTendencia(r.data)).catch(() => {});
     axios.get(`${API_URL}/dashboard/estabilidade-semanal`, { headers })
       .then((r) => setEstabilidade(r.data)).catch(() => {});
-    axios.get(`${API_URL}/dashboard/pior-desempenho-semana`, { headers })
-      .then((r) => setPiorDesempenho(r.data)).catch(() => {});
+    axios.get(`${API_URL}/dashboard/pior-desempenho-operacao`, { headers })
+      .then((r) => setPiorOperacao(r.data)).catch(() => {});
+    axios.get(`${API_URL}/dashboard/pior-desempenho-local`, { headers })
+      .then((r) => setPiorLocal(r.data)).catch(() => {});
   }, [token]);
 
   useEffect(() => {
@@ -129,7 +132,8 @@ function EopsDashboard({ token, dados, onAbrirDispositivo }) {
     if (nome) estabilidadePorNome[nome] = (valores || []).filter((v) => v !== null);
   });
 
-  const ehRuim = piorDesempenho && piorDesempenho.percentSemana < 99;
+  const ehRuimOperacao = piorOperacao && piorOperacao.percentSemana < 99;
+  const ehRuimLocal = piorLocal && piorLocal.percentSemana < 99;
 
   const listaFeed = filtroFeed === 'todos' ? eventosRecentes : eventosRecentes.filter((ev) => {
     const cor = ev.tipo === 'bom' ? 'good' : ev.tipo === 'atencao' ? 'warn' : 'bad';
@@ -188,18 +192,36 @@ function EopsDashboard({ token, dados, onAbrirDispositivo }) {
           )}
         </div>
 
-        {piorDesempenho && (
-          <div className={`card spotlight ${ehRuim ? '' : 'spotlight-ok'}`}>
-            <div className="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={ehRuim ? '#ef4444' : '#22c55e'} strokeWidth="2">{ICONE_CATEGORIA[piorDesempenho.categoria]}</svg></div>
-            <div>
-              <div className="label">{ehRuim ? 'Pior desempenho da semana' : 'Melhor desempenho da semana'}</div>
-              <div className="title">{piorDesempenho.categoria}</div>
-              <div className="sub">{piorDesempenho.quedas7dias} queda{piorDesempenho.quedas7dias === 1 ? '' : 's'} nos últimos 7 dias — {ehRuim ? 'a mais instável' : 'a mais estável'} entre as {ORDEM_CATEGORIAS.length} categorias</div>
-            </div>
-            <div className="pct">
-              {piorDesempenho.percentSemana.toFixed(1)}%
-              <span className="arrow">{piorDesempenho.deltaVsSemanaPassada >= 0 ? '▲' : '▼'} {Math.abs(piorDesempenho.deltaVsSemanaPassada).toFixed(1)}% vs. semana passada</span>
-            </div>
+        {(piorOperacao || piorLocal) && (
+          <div className="spotlight-grupo">
+            {piorOperacao && (
+              <div className={`card spotlight ${ehRuimOperacao ? '' : 'spotlight-ok'}`}>
+                <div className="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={ehRuimOperacao ? '#ef4444' : '#22c55e'} strokeWidth="2">{ICONE_CATEGORIA[piorOperacao.categoria]}</svg></div>
+                <div>
+                  <div className="label">{ehRuimOperacao ? 'Pior da Operação' : 'Melhor da Operação'}</div>
+                  <div className="title">{piorOperacao.categoria}</div>
+                  <div className="sub">{piorOperacao.quedas7dias} queda{piorOperacao.quedas7dias === 1 ? '' : 's'} nos últimos 7 dias — {ehRuimOperacao ? 'a mais instável' : 'a mais estável'} do grupo</div>
+                </div>
+                <div className="pct">
+                  {piorOperacao.percentSemana.toFixed(1)}%
+                  <span className="arrow">{piorOperacao.deltaVsSemanaPassada >= 0 ? '▲' : '▼'} {Math.abs(piorOperacao.deltaVsSemanaPassada).toFixed(1)}% vs. semana passada</span>
+                </div>
+              </div>
+            )}
+            {piorLocal && (
+              <div className={`card spotlight ${ehRuimLocal ? '' : 'spotlight-ok'}`}>
+                <div className="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={ehRuimLocal ? '#ef4444' : '#22c55e'} strokeWidth="2">{ICONE_CATEGORIA[piorLocal.categoria]}</svg></div>
+                <div>
+                  <div className="label">{ehRuimLocal ? 'Pior Local' : 'Melhor Local'}</div>
+                  <div className="title">{piorLocal.categoria}</div>
+                  <div className="sub">{piorLocal.quedas7dias} queda{piorLocal.quedas7dias === 1 ? '' : 's'} nos últimos 7 dias — {ehRuimLocal ? 'a mais instável' : 'a mais estável'} do grupo</div>
+                </div>
+                <div className="pct">
+                  {piorLocal.percentSemana.toFixed(1)}%
+                  <span className="arrow">{piorLocal.deltaVsSemanaPassada >= 0 ? '▲' : '▼'} {Math.abs(piorLocal.deltaVsSemanaPassada).toFixed(1)}% vs. semana passada</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

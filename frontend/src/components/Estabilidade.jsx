@@ -5,6 +5,8 @@ import './Estabilidade.css';
 const API_URL = '';
 
 const ORDEM_CATEGORIAS = ['Servidores', 'Access Points', 'Links de Rede', 'Backups', 'Impressoras'];
+const CATEGORIAS_OPERACAO = ['Servidores', 'Links de Rede', 'Backups'];
+const CATEGORIAS_LOCAL = ['Access Points', 'Impressoras'];
 
 const CHAVE_PARA_NOME = {
   servidores: 'Servidores',
@@ -23,7 +25,30 @@ const ICONES = {
   'Impressoras': <><path d="M7 9V3h10v6" /><rect x="3" y="9" width="18" height="7" rx="1.8" /><rect x="7" y="14" width="10" height="7" rx="1.2" /></>,
 };
 
-const DIAS_SEMANA = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+function letraDoDia(data) {
+  switch (data.getDay()) {
+    case 0: return 'Dom';
+    case 1: return 'Seg';
+    case 2: return 'Ter';
+    case 3: return 'Qua';
+    case 4: return 'Qui';
+    case 5: return 'Sex';
+    case 6: return 'Sáb';
+    default: return '';
+  }
+}
+
+// Monta os 7 dias terminando em hoje, na ordem que aparece na tela (mais antigo -> hoje)
+function diasSemanaAteHoje() {
+  const hoje = new Date();
+  const resultado = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(hoje);
+    d.setDate(hoje.getDate() - i);
+    resultado.push(letraDoDia(d));
+  }
+  return resultado;
+}
 const XS = [8, 54.67, 101.33, 148, 194.67, 241.33, 288];
 const DURACAO_ANIMACAO_MS = 700;
 
@@ -76,24 +101,21 @@ function easeOutCubic(t) {
   return 1 - Math.pow(1 - t, 3);
 }
 
+function corDoValor(v) {
+  if (v === null || v === undefined) return 'vazio';
+  if (v >= 99) return 'verde';
+  if (v >= 90) return 'ambar';
+  return 'vermelho';
+}
+
 function GraficoSVG({ dias, media }) {
   const piso = pisoDoEixo(dias);
   const faixaY = 58 - 10;
   const yDe = (v) => 58 - ((v - piso) / (100 - piso)) * faixaY;
 
-  const pontosValidos = dias.map((v, i) => (v === null ? null : { x: XS[i], y: yDe(v) }));
-  const linhaPontos = pontosValidos.filter(Boolean).map((p) => `${p.x},${p.y.toFixed(2)}`).join(' ');
-
-  const validos = pontosValidos.filter(Boolean);
-  let areaPath = '';
-  if (validos.length) {
-    const topo = validos.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x} ${p.y.toFixed(2)}`).join(' ');
-    const ultimo = validos[validos.length - 1];
-    const primeiro = validos[0];
-    areaPath = `${topo} L${ultimo.x} 58 L${primeiro.x} 58 Z`;
-  }
-
   const ultimoIndice = dias.length - 1;
+  const diasSemana = diasSemanaAteHoje();
+  const larguraBarra = 26;
 
   const rotulosY = [];
   for (let i = 0; i <= 3; i++) {
@@ -103,27 +125,36 @@ function GraficoSVG({ dias, media }) {
   }
 
   return (
-    <svg className="estab-svg" viewBox="0 0 336 74" role="img" aria-label={`Gráfico de disponibilidade: média de ${media.toFixed(1)}%`}>
+    <svg className="estab-svg" viewBox="0 0 356 74" role="img" aria-label={`Gráfico de disponibilidade: média de ${media.toFixed(1)}%`}>
       {rotulosY.map((r, idx) => (
         <line className="estab-grade" x1="8" y1={r.y} x2="288" y2={r.y} key={idx} />
       ))}
-      {areaPath && <path className="estab-area" d={areaPath} />}
-      {linhaPontos && <polyline className="estab-serie" points={linhaPontos} />}
-      {pontosValidos.map((p, idx) => {
-        if (!p) return <circle className="estab-vazio" cx={XS[idx]} cy={yDe((piso + 100) / 2)} r="3.4" key={idx} />;
+      {dias.map((v, idx) => {
+        const status = corDoValor(v);
         const ehHoje = idx === ultimoIndice;
+        const yTopo = v === null ? 54 : yDe(v);
+        const altura = Math.max(58 - yTopo, 3);
         return (
-          <g key={idx}>
-            {ehHoje && <circle className="estab-anel-vivo" cx={p.x} cy={p.y} r="3" />}
-            <circle className="estab-ponto" cx={p.x} cy={p.y} r="3" />
-          </g>
+          <rect
+            key={idx}
+            className="estab-barra"
+            data-status={status}
+            data-hoje={ehHoje ? 'true' : undefined}
+            x={XS[idx] - larguraBarra / 2}
+            y={yTopo}
+            width={larguraBarra}
+            height={altura}
+            rx="3"
+          >
+            <title>{`${diasSemana[idx]}${ehHoje ? ' (hoje)' : ''} · ${v === null ? 'sem dados' : v.toFixed(1) + '%'}`}</title>
+          </rect>
         );
       })}
       {rotulosY.map((r, idx) => (
-        <text className="estab-rotulo-y" x="296" y={r.textoY} key={idx}>{r.texto}</text>
+        <text className="estab-rotulo-y" x="310" y={r.textoY} key={idx}>{r.texto}</text>
       ))}
       {XS.map((x, idx) => (
-        <text className="estab-rotulo-x" x={x} y="72" key={idx}>{DIAS_SEMANA[idx]}</text>
+        <text className="estab-rotulo-x" x={x} y="72" key={idx}>{diasSemana[idx]}</text>
       ))}
     </svg>
   );
@@ -191,80 +222,116 @@ function Estabilidade({ token }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dados]);
 
-  return (
-    <section className="estab" aria-labelledby="estab-titulo">
-      <header className="estab-topo">
-        <span className="estab-selo" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 3v18h18" />
-            <path d="M7 14l3.5-4 3 2.5L20 7" />
-          </svg>
-        </span>
-        <div className="estab-textos">
-          <h2 className="estab-titulo" id="estab-titulo">Evolução da estabilidade · últimos 7 dias</h2>
-          <p className="estab-sub">Tendência diária por categoria com variação e disponibilidade média</p>
+  const renderCategoria = (nome) => {
+    const chave = NOME_PARA_CHAVE[nome];
+    const info14 = dados[chave];
+    const dias = diasAnimados[nome];
+    if (!info14 || !dias) return null;
+
+    const media = calcularMedia(dias);
+    const faixa = faixaDaMedia(media);
+    const variacao = calcularVariacao14(info14);
+
+    return (
+      <div className="estab-linha-dados" data-faixa={faixa} key={nome}>
+        <div className="estab-categoria">
+          <span className="estab-icone" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {ICONES[nome]}
+            </svg>
+          </span>
+          <span className="estab-nome">{nome}</span>
         </div>
-      </header>
 
-      <div className="estab-cabecalho" aria-hidden="true">
-        <span>Categoria</span>
-        <span>Últimos 7 dias</span>
-        <span>Disponibilidade média</span>
-        <span style={{ justifySelf: 'end' }}>Variação (7d)</span>
+        <div className="estab-grafico">
+          <GraficoSVG dias={dias} media={media} />
+        </div>
+
+        <div className="estab-media">{media.toFixed(1)}%</div>
+
+        {variacao.sinal === 'estavel' ? (
+          <span className="estab-variacao" data-sinal="estavel">Estável</span>
+        ) : (
+          <span className="estab-variacao" data-sinal={variacao.sinal}>
+            <svg className="estab-seta" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {variacao.sinal === 'alta'
+                ? <path d="M12 19V5M6 11l6-6 6 6" />
+                : <path d="M12 5v14M6 13l6 6 6-6" />}
+            </svg>
+            {variacao.texto}
+          </span>
+        )}
       </div>
+    );
+  };
 
-      <div className="estab-corpo">
-        {ORDEM_CATEGORIAS.map((nome) => {
-          const chave = NOME_PARA_CHAVE[nome];
-          const info14 = dados[chave];
-          const dias = diasAnimados[nome];
-          if (!info14 || !dias) return null;
+  const legenda = (
+    <footer className="estab-legenda">
+      <span className="estab-chave"><i className="estab-bolinha" style={{ '--cor': 'var(--estab-verde)' }} />≥99%</span>
+      <span className="estab-chave"><i className="estab-bolinha" style={{ '--cor': 'var(--estab-ambar)' }} />90–98.9%</span>
+      <span className="estab-chave"><i className="estab-bolinha" style={{ '--cor': 'var(--estab-vermelho)' }} />&lt;90%</span>
+      <span className="estab-chave"><i className="estab-bolinha" data-vazio="true" />sem dados</span>
+    </footer>
+  );
 
-          const media = calcularMedia(dias);
-          const faixa = faixaDaMedia(media);
-          const variacao = calcularVariacao14(info14);
+  return (
+    <div className="estab-grupo">
+      <section className="estab" aria-labelledby="estab-titulo-operacao">
+        <header className="estab-topo">
+          <span className="estab-selo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12h4l3 8 4-16 3 8h4" />
+            </svg>
+          </span>
+          <div className="estab-textos">
+            <h2 className="estab-titulo" id="estab-titulo-operacao">Estabilidade da Operação · últimos 7 dias</h2>
+            <p className="estab-sub">Infraestrutura crítica — servidores, rede e backups que sustentam o acesso</p>
+          </div>
+        </header>
 
-          return (
-            <div className="estab-linha-dados" data-faixa={faixa} key={nome}>
-              <div className="estab-categoria">
-                <span className="estab-icone" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    {ICONES[nome]}
-                  </svg>
-                </span>
-                <span className="estab-nome">{nome}</span>
-              </div>
+        <div className="estab-cabecalho" aria-hidden="true">
+          <span>Categoria</span>
+          <span>Últimos 7 dias</span>
+          <span>Disponibilidade média</span>
+          <span style={{ justifySelf: 'end' }}>Variação (7d)</span>
+        </div>
 
-              <div className="estab-grafico">
-                <GraficoSVG dias={dias} media={media} />
-              </div>
+        <div className="estab-corpo">
+          {CATEGORIAS_OPERACAO.map(renderCategoria)}
+        </div>
 
-              <div className="estab-media">{media.toFixed(1)}%</div>
+        {legenda}
+      </section>
 
-              {variacao.sinal === 'estavel' ? (
-                <span className="estab-variacao" data-sinal="estavel">Estável</span>
-              ) : (
-                <span className="estab-variacao" data-sinal={variacao.sinal}>
-                  <svg className="estab-seta" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    {variacao.sinal === 'alta'
-                      ? <path d="M12 19V5M6 11l6-6 6 6" />
-                      : <path d="M12 5v14M6 13l6 6 6-6" />}
-                  </svg>
-                  {variacao.texto}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      <section className="estab" aria-labelledby="estab-titulo-local">
+        <header className="estab-topo">
+          <span className="estab-selo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="3" width="16" height="18" rx="2" />
+              <path d="M9 21v-4a3 3 0 0 1 6 0v4" />
+              <path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01" />
+            </svg>
+          </span>
+          <div className="estab-textos">
+            <h2 className="estab-titulo" id="estab-titulo-local">Estabilidade Local · últimos 7 dias</h2>
+            <p className="estab-sub">Equipamentos de ponta por unidade — access points e impressoras</p>
+          </div>
+        </header>
 
-      <footer className="estab-legenda">
-        <span className="estab-chave"><i className="estab-bolinha" style={{ '--cor': 'var(--estab-verde)' }} />≥99%</span>
-        <span className="estab-chave"><i className="estab-bolinha" style={{ '--cor': 'var(--estab-ambar)' }} />90–98.9%</span>
-        <span className="estab-chave"><i className="estab-bolinha" style={{ '--cor': 'var(--estab-vermelho)' }} />&lt;90%</span>
-        <span className="estab-chave"><i className="estab-bolinha" data-vazio="true" />sem dados</span>
-      </footer>
-    </section>
+        <div className="estab-cabecalho" aria-hidden="true">
+          <span>Categoria</span>
+          <span>Últimos 7 dias</span>
+          <span>Disponibilidade média</span>
+          <span style={{ justifySelf: 'end' }}>Variação (7d)</span>
+        </div>
+
+        <div className="estab-corpo">
+          {CATEGORIAS_LOCAL.map(renderCategoria)}
+        </div>
+
+        {legenda}
+      </section>
+    </div>
   );
 }
 

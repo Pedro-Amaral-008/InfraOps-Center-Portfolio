@@ -122,3 +122,10 @@
   #eops-dashboard .bottom-grid{ grid-template-columns: 1fr; }
   #eops-dashboard .heatmap{ grid-template-columns: 70px repeat(7, 1fr) 44px; }
 }
+
+/* --- Spotlight separado em Operação/Local (23/09) --- */
+#eops-dashboard .spotlight-grupo{ display:grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+#eops-dashboard .spotlight-grupo .spotlight{ margin-bottom: 0; }
+@media (max-width: 980px){
+  #eops-dashboard .spotlight-grupo{ grid-template-columns: 1fr; }
+}

@@ -1,5 +1,63 @@
 import httpx
+import re
 from datetime import datetime, timedelta
+
+
+def _extrair_nome_equipamento(mensagem: str, detalhes: str = None):
+    """Extrai o nome do equipamento de uma mensagem de evento.
+    Cobre 3 formatos:
+    1) o nome ja vem dentro da propria mensagem (Servidor/Access Point/
+       Impressora/VPN/VLAN "X ficou offline/voltou online", "Backup de X falhou");
+    2) a mensagem e generica ("LINK DE REDE OFFLINE") e o nome so existe no
+       campo "detalhes" (ex: "Link: WANVivo · Horário: ...");
+    3) idem para os alertas de job de backup ("FALHA NO BACKUP", "Backup
+       Realizado Com Sucesso") cujo nome vem em "Job: Backup X · Instância: ...".
+    Quando nada bate, retorna None e o evento fica de fora do ranking."""
+    m = re.match(r'^(Servidor|Access Point|Impressora)\s+(.+?)\s+(ficou offline|voltou online)$', mensagem, re.IGNORECASE)
+    if m:
+        return f"{m.group(1)} {m.group(2)}"
+    m = re.match(r'^VPN\s+(.+?)\s+(ficou offline|voltou online|ainda offline)$', mensagem, re.IGNORECASE)
+    if m:
+        return f"VPN {m.group(1)}"
+    m = re.match(r'^VLAN\s+(.+?)\s+(ficou offline|voltou online|ainda offline)$', mensagem, re.IGNORECASE)
+    if m:
+        return f"VLAN {m.group(1)}"
+    m = re.match(r'^Backup de (\S+)\s+(est[aá] atrasado|falhou|normalizado)$', mensagem, re.IGNORECASE)
+    if m:
+        return f"Backup {m.group(1)}"
+    if mensagem.upper().startswith("LINK DE REDE") and detalhes:
+        m = re.search(r'Link:\s*(\S+)', detalhes)
+        if m:
+            return f"Link {m.group(1)}"
+    if "BACKUP" in mensagem.upper() and detalhes:
+        m = re.search(r'Job(?:\s+Executado)?:\s*Backup\s+(.+?)\s*(?:·|$)', detalhes)
+        if m:
+            return f"Backup {m.group(1).strip()}"
+    return None
+
+
+def _categorizar_evento(mensagem: str):
+    """Classifica um evento numa categoria pelo PREFIXO da mensagem, checado
+    em ordem de prioridade. Antes disso a classificacao era por substring
+    generica (ex: 'Backup' em qualquer parte da mensagem), o que fazia um
+    evento tipo 'Servidor Srv Backup Principal ficou offline' cair por
+    engano na categoria Backups so porque a palavra 'Backup' faz parte do
+    nome do servidor. Checar Servidores/Access Points ANTES do teste
+    generico de Backup resolve isso."""
+    up = mensagem.upper().strip()
+    if up.startswith("SERVIDOR "):
+        return "Servidores"
+    if up.startswith("ACCESS POINT "):
+        return "Access Points"
+    if up.startswith("LINK DE REDE"):
+        return "Links de Rede"
+    if up.startswith("VPN "):
+        return "VPNs"
+    if up.startswith("VLAN "):
+        return "VLANs"
+    if "BACKUP" in up:
+        return "Backups"
+    return None
 
 PROMETHEUS_URL = "http://prometheus:9090"
 
@@ -18,7 +76,7 @@ async def query_prometheus(query: str):
             return []
 
 
-INSTANCIAS_REMOVIDAS = ["192.168.1.71:445", "192.168.1.71"]
+INSTANCIAS_REMOVIDAS = ["192.168.1.XXX:445", "192.168.1.XXX"]
 async def get_uptime_por_job(job: str, dias: int = 30):
     """Calcula o uptime percentual de cada instance de um job, usando o
     historico armazenado pelo proprio Prometheus (avg_over_time)."""
@@ -652,13 +710,18 @@ async def contar_ocorrencias_semana(db, nome_equipamento: str) -> int:
     return result.scalar_one()
 
 
-async def get_pior_desempenho_semana(db, estabilidade: dict):
+async def get_pior_desempenho_semana(db, estabilidade: dict, categorias_permitidas=None):
     """A partir dos dados ja calculados de estabilidade-semanal (semana atual),
     calcula tambem a semana anterior para comparar, e acha a categoria com
-    pior media (ou melhor, se tudo estiver bem)."""
+    pior media (ou melhor, se tudo estiver bem).
+    Se categorias_permitidas for passado, considera so essas categorias (ex:
+    separar 'Operacao' de 'Local')."""
     from sqlalchemy import select
     from app.models import BackupExecution, PfsenseLinkStatus
     from datetime import timezone
+
+    if categorias_permitidas is not None:
+        estabilidade = {k: v for k, v in estabilidade.items() if k in categorias_permitidas}
 
     def media(valores):
         validos = [v for v in valores if v is not None]
@@ -1071,6 +1134,18 @@ async def get_dados_relatorio(db, dias: int, categorias_selecionadas: list = Non
     )
     eventos = result_eventos.scalars().all()
 
+    # Filtra os eventos para conter somente as categorias selecionadas no relatorio
+    # (antes disso a lista vinha com TODOS os eventos do periodo, misturando
+    # categorias que o usuario nem escolheu ver).
+    nomes_categorias_selecionadas = {
+        nomes_amigaveis[c] for c in categorias if nomes_amigaveis.get(c)
+    }
+    if nomes_categorias_selecionadas:
+        eventos = [
+            e for e in eventos
+            if _categorizar_evento(e.mensagem) in nomes_categorias_selecionadas
+        ]
+
     eventos_lista = [
         {
             "id": e.id,
@@ -1090,9 +1165,9 @@ async def get_dados_relatorio(db, dias: int, categorias_selecionadas: list = Non
     ocorrencias_por_equipamento = {}
     for e in eventos:
         if e.tipo == "critico":
-            palavras = e.mensagem.split()
-            nome_equip = " ".join(palavras[:2]) if len(palavras) >= 2 else e.mensagem
-            ocorrencias_por_equipamento[nome_equip] = ocorrencias_por_equipamento.get(nome_equip, 0) + 1
+            nome_equip = _extrair_nome_equipamento(e.mensagem, e.detalhes)
+            if nome_equip:
+                ocorrencias_por_equipamento[nome_equip] = ocorrencias_por_equipamento.get(nome_equip, 0) + 1
     ranking = sorted(ocorrencias_por_equipamento.items(), key=lambda x: x[1], reverse=True)[:5]
     ranking_formatado = [{"equipamento": nome, "ocorrencias": qtd} for nome, qtd in ranking]
 
@@ -1161,7 +1236,11 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
 
     def formatar_data_hora(iso_str):
         try:
+            from datetime import timezone as _tz
             dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=_tz.utc)
+            dt = dt.astimezone(_tz(timedelta(hours=-3)))
             return dt.strftime("%d/%m %H:%M")
         except Exception:
             return iso_str
@@ -1275,9 +1354,15 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
 
     total_paginas = 2 + len(dados["categorias"]) + (2 if dados.get("acessos") else 0) + 1  # capa + resumo + categorias + acessos (2 paginas, opcional) + anexo
 
+    META_DISPONIBILIDADE = 95.0
+    meta_atingida = resumo['uptimeGeral'] >= META_DISPONIBILIDADE
+    meta_cor = CORES["verde"] if meta_atingida else CORES["vermelho"]
+    meta_texto = "✅ Atingida" if meta_atingida else "❌ Não atingida"
+
     kpis_html = f'''
     <div class="kpi-linha">
       <div class="kpi"><div class="rot">Uptime médio geral</div><div class="val {classe_faixa(resumo['uptimeGeral'])}">{resumo['uptimeGeral']}%</div>{delta_geral_html}</div>
+      <div class="kpi"><div class="rot">Meta de disponibilidade</div><div class="val mid">{META_DISPONIBILIDADE:.0f}%</div><div style="font-size:10px;color:{meta_cor};margin-top:4px;">{meta_texto}</div></div>
       <div class="kpi"><div class="rot">Total de incidentes</div><div class="val">{resumo['totalIncidentes']}</div></div>
       <div class="kpi"><div class="rot">Total de eventos</div><div class="val">{total_eventos}</div></div>
       <div class="kpi"><div class="rot">Categorias saudáveis</div><div class="val mid">{resumo['categoriasSaudaveis']} de {resumo['totalCategorias']}</div></div>
@@ -1304,7 +1389,7 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
         <div style="font-size:11px;color:{CORES['suave']};margin-top:2px;">{resumo.get('piorCategoriaValor') if resumo.get('piorCategoriaValor') is not None else '—'}%</div>
       </div>
       <div class="kpi">
-        <div class="rot">Equipamento mais problemático</div>
+        <div class="rot">Equipamento com mais ocorrências</div>
         <div class="val" style="font-size:16px;">{escapar(equipamento_top['equipamento']) if equipamento_top else '—'}</div>
         <div style="font-size:11px;color:{CORES['vermelho']};margin-top:2px;">{f"{equipamento_top['ocorrencias']}x ocorrências" if equipamento_top else '—'}</div>
       </div>
@@ -1349,11 +1434,10 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
       </div>
       <div style="text-align:right; font-size:9px; color:{CORES['fraca']}; margin-top:8px;">2 de {total_paginas}</div>
     </div>'''
-    PALAVRA_CHAVE_POR_CATEGORIA = {
-        "Servidores": "Servidor", "Access Points": "Access Point", "Links de Rede": "Link",
-        "VPNs": "VPN", "VLANs": "VLAN", "Backups": "Backup",
+    NOMES_PLURAL_RANKING = {
+        "Servidores": "servidores", "Access Points": "access points", "Links de Rede": "links",
+        "VPNs": "VPNs", "VLANs": "VLANs", "Backups": "backups",
     }
-
     paginas_categorias = []
     for chave, info in dados["categorias"].items():
         cor = cor_faixa(info["media"])
@@ -1363,8 +1447,7 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
         delta_texto = f" ({'melhora' if delta >= 0 else 'queda'} de {abs(delta):.1f} pontos vs. período anterior)" if delta is not None else ""
         grafico = gerar_linha_svg(info["serie"], cor) or f'<div style="color:{CORES["fraca"]};font-size:11px;">Sem dados suficientes no período.</div>'
 
-        palavra_chave = PALAVRA_CHAVE_POR_CATEGORIA.get(info["nome"], info["nome"])
-        eventos_cat = [e for e in dados["eventos"] if palavra_chave in e["mensagem"]]
+        eventos_cat = [e for e in dados["eventos"] if _categorizar_evento(e["mensagem"]) == info["nome"]]
 
         sev_cat = {"critico": 0, "atencao": 0, "bom": 0}
         for e in eventos_cat:
@@ -1379,8 +1462,9 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
         contagem_equip = {}
         for e in eventos_cat:
             if e["tipo"] == "critico":
-                nome_equip = " ".join(e["mensagem"].split()[:2])
-                contagem_equip[nome_equip] = contagem_equip.get(nome_equip, 0) + 1
+                nome_equip = _extrair_nome_equipamento(e["mensagem"], e.get("detalhes"))
+                if nome_equip:
+                    contagem_equip[nome_equip] = contagem_equip.get(nome_equip, 0) + 1
         ranking_cat = sorted(contagem_equip.items(), key=lambda x: x[1], reverse=True)[:5]
         ranking_html = "".join(
             f'<div style="display:flex;align-items:center;padding:5px 0;font-size:11px;border-bottom:1px solid {CORES["linha"]};">'
@@ -1418,7 +1502,7 @@ def gerar_html_relatorio_pdf(dados: dict, periodo_label: str) -> str:
               </div>
             </div>
           </div>
-          <div class="caixa"><div class="caixa-titulo">Ranking de equipamentos problemáticos</div>{ranking_html}</div>
+          <div class="caixa"><div class="caixa-titulo">Ranking de {NOMES_PLURAL_RANKING.get(info['nome'], 'equipamentos')} com mais ocorrências</div>{ranking_html}</div>
           <div class="caixa"><div class="caixa-titulo">Linha do tempo de eventos</div>{timeline_html}</div>
         </div>''')
 
@@ -1553,7 +1637,11 @@ def gerar_html_relatorio_dispositivo(detalhe: dict, periodo_label: str, interati
         if not iso_str:
             return "—"
         try:
+            from datetime import timezone as _tz
             dt = datetime.fromisoformat(str(iso_str).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=_tz.utc)
+            dt = dt.astimezone(_tz(timedelta(hours=-3)))
             return dt.strftime("%d/%m %H:%M")
         except Exception:
             return str(iso_str)
@@ -1565,6 +1653,14 @@ def gerar_html_relatorio_dispositivo(detalhe: dict, periodo_label: str, interati
                 return f"{n:.1f} {unidade}"
             n /= 1024
         return f"{n:.1f} PB"
+
+    def formatar_duracao_horas(segundos):
+        segundos = int(segundos or 0)
+        horas = segundos // 3600
+        minutos = (segundos % 3600) // 60
+        if horas > 0:
+            return f"{horas}h {minutos}min"
+        return f"{minutos}min"
 
     def gerar_donut_dispositivo(itens, raio=42, rotulo_central=None, valor_central=None):
         total = sum(i["valor"] for i in itens) or 1
@@ -1690,6 +1786,149 @@ def gerar_html_relatorio_dispositivo(detalhe: dict, periodo_label: str, interati
       </table>
     </div>'''
 
+    def montar_duracao_por_site(sessoes):
+        """Soma a duracao (fim - inicio) de cada sessao por categoria/site -
+        equivalente a aba "Duracao por site" da tela, mas calculado aqui em
+        cima das mesmas sessoes que ja alimentam a linha do tempo, sem
+        precisar de outra consulta."""
+        duracao_por_categoria = {}
+        for s in sessoes:
+            try:
+                inicio_dt = datetime.fromisoformat(str(s.get("inicio")).replace("Z", "+00:00"))
+                fim_bruto = s.get("fim")
+                fim_dt = datetime.fromisoformat(str(fim_bruto).replace("Z", "+00:00")) if fim_bruto else inicio_dt
+                segundos = max(0.0, (fim_dt - inicio_dt).total_seconds())
+            except Exception:
+                segundos = 0.0
+            cat = s.get("categoria") or "Outros"
+            duracao_por_categoria[cat] = duracao_por_categoria.get(cat, 0.0) + segundos
+
+        itens = sorted(duracao_por_categoria.items(), key=lambda x: x[1], reverse=True)[:20]
+        maior = itens[0][1] if itens else 1
+
+        linhas = "".join(
+            f'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid {CORES["linha"]};font-size:11px;">'
+            f'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{escapar(nome)}</span>'
+            f'<span style="width:72px;text-align:right;font-weight:700;flex-shrink:0;">{formatar_duracao_horas(segundos)}</span>'
+            f'<span style="flex:2;height:6px;border-radius:3px;background:{CORES["linha"]};overflow:hidden;flex-shrink:0;">'
+            f'<span style="display:block;height:100%;width:{round(segundos / (maior or 1) * 100, 1)}%;background:{paleta[i % len(paleta)]};"></span></span>'
+            f'</div>'
+            for i, (nome, segundos) in enumerate(itens)
+        ) or f'<div style="font-size:11px;color:{CORES["fraca"]};">Sem sessões nesse recorte.</div>'
+
+        return f'''
+    <div class="pagina">
+      <div class="caixa" style="max-width:640px;margin:0 auto;">
+        <div class="caixa-titulo">Duração por site</div>
+        {linhas}
+      </div>
+    </div>'''
+
+    def montar_por_hora(por_hora):
+        """Grafico de barras empilhadas (produtivo/nao produtivo/neutro) por
+        hora do dia. Os valores ja vem MEDIOS por dia amostrado (calculado em
+        get_atividade_por_hora), entao o grafico nao "explode" conforme o
+        periodo selecionado aumenta - so a opacidade da barra cai quando
+        poucos dias contribuiram pra aquela hora, pra deixar visualmente
+        clara a diferenca entre uma media forte e uma baseada em 1 dia so."""
+        if not por_hora:
+            return ""
+
+        def opacidade_amostra(dias):
+            if dias >= 10:
+                return 1.0
+            if dias >= 4:
+                return 0.7
+            if dias >= 1:
+                return 0.45
+            return 0.15
+
+        totais = [
+            (h.get("produtivo_segundos_media", 0) or 0)
+            + (h.get("nao_produtivo_segundos_media", 0) or 0)
+            + (h.get("neutro_segundos_media", 0) or 0)
+            for h in por_hora
+        ]
+        maximo = max(totais) or 1
+        x0, x1, y_base, altura_max = 10, 470, 130, 100
+        n = len(por_hora)
+        passo = (x1 - x0) / n
+        largura_barra = passo * 0.7
+
+        def fmt_faixa_hora(h):
+            return f"{h:02d}h–{(h + 1):02d}h"
+
+        melhor = None
+        pior = None
+        for h in por_hora:
+            total_h = (
+                (h.get("produtivo_segundos_media", 0) or 0)
+                + (h.get("nao_produtivo_segundos_media", 0) or 0)
+                + (h.get("neutro_segundos_media", 0) or 0)
+            )
+            if total_h <= 0:
+                continue
+            pct = (h.get("produtivo_segundos_media", 0) or 0) / total_h
+            if melhor is None or pct > melhor[1]:
+                melhor = (h.get("hora"), pct)
+            if pior is None or pct < pior[1]:
+                pior = (h.get("hora"), pct)
+
+        destaques_html = ""
+        if melhor and pior:
+            destaques_html = f'''
+        <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:180px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.35);border-radius:8px;padding:10px 12px;">
+            <div style="font-size:10px;color:{CORES["suave"]};margin-bottom:4px;">Horário mais produtivo</div>
+            <div style="font-size:14px;font-weight:700;color:{CORES["verde"]};">{fmt_faixa_hora(melhor[0])} ({round(melhor[1] * 100)}% produtivo)</div>
+          </div>
+          <div style="flex:1;min-width:180px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.35);border-radius:8px;padding:10px 12px;">
+            <div style="font-size:10px;color:{CORES["suave"]};margin-bottom:4px;">Horário menos produtivo</div>
+            <div style="font-size:14px;font-weight:700;color:{CORES["vermelho"]};">{fmt_faixa_hora(pior[0])} ({round(pior[1] * 100)}% produtivo)</div>
+          </div>
+        </div>'''
+
+        barras_svg = ""
+        rotulos_svg = ""
+        for i, h in enumerate(por_hora):
+            prod = h.get("produtivo_segundos_media", 0) or 0
+            nprod = h.get("nao_produtivo_segundos_media", 0) or 0
+            neutro = h.get("neutro_segundos_media", 0) or 0
+            op = opacidade_amostra(h.get("dias_amostrados", 0) or 0)
+            x = x0 + i * passo + (passo - largura_barra) / 2
+            altura_prod = (prod / maximo) * altura_max
+            altura_nprod = (nprod / maximo) * altura_max
+            altura_neutro = (neutro / maximo) * altura_max
+            y_prod = y_base - altura_prod
+            y_nprod = y_prod - altura_nprod
+            y_neutro = y_nprod - altura_neutro
+            if altura_prod > 0.3:
+                barras_svg += f'<rect x="{x:.1f}" y="{y_prod:.1f}" width="{largura_barra:.1f}" height="{altura_prod:.1f}" fill="{CORES["verde"]}" opacity="{op}"/>'
+            if altura_nprod > 0.3:
+                barras_svg += f'<rect x="{x:.1f}" y="{y_nprod:.1f}" width="{largura_barra:.1f}" height="{altura_nprod:.1f}" fill="{CORES["ambar"]}" opacity="{op}"/>'
+            if altura_neutro > 0.3:
+                barras_svg += f'<rect x="{x:.1f}" y="{y_neutro:.1f}" width="{largura_barra:.1f}" height="{altura_neutro:.1f}" fill="{CORES["fraca"]}" opacity="{op}"/>'
+            rotulos_svg += f'<text x="{x + largura_barra / 2:.1f}" y="{y_base + 12}" font-size="8" fill="{CORES["suave"]}" text-anchor="middle">{h.get("hora", i):02d}h</text>'
+
+        return f'''
+    <div class="pagina">
+      <div class="caixa" style="max-width:640px;margin:0 auto;">
+        <div class="caixa-titulo">Atividade por horário (8h–18h, seg. a sex.)</div>
+        {destaques_html}
+        <svg viewBox="0 0 480 150" style="width:100%;">
+          <line x1="{x0}" y1="{y_base}" x2="{x1}" y2="{y_base}" stroke="{CORES['linha']}"/>
+          {barras_svg}
+          {rotulos_svg}
+        </svg>
+        <div style="display:flex;gap:14px;font-size:10px;color:{CORES['suave']};margin-top:6px;">
+          <span><span style="background:{CORES['verde']};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>Produtivo</span>
+          <span><span style="background:{CORES['ambar']};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>Não produtivo</span>
+          <span><span style="background:{CORES['fraca']};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;"></span>Neutro</span>
+        </div>
+        <div style="font-size:9.5px;color:{CORES['fraca']};margin-top:4px;">Considera só horário comercial (8h–18h, segunda a sexta). Média por dia, normalizada pela quantidade de dias amostrados em cada hora — barras mais claras tiveram menos dias de amostra.</div>
+      </div>
+    </div>'''
+
     top_sites_produtivo = [s for s in top_sites if s.get("tipo") == "produtivo"]
     top_sites_nao_produtivo = [s for s in top_sites if s.get("tipo") == "nao_produtivo"]
     linha_do_tempo_produtivo = [s for s in linha_do_tempo_geral if mapa_tipo_local.get(s.get("categoria"), "neutro") == "produtivo"]
@@ -1701,6 +1940,10 @@ def gerar_html_relatorio_dispositivo(detalhe: dict, periodo_label: str, interati
     timeline_geral = montar_timeline_completa(linha_do_tempo_geral)
     timeline_produtivo = montar_timeline_completa(linha_do_tempo_produtivo)
     timeline_nao_produtivo = montar_timeline_completa(linha_do_tempo_nao_produtivo)
+    duracao_geral = montar_duracao_por_site(linha_do_tempo_geral)
+    duracao_produtivo = montar_duracao_por_site(linha_do_tempo_produtivo)
+    duracao_nao_produtivo = montar_duracao_por_site(linha_do_tempo_nao_produtivo)
+    por_hora_html = montar_por_hora(detalhe.get("por_hora") or [])
 
     if interativo:
         css_abas = f'''
@@ -1723,25 +1966,37 @@ def gerar_html_relatorio_dispositivo(detalhe: dict, periodo_label: str, interati
       <div id="aba-produtivo" class="aba-relatorio" onclick="mostrarSecaoRelatorio('produtivo')">Produtivo</div>
       <div id="aba-nao_produtivo" class="aba-relatorio" onclick="mostrarSecaoRelatorio('nao_produtivo')">Não produtivo</div>
     </div>
-    <div id="secao-geral" style="display:block;">{resumo_geral}{timeline_geral}</div>
-    <div id="secao-produtivo" style="display:none;">{resumo_produtivo}{timeline_produtivo}</div>
-    <div id="secao-nao_produtivo" style="display:none;">{resumo_nao_produtivo}{timeline_nao_produtivo}</div>
+    <div id="secao-geral" style="display:block;">{resumo_geral}{duracao_geral}{por_hora_html}{timeline_geral}</div>
+    <div id="secao-produtivo" style="display:none;">{resumo_produtivo}{duracao_produtivo}{timeline_produtivo}</div>
+    <div id="secao-nao_produtivo" style="display:none;">{resumo_nao_produtivo}{duracao_nao_produtivo}{timeline_nao_produtivo}</div>
     {js_abas}'''
         return f'''<!doctype html>
-<html><head><meta charset="utf-8"><style>{css}{css_abas}</style></head>
+<html><head><meta charset="utf-8"><style>{css}{css_abas}
+    .container-relatorio {{ max-width: 880px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; }}
+    </style></head>
 <body>
+<div class="container-relatorio">
 {corpo}
+</div>
 </body></html>'''
 
     corpo_pdf = f'''
     {resumo_geral}
+    {duracao_geral}
+    {por_hora_html}
     {timeline_geral}
     {resumo_produtivo}
+    {duracao_produtivo}
     {timeline_produtivo}
     {resumo_nao_produtivo}
+    {duracao_nao_produtivo}
     {timeline_nao_produtivo}'''
     return f'''<!doctype html>
-<html><head><meta charset="utf-8"><style>{css}</style></head>
+<html><head><meta charset="utf-8"><style>{css}
+    .container-relatorio {{ max-width: 880px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; }}
+    </style></head>
 <body>
+<div class="container-relatorio">
 {corpo_pdf}
+</div>
 </body></html>'''

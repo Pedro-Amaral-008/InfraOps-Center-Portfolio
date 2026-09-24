@@ -3,8 +3,8 @@ services:
     image: postgres:16-alpine
     container_name: infraops_postgres
     restart: unless-stopped
-    shm_size: "2560mb"
-    command: ["postgres", "-c", "shared_buffers=2GB", "-c", "work_mem=128MB", "-c", "effective_cache_size=4GB"]
+    shm_size: "4096mb"
+    command: ["postgres", "-c", "shared_buffers=4GB", "-c", "work_mem=256MB", "-c", "effective_cache_size=10GB"]
     env_file:
       - ../../.env
     environment:
@@ -30,13 +30,13 @@ services:
       dockerfile: Dockerfile
     container_name: infraops_backend
     restart: unless-stopped
-    mem_limit: "4g"
+    mem_limit: "6g"
     env_file:
       - ../../.env
     environment:
       POSTGRES_HOST: postgres
     volumes:
-      - /home/infraops-admin/.ssh/pfsense_readonly:/home/appuser/.ssh/pfsense_readonly:ro
+      - ${SSH_PFSENSE_KEY_PATH}:/home/appuser/.ssh/pfsense_readonly:ro
       - /etc/localtime:/etc/localtime:ro
       - ../../backend/dados:/app/app/dados
     ports:
