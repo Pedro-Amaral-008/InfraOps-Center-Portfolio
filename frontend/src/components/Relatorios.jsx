@@ -94,6 +94,13 @@ function formatarBytesRel(n) {
   }
   return `${n.toFixed(1)} ${unidades[i]}`;
 }
+function formatarDuracaoRel(segundos) {
+  segundos = segundos || 0;
+  const horas = Math.floor(segundos / 3600);
+  const minutos = Math.round((segundos % 3600) / 60);
+  if (horas === 0) return `${minutos}min`;
+  return `${horas}h ${minutos}min`;
+}
 
 // Gera um path SVG (viewBox 460x140, area util x:10-450 y:20-120) a partir
 // de uma serie de pontos {t,v}, com escala minima/maxima dinamica (nao fixa),
@@ -421,6 +428,10 @@ function Relatorios({ token, role }) {
           <div class="rel-titulo-mini" style="margin-bottom:8px;">Top 10 — uso não corporativo (lazer)</div>
           <table class="rel-tabela-anexo"><thead><tr><th>Dispositivo</th><th>Volume</th><th>Categoria principal</th></tr></thead><tbody>${(ac.ranking_pessoal || []).map(linhaTabelaAc).join('')}</tbody></table>
         </div>
+        <div style="margin-top:18px;">
+          <div class="rel-titulo-mini" style="margin-bottom:8px;">Top 10 — mais produtivos</div>
+          <table class="rel-tabela-anexo"><thead><tr><th>Dispositivo</th><th>% produtivo</th><th>Tempo produtivo</th></tr></thead><tbody>${(ac.ranking_produtivo || []).map((r) => `<tr><td>${r.hostname}</td><td>${r.produtivo_pct}%</td><td>${formatarDuracaoRel(r.produtivo_segundos)}</td></tr>`).join('')}</tbody></table>
+        </div>
       </div>`;
     }
     let htmlAnexo = `<div class="rel-pagina rel-oculta" data-secao="anexo">
@@ -566,13 +577,14 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
         </div>
 
         {/* RESUMO GERAL */}
+        {Object.keys(dados.categorias).length > 0 && (
         <div className="rel-pagina">
           <div className="rel-sec-cabecalho">
             <div>
               <div className="rel-titulo">Resumo geral</div>
               <div className="rel-sub">Visão consolidada das categorias selecionadas no período</div>
             </div>
-            <span className="rel-badge-sec">1 de {(Object.keys(dados.categorias).length + 2 + (dados.acessos ? 2 : 0))}</span>
+            <span className="rel-badge-sec">1 de {(Object.keys(dados.categorias).length + (Object.keys(dados.categorias).length ? 2 : 1) + (dados.acessos ? 2 : 0))}</span>
           </div>
 
           <div className="rel-kpi-grade">
@@ -612,7 +624,7 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
               <div className="rel-titulo-mini">Uptime por categoria</div>
               <div className="rel-sub-mini">% de disponibilidade por categoria selecionada no período</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
-                {CATEGORIAS_DISPONIVEIS.filter((c) => categoriasSelecionadas.includes(c.chave)).map((c) => {
+                {CATEGORIAS_DISPONIVEIS.filter((c) => c.chave !== 'acessos' && categoriasSelecionadas.includes(c.chave)).map((c) => {
                   const info = dados.categorias[c.chave];
                   const serie = info?.serie || [];
                   const media = info && info.media !== undefined ? info.media : null;
@@ -639,12 +651,12 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
 
                   return (
                     <div key={c.chave} style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: '10px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700 }}>
-                          <i style={{ width: '8px', height: '8px', borderRadius: '50%', background: c.cor, display: 'inline-block' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', flexWrap: 'wrap' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <i style={{ width: '8px', height: '8px', borderRadius: '50%', background: c.cor, display: 'inline-block', flexShrink: 0 }} />
                           {c.label}
                         </span>
-                        <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', color: faixaCor, border: `1px solid ${faixaCor}`, borderRadius: '5px', padding: '1px 5px', whiteSpace: 'nowrap' }}>{faixaLabel}</span>
+                        <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', color: faixaCor, border: `1px solid ${faixaCor}`, borderRadius: '5px', padding: '1px 5px', whiteSpace: 'nowrap', flexShrink: 0 }}>{faixaLabel}</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                         <span style={{ fontSize: '18px', fontWeight: 700 }}>{media !== null ? `${media}%` : '—'}</span>
@@ -722,6 +734,7 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
 
           <div className="rel-num-pagina">Página 1</div>
         </div>
+        )}
 
         {/* PAGINA POR CATEGORIA */}
         {Object.entries(dados.categorias).map(([chave, info], idx) => {
@@ -733,7 +746,7 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
             <div className="rel-pagina" style={{ '--faixa': cor }} key={chave}>
               <div className="rel-sec-cabecalho">
                 <div><div className="rel-titulo">Detalhe por categoria</div><div className="rel-sub">{info.nome}</div></div>
-                <span className="rel-badge-sec">{idx + 2} de {(Object.keys(dados.categorias).length + 2 + (dados.acessos ? 2 : 0))}</span>
+                <span className="rel-badge-sec">{idx + 2} de {(Object.keys(dados.categorias).length + (Object.keys(dados.categorias).length ? 2 : 1) + (dados.acessos ? 2 : 0))}</span>
               </div>
 
               <div className="rel-cat-header">
@@ -884,9 +897,35 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
               </tr>
             );
           };
-          const paginaAtualDonut = Object.keys(dados.categorias).length + 2;
+          const linhaDispositivoProdutivo = (r) => {
+            const naoResolvido = r.hostname === 'Desconhecido';
+            const ehVpn = !!(r.ip && r.ip.startsWith('10.8.'));
+            const nomeRevelado = nomesRevelados[r.mac];
+            return (
+              <tr key={r.mac}>
+                <td>
+                  {r.hostname}
+                  {naoResolvido && ehVpn && podeRevelarIdentidade && (
+                    nomeRevelado ? (
+                      <span style={{ marginLeft: '6px', opacity: 0.8 }}>({nomeRevelado})</span>
+                    ) : (
+                      <span
+                        style={{ marginLeft: '6px', cursor: 'pointer', textDecoration: 'underline dotted', fontSize: '10.5px', opacity: 0.7 }}
+                        onClick={() => revelarIdentidadeAcessos(r.mac, r.ip)}
+                      >
+                        revelar identidade
+                      </span>
+                    )
+                  )}
+                </td>
+                <td>{r.produtivo_pct}%</td>
+                <td>{formatarDuracaoRel(r.produtivo_segundos)}</td>
+              </tr>
+            );
+          };
+          const paginaAtualDonut = Object.keys(dados.categorias).length + (Object.keys(dados.categorias).length ? 2 : 1);
           const paginaAtualTabelas = paginaAtualDonut + 1;
-          const totalPaginasCalc = Object.keys(dados.categorias).length + 2 + (dados.acessos ? 2 : 0);
+          const totalPaginasCalc = Object.keys(dados.categorias).length + (Object.keys(dados.categorias).length ? 2 : 1) + (dados.acessos ? 2 : 0);
           return (
             <>
               <div className="rel-pagina">
@@ -974,6 +1013,13 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
                     <tbody>{ac.ranking_pessoal.map(linhaDispositivo)}</tbody>
                   </table>
                 </div>
+                <div style={{ marginTop: '18px', overflowX: 'auto' }}>
+                  <div className="rel-titulo-mini" style={{ marginBottom: '6px' }}>Top 10 — mais produtivos</div>
+                  <table className="rel-tabela-anexo">
+                    <thead><tr><th>Dispositivo</th><th>% produtivo</th><th>Tempo produtivo</th></tr></thead>
+                    <tbody>{(ac.ranking_produtivo || []).map(linhaDispositivoProdutivo)}</tbody>
+                  </table>
+                </div>
                 <div className="rel-num-pagina">Página {paginaAtualTabelas}</div>
               </div>
             </>
@@ -981,10 +1027,11 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
         })()}
 
         {/* ANEXO */}
+        {Object.keys(dados.categorias).length > 0 && (
         <div className="rel-pagina">
           <div className="rel-sec-cabecalho">
             <div><div className="rel-titulo">Anexo — todos os eventos do período</div><div className="rel-sub">{totalEventos} eventos, ordenados cronologicamente</div></div>
-            <span className="rel-badge-sec">{(Object.keys(dados.categorias).length + 2 + (dados.acessos ? 2 : 0))} de {(Object.keys(dados.categorias).length + 2 + (dados.acessos ? 2 : 0))}</span>
+            <span className="rel-badge-sec">{(Object.keys(dados.categorias).length + (Object.keys(dados.categorias).length ? 2 : 1) + (dados.acessos ? 2 : 0))} de {(Object.keys(dados.categorias).length + (Object.keys(dados.categorias).length ? 2 : 1) + (dados.acessos ? 2 : 0))}</span>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table className="rel-tabela-anexo">
@@ -1007,6 +1054,7 @@ document.querySelectorAll('.rel-pill').forEach(function(pill) {
             </table>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

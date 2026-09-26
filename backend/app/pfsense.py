@@ -1,6 +1,25 @@
 import asyncio
+import re
+import socket
 from datetime import datetime, timedelta, timezone
+
+import paramiko
+
 from app.config import settings
+
+PFSENSE_SSH_USER = "infraops-readonly"
+PFSENSE_SSH_KEY_PATH = "/home/appuser/.ssh/pfsense_readonly"
+
+# vpnid do OpenVPN (server1/2/3 no pfSense) por nome - confirmado cruzando a
+# descricao no config.xml do pfSense com o ifDescr via SNMP (ovpnsN = vpnid
+# N). So mapeamos as VPNs site-a-site aqui (tunel fixo entre unidades, deve
+# sempre ter exatamente 1 peer conectado 24/7); "Elcop-Principal" e VPN de
+# acesso de usuarios (logins esporadicos, "ninguem conectado" e normal fora
+# do expediente) e continua usando o ifOperStatus, nao esse mapeamento.
+VPNID_POR_NOME = {
+    "Elcop-Matriz": 2,
+    "VPN_MATRIZ_SP": 3,
+}
 
 INTERFACES = {
     3: "WAN_Vivo",
@@ -197,15 +216,81 @@ async def houve_trafego_recente(db, nome_link: str, minutos: int = 45) -> bool:
     return total_trafego > 0
 
 
+def _consultar_clientes_conectados_openvpn_sync() -> dict:
+    """Conecta via SSH no pfSense e roda (via sudo, permissao restrita a esse
+    unico script) o script que le o socket de management de cada instancia
+    OpenVPN site-a-site, retornando quem esta na CLIENT LIST de cada uma
+    agora. Isso reflete se o peer remoto esta realmente conectado - diferente
+    do ifOperStatus (so reflete o lado local da interface) e diferente de
+    inferir por trafego (gera falso positivo num tunel ocioso mas realmente
+    conectado). Sincrono (paramiko) - rodar via asyncio.to_thread.
+    Retorna {vpnid: True/False}, ou {} se a consulta SSH falhar."""
+    cliente = paramiko.SSHClient()
+    cliente.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    cliente.connect(
+        hostname=settings.pfsense_host,
+        username=PFSENSE_SSH_USER,
+        key_filename=PFSENSE_SSH_KEY_PATH,
+        timeout=10,
+    )
+    try:
+        _, stdout, _ = cliente.exec_command("sudo /usr/local/bin/ler_status_openvpn.sh")
+        stdout.channel.settimeout(15)
+        try:
+            saida = stdout.read().decode(errors="ignore")
+        except socket.timeout:
+            print("AVISO: leitura SSH do status OpenVPN excedeu 15s, abortando")
+            return {}
+    finally:
+        cliente.close()
+
+    conectado_por_vpnid = {}
+    vpnid_atual = None
+    dentro_client_list = False
+    for linha in saida.splitlines():
+        linha = linha.strip()
+        m = re.match(r"===VPNID (\d+)===", linha)
+        if m:
+            vpnid_atual = int(m.group(1))
+            conectado_por_vpnid[vpnid_atual] = False
+            dentro_client_list = False
+            continue
+        if vpnid_atual is None:
+            continue
+        if linha == "OpenVPN CLIENT LIST":
+            dentro_client_list = True
+            continue
+        if linha.startswith("ROUTING TABLE") or linha.startswith("GLOBAL STATS") or linha == "END":
+            dentro_client_list = False
+            continue
+        if dentro_client_list and linha and not linha.startswith("Common Name") and not linha.startswith("Updated"):
+            conectado_por_vpnid[vpnid_atual] = True
+
+    return conectado_por_vpnid
+
+
 async def get_vpns_status_trafego(db=None):
     trafego = await get_trafego_por_indices(VPNS)
+
+    conectado_por_vpnid = None
+    if any(t["nome"] in VPNID_POR_NOME for t in trafego):
+        try:
+            conectado_por_vpnid = await asyncio.to_thread(_consultar_clientes_conectados_openvpn_sync)
+        except Exception as e:
+            print(f"ERRO ao consultar status real do OpenVPN via SSH: {e}")
+            conectado_por_vpnid = None
+
     resultado = []
     for t in trafego:
-        status = await get_status_operstatus(t["indice"])
-        if status == "online" and db is not None:
-            ativo_de_verdade = await houve_trafego_recente(db, t["nome"])
-            if not ativo_de_verdade:
-                status = "offline"
+        vpnid = VPNID_POR_NOME.get(t["nome"])
+        if vpnid is not None and conectado_por_vpnid is not None and vpnid in conectado_por_vpnid:
+            # tunel site-a-site: status real, baseado em ter peer conectado
+            # agora no socket de management do OpenVPN (nao em trafego)
+            status = "online" if conectado_por_vpnid[vpnid] else "offline"
+        else:
+            # "Elcop-Principal" (VPN de usuarios) ou fallback se o SSH falhou:
+            # usa o ifOperStatus (reflete o servico rodando, nao trafego)
+            status = await get_status_operstatus(t["indice"])
         resultado.append({
             "nome": t["nome"],
             "status": status,

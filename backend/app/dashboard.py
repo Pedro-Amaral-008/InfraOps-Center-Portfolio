@@ -228,6 +228,39 @@ def to_device_list(results):
     return devices
 
 
+async def get_status_impressoras():
+    """Status por impressora cruzando ping (ICMP) e porta de impressao (TCP 9100):
+    online = ping responde; hibernando = ping mudo mas porta 9100 responde (nao conta
+    como queda); offline = os dois falham (queda real)."""
+    icmp = await query_prometheus('probe_success{job="blackbox-impressoras"}')
+    tcp = await query_prometheus('probe_success{job="blackbox-impressoras-tcp"}')
+
+    tcp_por_nome = {}
+    for r in tcp:
+        nome = r.get("metric", {}).get("nome", "")
+        tcp_por_nome[nome] = r.get("value", [None, None])[1]
+
+    ordem_status = {"offline": 0, "hibernando": 1, "online": 2}
+    devices = []
+    for r in icmp:
+        metric = r.get("metric", {})
+        nome = metric.get("nome", metric.get("instance", "desconhecido"))
+        valor_icmp = r.get("value", [None, None])[1]
+        if valor_icmp == "1":
+            status = "online"
+        elif tcp_por_nome.get(nome) == "1":
+            status = "hibernando"
+        else:
+            status = "offline"
+        devices.append({
+            "nome": nome,
+            "instance": metric.get("instance", ""),
+            "status": status,
+        })
+    devices.sort(key=lambda d: (ordem_status.get(d["status"], 9), d["nome"]))
+    return devices
+
+
 async def get_dashboard_summary(db=None):
     servidores = await query_prometheus(
         'probe_success{job=~"blackbox-servidores-tcp|blackbox-servidor-backup-principal"}'
@@ -317,20 +350,10 @@ async def get_dashboard_summary(db=None):
         # fecha a leitura de backups antes das chamadas de rede que vem a seguir
         await db.commit()
 
-    impressoras = await query_prometheus('probe_success{job="blackbox-impressoras"}')
-    from datetime import timezone as tz_utc_imp, timedelta as td_imp
-    fuso_local_imp = tz_utc_imp(td_imp(hours=-3))
-    agora_local_imp = datetime.now(tz_utc_imp.utc).astimezone(fuso_local_imp)
-    dentro_horario_comercial = agora_local_imp.weekday() <= 4 and 8 <= agora_local_imp.hour < 18
-    if dentro_horario_comercial:
-        impressoras_online, impressoras_offline = count_by_value(impressoras)
-        impressoras_detalhe_lista = to_device_list(impressoras)
-    else:
-        # fora do horario comercial (seg-sex 8h-18h) as impressoras entram em
-        # modo standby e nao respondem ping - isso e esperado, nao e queda.
-        impressoras_online = len(impressoras)
-        impressoras_offline = 0
-        impressoras_detalhe_lista = [dict(d, status="online") for d in to_device_list(impressoras)]
+    impressoras_detalhe_lista = await get_status_impressoras()
+    impressoras_offline = sum(1 for d in impressoras_detalhe_lista if d["status"] == "offline")
+    impressoras_hibernando = sum(1 for d in impressoras_detalhe_lista if d["status"] == "hibernando")
+    impressoras_online = len(impressoras_detalhe_lista) - impressoras_offline
 
     from app.pfsense import get_status_links
     links_wan = await get_status_links()
@@ -351,6 +374,7 @@ async def get_dashboard_summary(db=None):
         "backups_detalhe": backups_detalhe,
         "impressoras_online": impressoras_online,
         "impressoras_offline": impressoras_offline,
+        "impressoras_hibernando": impressoras_hibernando,
         "links_online": links_online,
         "links_offline": links_offline,
         "links_detalhe": links_detalhe,
@@ -455,7 +479,10 @@ async def get_backups_detalhado(db=None):
             "instance": execucao.instance,
             "sucesso": execucao.status in ("Success", "Warning"),
             "tamanho_gb": tamanho_gb,
-            "ultima_execucao": execucao.executado_em.isoformat() if execucao.executado_em else None,
+            "ultima_execucao": (
+                None if not execucao.executado_em
+                else (execucao.executado_em if execucao.executado_em.tzinfo else execucao.executado_em.replace(tzinfo=__import__("datetime").timezone.utc)).isoformat()
+            ),
         })
     return backups
 
@@ -494,11 +521,13 @@ async def get_tendencia_saude_24h():
     query = (
         '('
         'sum(probe_success{job=~"blackbox-servidores-tcp|blackbox-servidor-backup-principal|'
-        'blackbox-access-points|blackbox-impressoras"}) '
+        'blackbox-access-points"} or max by (nome) (probe_success{job=~"blackbox-impressoras|'
+        'blackbox-impressoras-tcp"})) '
         'or vector(0)'
         ') / ('
         'count(probe_success{job=~"blackbox-servidores-tcp|blackbox-servidor-backup-principal|'
-        'blackbox-access-points|blackbox-impressoras"}) '
+        'blackbox-access-points"} or max by (nome) (probe_success{job=~"blackbox-impressoras|'
+        'blackbox-impressoras-tcp"})) '
         'or vector(1)'
         ') * 100'
     )
@@ -567,7 +596,10 @@ async def get_estabilidade_semanal(db):
 
     # Impressoras: uptime considerando SO o horario comercial (seg-sex, 8h-18h local),
     # ja que muitas entram em modo standby fora desse horario e isso nao deve contar como "queda".
-    query_impressoras = 'avg(probe_success{job="blackbox-impressoras"}) * 100'
+    # Tambem so conta como queda real se ICMP E TCP (porta 9100, impressao raw) falharem
+    # juntos - impressora hibernando (ping mudo mas porta de impressao de pe) nao entra
+    # como indisponibilidade, so aparece separadamente no painel.
+    query_impressoras = 'avg(max by (nome) (probe_success{job=~"blackbox-impressoras|blackbox-impressoras-tcp"})) * 100'
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
             response = await client.get(
@@ -872,7 +904,7 @@ async def get_estabilidade_14_dias(db):
         resultado[chave] = valores
 
     # Impressoras: horario comercial, 14 dias uteis considerando seg-sex 8h-18h
-    query_impressoras = 'avg(probe_success{job="blackbox-impressoras"}) * 100'
+    query_impressoras = 'avg(max by (nome) (probe_success{job=~"blackbox-impressoras|blackbox-impressoras-tcp"})) * 100'
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
             response = await client.get(
@@ -961,7 +993,7 @@ async def get_dados_relatorio(db, dias: int, categorias_selecionadas: list = Non
     from app.models import EventoSistema, PfsenseLinkStatus, PfsenseVpnVlanStatus, BackupExecution
 
     todas_categorias = ["servidores", "access_points", "links", "vpns", "vlans", "backups"]
-    categorias = categorias_selecionadas or todas_categorias
+    categorias = categorias_selecionadas if categorias_selecionadas is not None else todas_categorias
     nomes_amigaveis = {
         "servidores": "Servidores", "access_points": "Access Points",
         "links": "Links de Rede", "vpns": "VPNs", "vlans": "VLANs", "backups": "Backups",

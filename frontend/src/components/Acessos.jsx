@@ -697,6 +697,22 @@ function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
   const [carregando, setCarregando] = useState(true);
   const [macSelecionado, setMacSelecionado] = useState(null);
   const [busca, setBusca] = useState('');
+  const [verRankingProdutividade, setVerRankingProdutividade] = useState(null); // null | 'mais' | 'menos'
+  const [rankingProdutividade, setRankingProdutividade] = useState(null);
+  const [carregandoRanking, setCarregandoRanking] = useState(false);
+
+  const alternarRankingProdutividade = (tipo) => {
+    if (verRankingProdutividade === tipo) {
+      setVerRankingProdutividade(null);
+      return;
+    }
+    setVerRankingProdutividade(tipo);
+    setCarregandoRanking(true);
+    axios.get(`${API_URL}/dashboard/acessos/ranking-produtividade`, {
+      params: { horas },
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((resp) => setRankingProdutividade(resp.data)).catch(() => setRankingProdutividade(null)).finally(() => setCarregandoRanking(false));
+  };
   useEffect(() => {
     if (macInicial) {
       setMacSelecionado(macInicial);
@@ -783,6 +799,45 @@ function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
 
       <h4 className="detail-table-title" style={{ fontSize: '14px' }}>Top sites acessados na rede</h4>
       <Donut dados={topSites} campoValor="volume_bytes" campoLabel="categoria" />
+
+      <div style={{ display: 'flex', gap: '8px', margin: '18px 0 4px' }}>
+        <button className={`btn ${verRankingProdutividade === 'mais' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => alternarRankingProdutividade('mais')}>
+          Top 10 mais produtivos
+        </button>
+        <button className={`btn ${verRankingProdutividade === 'menos' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => alternarRankingProdutividade('menos')}>
+          Top 10 menos produtivos
+        </button>
+      </div>
+
+      {verRankingProdutividade && (
+        <div style={{ marginBottom: '20px' }}>
+          {carregandoRanking ? (
+            <div style={{ fontSize: '13px', opacity: 0.7, padding: '10px 0' }}>Carregando...</div>
+          ) : (
+            <table>
+              <thead>
+                <tr><th>Dispositivo</th><th>% produtivo</th><th>Tempo produtivo</th><th>Tempo não produtivo</th></tr>
+              </thead>
+              <tbody>
+                {(rankingProdutividade
+                  ? (verRankingProdutividade === 'mais' ? rankingProdutividade.mais_produtivos : rankingProdutividade.menos_produtivos)
+                  : []
+                ).map((r) => (
+                  <tr key={r.mac} style={{ cursor: 'pointer' }} onClick={() => setMacSelecionado(r.mac)}>
+                    <td>{r.hostname}</td>
+                    <td>{r.produtivo_pct}%</td>
+                    <td>{fmtDuracao(r.produtivo_segundos)}</td>
+                    <td>{fmtDuracao(r.nao_produtivo_segundos)}</td>
+                  </tr>
+                ))}
+                {rankingProdutividade && (verRankingProdutividade === 'mais' ? rankingProdutividade.mais_produtivos : rankingProdutividade.menos_produtivos).length === 0 && (
+                  <tr><td colSpan="4" style={{ opacity: 0.6, textAlign: 'center', padding: '14px 0' }}>Sem dados suficientes no período selecionado</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', margin: '22px 0 16px', flexWrap: 'wrap' }}>
         <input

@@ -689,6 +689,13 @@ async def registrar_backup(
     if x_api_key != settings.backup_api_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API Key invalida")
 
+    executado_em_dt = datetime.fromisoformat(dados.executado_em)
+    if executado_em_dt.tzinfo is None:
+        # scripts de backup mandam UTC sem indicar o fuso (ex: "date -u") - sem isso
+        # o horario fica "sem fuso" e o navegador exibe como se ja fosse local,
+        # adiantando 3h na tela.
+        executado_em_dt = executado_em_dt.replace(tzinfo=timezone.utc)
+
     execucao = BackupExecution(
         job_name=dados.job_name,
         instance=dados.instance,
@@ -697,7 +704,7 @@ async def registrar_backup(
         tamanho_transferido_bytes=dados.tamanho_transferido_bytes,
         tamanho_processado_bytes=dados.tamanho_processado_bytes,
         tamanho_lido_bytes=dados.tamanho_lido_bytes,
-        executado_em=datetime.fromisoformat(dados.executado_em),
+        executado_em=executado_em_dt,
     )
     db.add(execucao)
     await db.commit()
@@ -757,7 +764,7 @@ async def dashboard_backups_history(
             "backup_type": e.backup_type,
             "status": e.status,
             "tamanho_transferido_gb": round(e.tamanho_transferido_bytes / (1024**3), 2),
-            "executado_em": e.executado_em.isoformat(),
+            "executado_em": (e.executado_em if e.executado_em.tzinfo else e.executado_em.replace(tzinfo=timezone.utc)).isoformat(),
         }
         for e in execucoes
     ]
@@ -940,6 +947,25 @@ async def loop_verificacao_agentes():
                 print(f"ERRO em verificar_limites_controller: {e}")
 
             try:
+                await verificar_alertas_vpns_vlans(db)
+            except Exception as e:
+                print(f"ERRO em verificar_alertas_vpns_vlans: {e}")
+
+            try:
+                await registrar_status_vpns_vlans(db)
+            except Exception as e:
+                print(f"ERRO em registrar_status_vpns_vlans: {e}")
+
+        await asyncio.sleep(120)
+
+
+async def loop_status_links_pfsense():
+    """Loop dedicado so pros links WAN (Vivo/Nio), separado do loop geral de
+    2 minutos - roda a cada 20s pra pegar quedas rapidas (flapping) que antes
+    caiam no intervalo entre amostras e nao entravam na % de uptime."""
+    while True:
+        async with AsyncSessionLocal() as db:
+            try:
                 links_pfsense = await get_status_links()
             except Exception as e:
                 links_pfsense = None
@@ -949,21 +975,13 @@ async def loop_verificacao_agentes():
                 await verificar_alertas_links(db, links_pfsense)
             except Exception as e:
                 print(f"ERRO em verificar_alertas_links: {e}")
-            try:
-                await verificar_alertas_vpns_vlans(db)
-            except Exception as e:
-                print(f"ERRO em verificar_alertas_vpns_vlans: {e}")
 
             try:
                 await registrar_status_links(db, links_pfsense)
             except Exception as e:
                 print(f"ERRO em registrar_status_links: {e}")
-            try:
-                await registrar_status_vpns_vlans(db)
-            except Exception as e:
-                print(f"ERRO em registrar_status_vpns_vlans: {e}")
 
-        await asyncio.sleep(120)
+        await asyncio.sleep(20)
 
 async def loop_consumo_rede():
     from app.unifi import verificar_consumo_excessivo
@@ -1147,6 +1165,7 @@ async def iniciar_verificacao_agentes():
     _conexao_lock_loops_de_fundo = conexao  # mantem a conexao aberta pra segurar o lock enquanto o worker viver
     print("loops de fundo: lock obtido, iniciando tarefas periodicas neste worker")
     asyncio.create_task(loop_verificacao_agentes())
+    asyncio.create_task(loop_status_links_pfsense())
     asyncio.create_task(loop_trafego_pfsense())
     asyncio.create_task(loop_resumo_diario())
     asyncio.create_task(loop_consumo_rede())
@@ -1287,6 +1306,16 @@ async def dashboard_acessos_top_sites(
 ):
     from app.acessos import get_top_sites_rede
     return await get_top_sites_rede(db, horas, limite)
+@app.get("/dashboard/acessos/ranking-produtividade")
+@cache_ttl(30)
+async def dashboard_acessos_ranking_produtividade(
+    horas: float = 360,
+    limite: int = 10,
+    usuario: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.acessos import get_ranking_produtividade
+    return await get_ranking_produtividade(db, horas, limite)
 @app.get("/dashboard/acessos/dispositivo/{mac}")
 @cache_ttl(60)
 async def dashboard_acessos_dispositivo(

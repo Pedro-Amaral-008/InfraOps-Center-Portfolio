@@ -95,7 +95,7 @@ async def get_latencia_por_categoria(job: str, minutos: int = 60):
         minutos, step
     )
 
-    INSTANCIAS_REMOVIDAS = ["192.168.1.71:445", "192.168.1.71"]
+    INSTANCIAS_REMOVIDAS = ["192.168.1.XXX:445", "192.168.1.XXX"]
 
     series = []
     for r in resultado:

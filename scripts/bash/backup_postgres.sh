@@ -21,7 +21,7 @@ else
 fi
 
 echo "Enviando para servidor principal (IP_SRV_BACKUP)..."
-if scp -o StrictHostKeyChecking=no "$CAMINHO_LOCAL" "Administrador@IP_SRV_BACKUP:/A:/Backups/Bkp infraOps/"; then
+if scp -i ~/.ssh/backup_srv_principal -o StrictHostKeyChecking=no "$CAMINHO_LOCAL" "Administrador@IP_SRV_BACKUP:/A:/Backups/Bkp infraOps/"; then
     echo "OK: enviado para principal"
 else
     echo "ERRO: falha ao enviar para principal"

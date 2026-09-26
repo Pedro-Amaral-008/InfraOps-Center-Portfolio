@@ -1711,6 +1711,8 @@ async def get_relatorio_acessos(db, dias: int = 15, categoria_geral: str = None,
         linha_top = resultado_top_cat.first()
         linha["categoria_principal"] = linha_top[0] if linha_top else None
 
+    ranking_produtividade = await get_ranking_produtividade(db, horas=horas, limite=10)
+
     return {
         "resumo": {
             "volume_total_bytes": volume_total,
@@ -1720,6 +1722,7 @@ async def get_relatorio_acessos(db, dias: int = 15, categoria_geral: str = None,
         "top_sites": top_sites,
         "ranking_geral": ranking_geral,
         "ranking_pessoal": ranking_pessoal,
+        "ranking_produtivo": ranking_produtividade["mais_produtivos"],
     }
 
 
@@ -1829,6 +1832,91 @@ async def calcular_produtividade_dispositivo(db, mac: str, horas: float = 1440, 
         "nao_produtivo_pct": pct(totais["nao_produtivo"]),
         "neutro_pct": pct(totais["neutro"]),
         "total_segundos": round(total_segundos),
+    }
+
+
+async def get_ranking_produtividade(db, horas: float = 360, limite: int = 10, minimo_segundos: int = 1800) -> dict:
+    """Ranking de dispositivos por produtividade (% do tempo de atividade
+    classificavel gasto em categorias produtivas) no periodo - usado tanto
+    pelo relatorio geral de Acessos quanto pela aba de Acessos no dashboard.
+
+    Diferente de calcular_produtividade_dispositivo (usado pro grafico de UM
+    dispositivo), aqui NAO buscamos os flows brutos da rede inteira via
+    get_sessoes_acesso - pra periodos longos (15 dias, 1 mes, 2 meses) isso
+    escaneava a tabela inteira e estourava o statement_timeout do Postgres.
+    Em vez disso somamos duracao_segundos por mac+categoria direto no banco
+    (1 unica agregacao, sem trazer flow por flow pro Python) e classificamos
+    produtivo/nao_produtivo/neutro em cima do resultado ja agregado. Perde a
+    precisao do merge de sessoes com gap (junta flows picados e resolve
+    sobreposicao com 'produtivo sempre vence'), mas pra um RANKING da rede
+    inteira essa aproximacao nao muda a ordenacao de forma relevante, e o
+    ganho de performance e o que torna a consulta viavel pra periodos longos.
+    Dispositivos com menos de `minimo_segundos` de atividade classificavel
+    (produtivo + nao produtivo) ficam de fora, pra nao deixar um uso de
+    poucos minutos aparecer com 100% ou 0% e distorcer o ranking."""
+    desde = datetime.now(timezone.utc) - timedelta(hours=horas)
+    mapa_tipo = await _obter_mapa_produtividade(db)
+
+    resultado = await db.execute(
+        select(
+            AcessoDominio.mac,
+            AcessoDominio.categoria,
+            func.sum(AcessoDominio.duracao_segundos).label("segundos"),
+        )
+        .where(AcessoDominio.inicio >= desde)
+        .group_by(AcessoDominio.mac, AcessoDominio.categoria)
+    )
+    linhas = resultado.all()
+    if not linhas:
+        return {"mais_produtivos": [], "menos_produtivos": []}
+
+    por_mac = {}
+    for mac, categoria, segundos in linhas:
+        tipo = mapa_tipo.get(categoria, "neutro")
+        acc = por_mac.setdefault(mac, {"produtivo": 0, "nao_produtivo": 0, "neutro": 0})
+        acc[tipo] += int(segundos or 0)
+
+    candidatos = []
+    for mac, acc in por_mac.items():
+        base = acc["produtivo"] + acc["nao_produtivo"]
+        if base < minimo_segundos:
+            continue
+        candidatos.append({
+            "mac": mac,
+            "produtivo_segundos": acc["produtivo"],
+            "nao_produtivo_segundos": acc["nao_produtivo"],
+            "produtivo_pct": round(acc["produtivo"] / base * 100, 1),
+            "nao_produtivo_pct": round(acc["nao_produtivo"] / base * 100, 1),
+        })
+
+    if not candidatos:
+        return {"mais_produtivos": [], "menos_produtivos": []}
+
+    mais_produtivos = sorted(candidatos, key=lambda r: r["produtivo_pct"], reverse=True)[:limite]
+    menos_produtivos = sorted(candidatos, key=lambda r: r["produtivo_pct"])[:limite]
+
+    macs_finais = {r["mac"] for r in mais_produtivos} | {r["mac"] for r in menos_produtivos}
+    resultado_nomes = await db.execute(
+        select(AcessoDominio.mac, AcessoDominio.hostname, AcessoDominio.ip)
+        .distinct(AcessoDominio.mac)
+        .where(AcessoDominio.mac.in_(macs_finais), AcessoDominio.inicio >= desde)
+        .order_by(AcessoDominio.mac, AcessoDominio.inicio.desc())
+    )
+    nomes_por_mac = {
+        mac: {"hostname": hostname or "Desconhecido", "ip": ip}
+        for mac, hostname, ip in resultado_nomes.all()
+    }
+
+    def enriquecer(lista):
+        for r in lista:
+            info = nomes_por_mac.get(r["mac"], {"hostname": "Desconhecido", "ip": None})
+            r["hostname"] = info["hostname"]
+            r["ip"] = info["ip"]
+        return lista
+
+    return {
+        "mais_produtivos": enriquecer(mais_produtivos),
+        "menos_produtivos": enriquecer(menos_produtivos),
     }
 
 
