@@ -1907,6 +1907,34 @@ async def get_ranking_produtividade(db, horas: float = 360, limite: int = 10, mi
         for mac, hostname, ip in resultado_nomes.all()
     }
 
+    # Fallback pro UniFi: hostname "Desconhecido" no banco geralmente e um
+    # dispositivo que nunca broadcast o hostname nos flows capturados pelo
+    # Suricata (ex: celular com randomizacao de MAC/hostname em alguns
+    # protocolos). O UniFi Controller aprende o hostname via DHCP direto na
+    # concessao de IP, entao muitas vezes sabe o nome mesmo quando o Suricata
+    # nao sabe. So consultamos se sobrou algum "Desconhecido" nos MACs finais,
+    # pra nao bater na API do UniFi sem necessidade.
+    macs_desconhecidos = {
+        mac for mac in macs_finais
+        if nomes_por_mac.get(mac, {}).get("hostname", "Desconhecido") == "Desconhecido"
+    }
+    if macs_desconhecidos:
+        try:
+            from app.unifi import get_todos_clientes
+            clientes_unifi = await get_todos_clientes()
+            mapa_unifi_por_mac = {
+                (c.get("mac") or "").lower(): c.get("hostname")
+                for c in clientes_unifi
+                if c.get("mac") and c.get("hostname") and c.get("hostname") != "Desconhecido"
+            }
+            for mac in macs_desconhecidos:
+                nome_unifi = mapa_unifi_por_mac.get((mac or "").lower())
+                if nome_unifi:
+                    nomes_por_mac.setdefault(mac, {"hostname": "Desconhecido", "ip": None})
+                    nomes_por_mac[mac]["hostname"] = nome_unifi
+        except Exception as e:
+            print(f"AVISO: falha ao consultar UniFi para fallback de hostname no ranking: {e}")
+
     def enriquecer(lista):
         for r in lista:
             info = nomes_por_mac.get(r["mac"], {"hostname": "Desconhecido", "ip": None})
