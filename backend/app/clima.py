@@ -210,7 +210,36 @@ async def verificar_e_alertar_telegram(dados, previsao):
                 msgs.append(f"⚠️ <b>PREVISÃO DE CHUVA</b>\nÀs {h['hora']}: {h['probabilidade_chuva']}% de probabilidade")
                 break
 
+    if not msgs:
+        return
+
     hora = datetime.now(FUSO).strftime("%H:%M")
+    umidade = dados.get("umidade", 0)
+    nuvens = dados.get("nuvens", 0)
+    descricao = dados.get("descricao", "")
+
+    # Montar previsao proximas horas
+    prev_texto = ""
+    for h in previsao[:3]:
+        prob = h.get("probabilidade_chuva", 0)
+        p_mm = h.get("precipitacao_mm", 0)
+        prev_texto += f"  {h['hora']} — {prob}% chance, {p_mm:.1f} mm/h\n"
+
     for msg in msgs:
-        texto = f"🌤️ <b>E-Ops Clima — Goiânia</b>\n\n{msg}\n\n🕐 {hora}"
+        texto = (
+            f"🌤️ <b>E-Ops Clima — Goiânia</b>\n"
+            f"📍 Região da Elcop — Jardim Goiás\n\n"
+            f"{msg}\n\n"
+            f"🌡️ Temp: {temp:.1f}°C | 💧 Umidade: {umidade}%\n"
+            f"💨 Vento: {vento:.1f} km/h | ☁️ Nuvens: {nuvens}%\n"
+            f"📝 {descricao.capitalize()}\n\n"
+        )
+        if prev_texto:
+            texto += f"📊 <b>Próximas horas:</b>\n{prev_texto}\n"
+        texto += (
+            f"⚠️ <b>Atenção:</b> Verificar se há infiltração de água na sala do CPD, "
+            f"entrada de água pelo cabo dos APs, estado dos nobreaks "
+            f"e estabilidade dos links de internet.\n\n"
+            f"🕐 {hora}\n\n📡 Fonte: OpenWeatherMap"
+        )
         await enviar_alerta_telegram(texto)
