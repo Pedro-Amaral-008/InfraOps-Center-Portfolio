@@ -26,17 +26,15 @@ scrape_configs:
     params:
       module: [tcp_connect]
     static_configs:
-      - targets: ['IP_SRV_ARQUIVOS:445']
+      - targets: ['192.168.1.69:445']
         labels: { nome: "Srv Arquivos", servico: "Armazenamento de Arquivos" }
-      - targets: ['IP_SRV_IMPRESSAO:445']
+      - targets: ['192.168.1.90:445']
         labels: { nome: "Srv Impressao", servico: "Digitalizacao de Documentos" }
-      - targets: ['IP_SRV_PROXY:445']
+      - targets: ['192.168.1.2:445']
         labels: { nome: "Srv Proxy Veeam", servico: "Processamento Backup" }
-      - targets: ['IP_SRV_SYSADMIN:4445']
+      - targets: ['192.168.1.89:4445']
         labels: { nome: "Srv SysAdmin", servico: "Gerenciamento InControl e Robo SharePoint" }
-      - targets: ['IP_SRV_ARQUIVOS_ESPELHO:445']
-        labels: { nome: "Srv Arquivos Espelho", servico: "Redundancia Srv Arquivos" }
-      - targets: ['IP_SRV_MONITORAMENTO:22']
+      - targets: ['192.168.1.66:22']
         labels: { nome: "Srv Monitoramento", servico: "E-CAM e Sistemas de Monitoramento" }
     relabel_configs:
       - source_labels: [__address__]
@@ -51,7 +49,7 @@ scrape_configs:
     params:
       module: [icmp_ping]
     static_configs:
-      - targets: ['IP_SRV_BACKUP_PRINCIPAL']
+      - targets: ['192.168.1.51']
         labels: { nome: "Srv Backup Principal", servico: "Armazenamento de Backup e Sentinela Principal" }
     relabel_configs:
       - source_labels: [__address__]
@@ -66,31 +64,31 @@ scrape_configs:
     params:
       module: [icmp_ping]
     static_configs:
-      - targets: ['IP_AP_COMPRAS']
+      - targets: ['192.168.1.22']
         labels: { nome: "COMPRAS/FROTAS" }
-      - targets: ['IP_AP_ADMINISTRATIVO']
+      - targets: ['192.168.1.16']
         labels: { nome: "ADMINISTRATIVO GERAL" }
-      - targets: ['IP_AP_USW24POE']
+      - targets: ['192.168.1.4']
         labels: { nome: "USW-24-PoE" }
-      - targets: ['IP_AP_TI']
+      - targets: ['192.168.1.31']
         labels: { nome: "TI" }
-      - targets: ['IP_AP_RH']
+      - targets: ['192.168.1.12']
         labels: { nome: "RECURSOS HUMANOS" }
-      - targets: ['IP_AP_JURIDICO']
+      - targets: ['192.168.1.18']
         labels: { nome: "JURIDICO/COMPLIANCE" }
-      - targets: ['IP_AP_ALMOXARIFADO']
+      - targets: ['192.168.1.13']
         labels: { nome: "ALMOXARIFADO/PLANEJAMENTO" }
-      - targets: ['IP_AP_RECEPCAO']
+      - targets: ['192.168.1.191']
         labels: { nome: "RECEPCAO" }
-      - targets: ['IP_AP_DIRETORIA']
+      - targets: ['192.168.1.14']
         labels: { nome: "DIRETORIA" }
-      - targets: ['IP_AP_DP']
+      - targets: ['192.168.1.17']
         labels: { nome: "DEPARTAMENTO PESSOAL" }
-      - targets: ['IP_AP_SESMT']
+      - targets: ['192.168.1.30']
         labels: { nome: "SESMT" }
-      - targets: ['IP_AP_GERENCIA']
+      - targets: ['192.168.1.15']
         labels: { nome: "GERENCIA" }
-      - targets: ['IP_AP_AUDITORIO']
+      - targets: ['192.168.1.28']
         labels: { nome: "AUDITORIO" }
     relabel_configs:
       - source_labels: [__address__]
@@ -105,7 +103,7 @@ scrape_configs:
     params:
       module: [http_2xx_insecure]
     static_configs:
-      - targets: ['https://IP_UNIFI_CONTROLLER']
+      - targets: ['https://192.168.1.128']
         labels:
           nome: "Gen2-ELCOP-SEDE (Controladora UniFi)"
     relabel_configs:
@@ -126,17 +124,42 @@ scrape_configs:
     params:
       module: [icmp_ping]
     static_configs:
-      - targets: ['IP_IMPR_FINANCEIRO']
+      - targets: ['192.168.1.41']
         labels: { nome: "Impressora Financeiro/Fiscal" }
-      - targets: ['IP_IMPR_HALL']
+      - targets: ['192.168.1.20']
         labels: { nome: "Impressora Hall" }
-      - targets: ['IP_IMPR_FROTAS']
+      - targets: ['192.168.1.24']
         labels: { nome: "Impressora Frotas" }
-      - targets: ['IP_IMPR_DP']
+      - targets: ['192.168.1.23']
         labels: { nome: "Impressora DP" }
-      - targets: ['IP_IMPR_SESMT']
+      - targets: ['192.168.1.25']
         labels: { nome: "Impressora SESMT" }
-      - targets: ['IP_IMPR_RH']
+      - targets: ['192.168.1.180']
+        labels: { nome: "Impressora RH" }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: 'blackbox-impressoras-tcp'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets: ['192.168.1.41:9100']
+        labels: { nome: "Impressora Financeiro/Fiscal" }
+      - targets: ['192.168.1.20:9100']
+        labels: { nome: "Impressora Hall" }
+      - targets: ['192.168.1.24:9100']
+        labels: { nome: "Impressora Frotas" }
+      - targets: ['192.168.1.23:9100']
+        labels: { nome: "Impressora DP" }
+      - targets: ['192.168.1.25:9100']
+        labels: { nome: "Impressora SESMT" }
+      - targets: ['192.168.1.180:9100']
         labels: { nome: "Impressora RH" }
     relabel_configs:
       - source_labels: [__address__]

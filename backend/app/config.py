@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3001"
     protheus_ip: str = "179.131.10.8"
     protheus_hostname: str = "protheus.elcop.eng.br"
+    openweather_api_key: str = ""
 
     @property
     def database_url(self) -> str:

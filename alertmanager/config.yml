@@ -8,9 +8,12 @@ route:
   repeat_interval: 720h
 receivers:
   - name: telegram-infraops
+    webhook_configs:
+      - url: 'http://backend:8000/webhooks/alertmanager'
+        send_resolved: true
     telegram_configs:
       - bot_token: 'SEU_BOT_TOKEN_AQUI'
-        chat_id: SEU_CHAT_ID_AQUI
+        chat_id: -1003927527414
         parse_mode: 'Markdown'
         message: |
           {{ range .Alerts }}🔔 *Monitoramento InfraOps Center*

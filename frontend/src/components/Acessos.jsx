@@ -756,6 +756,8 @@ function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
   const dispositivosFiltrados = buscaNormalizada
     ? dispositivos.filter((d) =>
         (d.hostname || '').toLowerCase().includes(buscaNormalizada) ||
+        (d.ip || '').toLowerCase().includes(buscaNormalizada) ||
+        (d.mac || '').toLowerCase().includes(buscaNormalizada) ||
         (podeVerApelido && d.apelido && d.apelido.toLowerCase().includes(buscaNormalizada))
       )
     : dispositivos;
@@ -868,7 +870,7 @@ function Acessos({ token, role, macInicial, onMacInicialConsumido }) {
             </tr>
           ))}
           {!carregando && dispositivos.length > 0 && dispositivosFiltrados.length === 0 && (
-            <tr><td colSpan="6" style={{ textAlign: 'center', opacity: 0.6 }}>Nenhum dispositivo encontrado{podeVerApelido ? ' com esse nome ou apelido.' : ' com esse nome.'}</td></tr>
+            <tr><td colSpan="6" style={{ textAlign: 'center', opacity: 0.6 }}>Nenhum dispositivo encontrado{podeVerApelido ? ' com esse nome, IP, MAC ou apelido.' : ' com esse nome, IP ou MAC.'}</td></tr>
           )}
           {!carregando && dispositivos.length === 0 && (
             <tr><td colSpan="6" style={{ textAlign: 'center', opacity: 0.6 }}>Nenhum acesso registrado no período selecionado.</td></tr>

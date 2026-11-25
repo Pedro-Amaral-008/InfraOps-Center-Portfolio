@@ -1,54 +1,77 @@
+import { useState } from 'react';
 import CHANGELOG from '../changelog';
-function Novidades({ onFechar }) {
+import './Novidades.css';
+
+export default function Novidades({ onFechar }) {
+  const [versaoAtiva, setVersaoAtiva] = useState(CHANGELOG[0]?.versao ?? '');
+
+  const versaoAtual = CHANGELOG.find((v) => v.versao === versaoAtiva) ?? CHANGELOG[0];
+  const totalItens = versaoAtual?.categorias?.reduce((n, c) => n + c.itens.length, 0) ?? 0;
+
   return (
-    <div
-      onClick={onFechar}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--bg-secondary, #1c1c1c)',
-          borderRadius: '16px',
-          padding: '32px',
-          maxWidth: '680px',
-          width: '90%',
-          maxHeight: '75vh',
-          overflowY: 'auto',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ margin: 0, fontSize: '22px' }}>Novidades</h2>
-          <button
-            onClick={onFechar}
-            style={{ background: 'none', border: 'none', fontSize: '26px', cursor: 'pointer', color: 'inherit' }}
-          >
-            ×
+    <div className="novidades-backdrop" onClick={onFechar}>
+      <div className="novidades-card" onClick={(e) => e.stopPropagation()}>
+
+        <div className="novidades-header">
+          <div className="novidades-header-left">
+            <div className="novidades-logo-box">
+              <img src="/logo-eops.png" alt="E-Ops" className="novidades-logo-img" />
+            </div>
+            <div>
+              <div className="novidades-title">Novidades</div>
+              <div className="novidades-subtitle">O que mudou no E-Ops</div>
+            </div>
+          </div>
+          <button className="novidades-close" onClick={onFechar} aria-label="Fechar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
           </button>
         </div>
-        {CHANGELOG.map((entrada) => (
-          <div key={entrada.versao} style={{ marginBottom: '24px' }}>
-            <h3 style={{ fontSize: '16px', marginBottom: '10px' }}>{entrada.versao}</h3>
-            <ul style={{ margin: 0, paddingLeft: '22px', fontSize: '14.5px', lineHeight: '1.7' }}>
-              {entrada.itens.map((item, idx) => (
-                <li key={idx} style={{ marginBottom: '4px' }}>{item}</li>
-              ))}
-            </ul>
-          </div>
-        ))}
+
+        <div className="novidades-tabs">
+          {CHANGELOG.map((v) => (
+            <button
+              key={v.versao}
+              className={`novidades-tab${v.versao === versaoAtiva ? ' ativa' : ''}`}
+              onClick={() => setVersaoAtiva(v.versao)}
+            >
+              {v.versao}
+            </button>
+          ))}
+        </div>
+
+        <div className="novidades-conteudo">
+          {versaoAtual?.categorias?.map((cat) => (
+            <div key={cat.nome} className="novidades-categoria">
+              <div className="novidades-categoria-titulo">
+                <span className="novidades-categoria-ponto" style={{ background: cat.cor }} />
+                {cat.nome}
+              </div>
+              <ul className="novidades-lista">
+                {cat.itens.map((item, i) => (
+                  <li key={i}>
+                    <svg
+                      width="14" height="14" viewBox="0 0 24 24" fill="none"
+                      stroke={cat.cor} strokeWidth="2.6"
+                      strokeLinecap="round" strokeLinejoin="round"
+                    >
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        <div className="novidades-footer">
+          <span>{totalItens} {totalItens === 1 ? 'item' : 'itens'} nesta versão</span>
+          <span>E-Ops</span>
+        </div>
+
       </div>
     </div>
   );
 }
-export default Novidades;

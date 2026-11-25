@@ -18,6 +18,7 @@ from app.schemas import LoginRequest, LoginResponse, TrocarSenhaRequest, BackupE
 from app.auth import verificar_senha, criar_token, hash_senha
 from app.deps import get_current_user, exigir_papel
 from app.audit import registrar_log
+from app.clima import buscar_clima_atual, buscar_previsao_horas, gerar_alertas, ler_config_telegram, salvar_config_telegram, verificar_e_alertar_telegram
 import time
 from functools import wraps
 
@@ -51,7 +52,8 @@ def cache_ttl(segundos: float = 5):
             for k in [k for k, (_, expira) in cache.items() if expira < agora]:
                 del cache[k]
 
-            if chave in cache:
+            bypass = kwargs.pop("_bypass_cache", False)
+            if not bypass and chave in cache:
                 valor, expira_em = cache[chave]
                 if agora < expira_em:
                     return valor
@@ -870,7 +872,7 @@ async def dashboard_agents_latest(
         )
     )
     metricas = result.scalars().all()
-    INSTANCIAS_REMOVIDAS = ["srv-bkp2"]
+    INSTANCIAS_REMOVIDAS = ["srv-bkp2", "srvarqred"]
 
     return [
         {
@@ -916,7 +918,7 @@ async def dashboard_agent_history(
 
 
 import asyncio
-from app.agent_alerts import verificar_limites_agentes, verificar_disponibilidade_agentes, verificar_failover_srv_arquivos
+from app.agent_alerts import verificar_limites_agentes, verificar_disponibilidade_agentes
 from app.controller_alerts import verificar_limites_controller
 from app.pfsense import registrar_status_links, registrar_trafego, verificar_alertas_links, verificar_alertas_vpns_vlans, registrar_status_vpns_vlans, get_status_links
 from app.database import AsyncSessionLocal, limitar_concorrencia_sync
@@ -935,11 +937,6 @@ async def loop_verificacao_agentes():
                 await verificar_disponibilidade_agentes(db)
             except Exception as e:
                 print(f"ERRO em verificar_disponibilidade_agentes: {e}")
-
-            try:
-                await verificar_failover_srv_arquivos(db)
-            except Exception as e:
-                print(f"ERRO em verificar_failover_srv_arquivos: {e}")
 
             try:
                 await verificar_limites_controller(db)
@@ -1029,35 +1026,40 @@ async def loop_prewarm_pesados():
     while True:
         async with AsyncSessionLocal() as db:
             try:
-                await dashboard_acessos_dispositivos(horas=24, usuario=None, db=db)
+                await dashboard_acessos_dispositivos(horas=24, usuario=None, db=db, _bypass_cache=True)
             except Exception as e:
                 print(f"ERRO no prewarm de acessos/dispositivos (horas=24): {e}")
         if ciclo % 4 == 0:
             horas_revezar = PERIODOS_PREWARM_REVEZAM[(ciclo // 4) % len(PERIODOS_PREWARM_REVEZAM)]
             async with AsyncSessionLocal() as db:
                 try:
-                    await dashboard_acessos_dispositivos(horas=horas_revezar, usuario=None, db=db)
+                    await dashboard_acessos_dispositivos(horas=horas_revezar, usuario=None, db=db, _bypass_cache=True)
                 except Exception as e:
                     print(f"ERRO no prewarm de acessos/dispositivos (horas={horas_revezar}): {e}")
+            async with AsyncSessionLocal() as db:
+                try:
+                    await dashboard_acessos_top_sites(horas=horas_revezar, limite=8, usuario=None, db=db, _bypass_cache=True)
+                except Exception as e:
+                    print(f"ERRO no prewarm de acessos/top-sites (horas={horas_revezar}): {e}")
         ciclo += 1
         async with AsyncSessionLocal() as db:
             try:
-                await dashboard_acessos_top_sites(horas=24, limite=8, usuario=None, db=db)
+                await dashboard_acessos_top_sites(horas=24, limite=8, usuario=None, db=db, _bypass_cache=True)
             except Exception as e:
                 print(f"ERRO no prewarm de acessos/top-sites: {e}")
         async with AsyncSessionLocal() as db:
             try:
-                await dashboard_ameacas_resumo(horas=24, usuario=None, db=db)
+                await dashboard_ameacas_resumo(horas=24, usuario=None, db=db, _bypass_cache=True)
             except Exception as e:
                 print(f"ERRO no prewarm de ameacas/resumo: {e}")
         async with AsyncSessionLocal() as db:
             try:
-                await dashboard_ameacas_grafico(dias=15, usuario=None, db=db)
+                await dashboard_ameacas_grafico(dias=15, usuario=None, db=db, _bypass_cache=True)
             except Exception as e:
                 print(f"ERRO no prewarm de ameacas/grafico: {e}")
         async with AsyncSessionLocal() as db:
             try:
-                await dashboard_ameacas_lista(horas=24, usuario=None, db=db)
+                await dashboard_ameacas_lista(horas=24, usuario=None, db=db, _bypass_cache=True)
             except Exception as e:
                 print(f"ERRO no prewarm de ameacas/lista: {e}")
         await asyncio.sleep(25)
@@ -1270,7 +1272,7 @@ async def dashboard_unifi_consumo_picos(
     from app.unifi import get_picos_sustentados
     return await get_picos_sustentados(db, minutos)
 @app.get("/dashboard/acessos/dispositivos")
-@cache_ttl(90)
+@cache_ttl(600)
 async def dashboard_acessos_dispositivos(
     horas: float = 1440,
     usuario: User = Depends(get_current_user),
@@ -1297,7 +1299,7 @@ async def dashboard_acessos_categorias(
     from app.acessos import get_categorias_disponiveis
     return await get_categorias_disponiveis(db, dias)
 @app.get("/dashboard/acessos/top-sites")
-@cache_ttl(20)
+@cache_ttl(600)
 async def dashboard_acessos_top_sites(
     horas: float = 1440,
     limite: int = 8,
@@ -1785,103 +1787,6 @@ async def historico_jobs(
 from app.models import ConfiguracaoSistema
 
 
-@app.get("/automations/failover-automatico")
-async def consultar_failover_automatico(
-    usuario: User = Depends(exigir_papel("super_admin", "admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(select(ConfiguracaoSistema).where(ConfiguracaoSistema.chave == "failover_automatico"))
-    config = result.scalar_one_or_none()
-    ativo = config.valor == "ligado" if config else False
-    return {"ativo": ativo}
-
-
-@app.post("/automations/failover-automatico/alternar")
-async def alternar_failover_automatico(
-    usuario: User = Depends(exigir_papel("super_admin", "admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(select(ConfiguracaoSistema).where(ConfiguracaoSistema.chave == "failover_automatico"))
-    config = result.scalar_one_or_none()
-
-    if config:
-        novo_valor = "desligado" if config.valor == "ligado" else "ligado"
-        config.valor = novo_valor
-    else:
-        novo_valor = "ligado"
-        config = ConfiguracaoSistema(chave="failover_automatico", valor=novo_valor)
-        db.add(config)
-
-    await db.commit()
-
-    await registrar_log(
-        db, usuario.username, "alternar_failover_automatico", "sucesso",
-        detalhes=f"Failover automatico definido como: {novo_valor}",
-    )
-
-    return {"ativo": novo_valor == "ligado"}
-
-
-@app.post("/automations/failover-srv-arquivos")
-async def solicitar_failover_srv_arquivos(
-    usuario: User = Depends(exigir_papel("super_admin", "admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(AutomationJob).where(
-            AutomationJob.alvo == "srvarqred",
-            AutomationJob.status.in_(["pendente", "executando"])
-        )
-    )
-    job_existente = result.scalar_one_or_none()
-    if job_existente:
-        raise HTTPException(status_code=400, detail="Ja existe um failover em andamento ou pendente")
-
-    job = AutomationJob(
-        tipo="failover_srv_arquivos",
-        alvo="srvarqred",
-        status="pendente",
-        solicitado_por=usuario.username,
-    )
-    db.add(job)
-    await db.commit()
-    await db.refresh(job)
-
-    await registrar_log(
-        db, usuario.username, "failover_srv_arquivos", "solicitado",
-        detalhes=f"Job ID {job.id}",
-    )
-
-
-
-@app.post("/automations/desfazer-failover-srv-arquivos")
-async def desfazer_failover_srv_arquivos(
-    usuario: User = Depends(exigir_papel("super_admin", "admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(AutomationJob).where(
-            AutomationJob.alvo == "srvarqred",
-            AutomationJob.status.in_(["pendente", "executando"])
-        )
-    )
-    job_existente = result.scalar_one_or_none()
-    if job_existente:
-        raise HTTPException(status_code=400, detail="Ja existe uma operacao em andamento ou pendente")
-    job = AutomationJob(
-        tipo="desfazer_failover_srv_arquivos",
-        alvo="srvarqred",
-        status="pendente",
-        solicitado_por=usuario.username,
-    )
-    db.add(job)
-    await db.commit()
-    await db.refresh(job)
-    await registrar_log(
-        db, usuario.username, "desfazer_failover_srv_arquivos", "solicitado",
-        detalhes=f"Job ID {job.id}",
-    )
-    return {"status": "solicitado", "job_id": job.id}
 
 
 # ============================================
@@ -2031,3 +1936,58 @@ async def desativar_usuario(
     )
 
     return {"status": "desativado"}
+
+
+# ===================== CLIMA =====================
+
+@app.get("/clima/atual")
+@cache_ttl(300)
+async def clima_atual(usuario=Depends(get_current_user)):
+    dados = await buscar_clima_atual()
+    if dados is None:
+        raise HTTPException(status_code=503, detail="API OpenWeatherMap não configurada")
+    return dados
+
+
+@app.get("/clima/alertas")
+@cache_ttl(300)
+async def clima_alertas(usuario=Depends(get_current_user)):
+    dados = await buscar_clima_atual()
+    previsao = await buscar_previsao_horas()
+    return gerar_alertas(dados, previsao)
+
+
+@app.get("/clima/previsao-horas")
+@cache_ttl(300)
+async def clima_previsao_horas(usuario=Depends(get_current_user)):
+    return await buscar_previsao_horas()
+
+
+@app.get("/clima/telegram/config")
+async def clima_telegram_config_get(usuario=Depends(get_current_user)):
+    return ler_config_telegram()
+
+
+@app.put("/clima/telegram/config")
+async def clima_telegram_config_put(request: Request, usuario=Depends(get_current_user)):
+    body = await request.json()
+    salvar_config_telegram(body)
+    return {"ok": True}
+
+
+# --- Background: alertas clima Telegram a cada 10 min ---
+async def loop_verificar_clima():
+    await asyncio.sleep(30)  # espera 30s pro app iniciar
+    while True:
+        try:
+            dados = await buscar_clima_atual()
+            previsao = await buscar_previsao_horas()
+            await verificar_e_alertar_telegram(dados, previsao)
+            print("[CLIMA] Verificacao de alertas executada")
+        except Exception as e:
+            print(f"[CLIMA] Erro no loop de alertas: {e}")
+        await asyncio.sleep(600)  # 10 minutos
+
+@app.on_event("startup")
+async def startup_clima_loop():
+    asyncio.create_task(loop_verificar_clima())

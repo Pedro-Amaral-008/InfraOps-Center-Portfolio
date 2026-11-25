@@ -94,6 +94,13 @@ const ICONES = {
       <path d="M9 12l2 2 4-4" /><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c2.06 0 3.96.7 5.47 1.87" />
     </svg>
   ),
+  clima: (
+    <svg className="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+      <circle cx="12" cy="12" r="5" />
+    </svg>
+  ),
 };
 
 const ITENS_ADMINISTRACAO = [
@@ -158,6 +165,17 @@ function Sidebar({ usuario, abaAtiva, onChangeAba, onChangeAbaInterna, abaIntern
         >
           {ICONES.painel}
           <span className="sidebar-label">Dashboard</span>
+        </div>
+
+        <div
+          className={`sidebar-item ${abaAtiva === 'clima' ? 'active' : ''}`}
+          onClick={() => onChangeAba && onChangeAba('clima')}
+          role="button"
+          tabIndex={0}
+          title={fechada ? 'Clima' : undefined}
+        >
+          {ICONES.clima}
+          <span className="sidebar-label">Clima</span>
         </div>
 
         <div

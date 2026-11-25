@@ -76,7 +76,7 @@ async def query_prometheus(query: str):
             return []
 
 
-INSTANCIAS_REMOVIDAS = ["192.168.1.XXX:445", "192.168.1.XXX"]
+INSTANCIAS_REMOVIDAS = ["192.168.1.71:445", "192.168.1.71"]
 async def get_uptime_por_job(job: str, dias: int = 30):
     """Calcula o uptime percentual de cada instance de um job, usando o
     historico armazenado pelo proprio Prometheus (avg_over_time)."""
@@ -123,7 +123,6 @@ MAPA_NOME_PROMETHEUS_PARA_INSTANCE_AGENTE = {
     "Srv Arquivos": "srv-arq",
     "Srv Proxy Veeam": "srv-proxy",
     "Srv SysAdmin": "srv-sysadmin",
-    "Srv Arquivos Espelho": "srvarqred",
 }
 
 
@@ -203,6 +202,7 @@ async def get_servidores_status_completo(job: str, dias_eventos: int = 30):
 
 
 def count_by_value(results, target_value="1"):
+    global INSTANCIAS_REMOVIDAS
     online = 0
     offline = 0
     for r in results:
@@ -218,6 +218,8 @@ def to_device_list(results):
     devices = []
     for r in results:
         metric = r.get("metric", {})
+        if metric.get("instance", "") in INSTANCIAS_REMOVIDAS:
+            continue
         value = r.get("value", [None, None])[1]
         devices.append({
             "nome": metric.get("nome", metric.get("instance", "desconhecido")),
@@ -568,10 +570,14 @@ async def get_estabilidade_semanal(db):
 
     resultado = {}
 
+    # Monta regex de exclusao para instancias removidas (ex.: em manutencao)
+    _excl = "|".join(i.replace(".", r"\.") for i in INSTANCIAS_REMOVIDAS)
+    _filtro_excl = f',instance!~"{_excl}"' if _excl else ""
+
     for chave, job in categorias_prometheus.items():
         # avg() agrega todas as instancias da categoria numa unica serie de media,
         # em vez de pegar so a primeira instancia retornada (bug anterior).
-        query = f'avg(avg_over_time(probe_success{{job=~"{job}"}}[1d])) * 100'
+        query = f'avg(avg_over_time(probe_success{{job=~"{job}"{_filtro_excl}}}[1d])) * 100'
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 response = await client.get(

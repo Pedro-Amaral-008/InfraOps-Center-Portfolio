@@ -193,6 +193,8 @@ async def verificar_limites_agentes(db: AsyncSession):
         )
     )
     metricas = result.scalars().all()
+    AGENTES_IGNORADOS = ["srvarqred"]
+    metricas = [m for m in metricas if m.instance not in AGENTES_IGNORADOS]
 
     for m in metricas:
         await processar_recurso(db, m.hostname, m.instance, "CPU", m.cpu_percent, LIMITE_CPU, "🖥️")
@@ -206,98 +208,6 @@ async def verificar_limites_agentes(db: AsyncSession):
                 await processar_recurso(db, m.hostname, m.instance, nome_recurso, percent, LIMITE_DISCO, "💾")
         else:
             await processar_recurso(db, m.hostname, m.instance, "Disco", m.disco_percent, LIMITE_DISCO, "💾")
-
-
-async def verificar_failover_srv_arquivos(db: AsyncSession):
-    from datetime import timezone, timedelta
-    from sqlalchemy import select
-    from app.models import AgentMetric, ConfiguracaoSistema, AutomationJob
-
-    LIMITE_MINUTOS_QUEDA = 5
-
-    result = await db.execute(
-        select(AgentMetric)
-        .where(AgentMetric.instance == "srv-arq")
-        .order_by(AgentMetric.coletado_em.desc())
-        .limit(1)
-    )
-    ultima_coleta = result.scalar_one_or_none()
-
-    if not ultima_coleta:
-        return
-
-    agora = datetime.now(timezone.utc)
-    tempo_sem_reportar = agora - ultima_coleta.coletado_em
-
-    if tempo_sem_reportar < timedelta(minutes=LIMITE_MINUTOS_QUEDA):
-        registro_estado = await obter_estado(db, "srv-arq", "Failover")
-        if registro_estado and registro_estado.em_alerta:
-            await definir_estado(db, "srv-arq", "Failover", False)
-            msg = (
-                f"\U0001F514 *Monitoramento InfraOps Center*\n\n"
-                f"*SRV-ARQ VOLTOU A RESPONDER* \u2705\n\n"
-                f"\U0001F550 *Hor\u00e1rio:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-            )
-            await enviar_telegram(msg)
-        return
-
-    result = await db.execute(select(AutomationJob).where(
-        AutomationJob.alvo == "srvarqred",
-        AutomationJob.status.in_(["pendente", "executando"])
-    ))
-    if result.scalar_one_or_none():
-        return
-
-    result = await db.execute(select(AutomationJob).where(
-        AutomationJob.alvo == "srvarqred",
-        AutomationJob.tipo == "failover_srv_arquivos"
-    ).order_by(AutomationJob.criado_em.desc()).limit(1))
-    ultimo_job = result.scalar_one_or_none()
-    if ultimo_job and (agora - ultimo_job.criado_em) < timedelta(hours=1):
-        return
-
-    registro_estado = await obter_estado(db, "srv-arq", "Failover")
-    ja_alertado = registro_estado.em_alerta if registro_estado else False
-    if ja_alertado:
-        return  # ja avisamos dessa queda, nao repete a cada ciclo
-
-    result = await db.execute(select(ConfiguracaoSistema).where(ConfiguracaoSistema.chave == "failover_automatico"))
-    config = result.scalar_one_or_none()
-    automatico_ativo = config.valor == "ligado" if config else False
-
-    minutos_sem_reportar = int(tempo_sem_reportar.total_seconds() / 60)
-
-    await definir_estado(db, "srv-arq", "Failover", True)
-
-    if automatico_ativo:
-        job = AutomationJob(
-            tipo="failover_srv_arquivos",
-            alvo="srvarqred",
-            status="pendente",
-            solicitado_por="sistema (deteccao automatica)",
-        )
-        db.add(job)
-        await db.commit()
-
-        msg = (
-            f"🔔 *Monitoramento InfraOps Center*\n\n"
-            f"*QUEDA DETECTADA — FAILOVER AUTOMÁTICO ACIONADO* 🔴\n\n"
-            f"🖥️ *Servidor:* SRV-ARQ\n"
-            f"⏱️ *Sem resposta há:* {minutos_sem_reportar} minutos\n"
-            f"🔄 *Ação:* Failover automático iniciado para SrvArqRed\n"
-            f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-        )
-    else:
-        msg = (
-            f"🔔 *Monitoramento InfraOps Center*\n\n"
-            f"*QUEDA DETECTADA — FAILOVER AUTOMÁTICO DESLIGADO* ⚠️\n\n"
-            f"🖥️ *Servidor:* SRV-ARQ\n"
-            f"⏱️ *Sem resposta há:* {minutos_sem_reportar} minutos\n"
-            f"⚠️ *Ação:* Failover automático está desativado. Use o botão manual no painel se necessário.\n"
-            f"🕐 *Horário:* {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-        )
-
-    await enviar_telegram(msg)
 
 
 LIMITE_MINUTOS_SEM_COLETA = 5
@@ -326,6 +236,8 @@ async def verificar_disponibilidade_agentes(db: AsyncSession):
         )
     )
     metricas = result.scalars().all()
+    AGENTES_IGNORADOS = ["srvarqred"]
+    metricas = [m for m in metricas if m.instance not in AGENTES_IGNORADOS]
 
     agora = datetime.now(timezone.utc)
     limite = timedelta(minutes=LIMITE_MINUTOS_SEM_COLETA)

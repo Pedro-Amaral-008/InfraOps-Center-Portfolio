@@ -5,8 +5,8 @@ import os
 from datetime import datetime, timezone, timedelta
 from app.config import settings
 
-LAT = -XX.XXXX
-LON = -XX.XXXX
+LAT = -16.6933
+LON = -49.2373
 FUSO = timezone(timedelta(hours=-3))
 
 ICONES = {
@@ -64,6 +64,25 @@ async def buscar_clima_atual():
 
     rain_1h = data.get("rain", {}).get("1h", 0) or 0
 
+    # Usa o maior valor entre rain.1h real e estimativa pelo weather code
+    # O rain.1h do OpenWeatherMap e impreciso em Goiania (ex: 0.15mm pra trovoada forte)
+    weather_id = data["weather"][0]["id"]
+    estimativas_por_codigo = {
+        200: 1.0, 201: 3.0, 202: 8.0,
+        210: 0.5, 211: 1.0, 212: 4.0, 221: 2.0,
+        230: 0.5, 231: 1.0, 232: 2.0,
+        300: 0.3, 301: 0.5, 302: 1.0,
+        310: 0.5, 311: 1.0, 312: 2.0, 313: 2.0, 314: 3.0, 321: 1.0,
+        500: 1.5, 501: 4.0, 502: 10.0, 503: 30.0, 504: 50.0,
+        511: 2.0, 520: 3.0, 521: 5.0, 522: 10.0, 531: 5.0,
+        600: 0.5, 601: 2.0, 602: 5.0,
+        611: 1.0, 612: 1.0, 613: 2.0, 615: 1.0, 616: 2.0,
+        620: 1.0, 621: 3.0, 622: 5.0,
+    }
+    if 200 <= weather_id <= 622:
+        estimado = estimativas_por_codigo.get(weather_id, 1.0)
+        rain_1h = max(rain_1h, estimado)
+
     return {
         "temperatura": data["main"]["temp"],
         "sensacao": data["main"]["feels_like"],
@@ -72,6 +91,7 @@ async def buscar_clima_atual():
         "vento_kmh": round(data["wind"]["speed"] * 3.6, 1),
         "vento_direcao": data["wind"].get("deg"),
         "precipitacao_mm": rain_1h,
+        "weather_id": weather_id,
         "visibilidade_m": data.get("visibility", 10000),
         "nuvens": data["clouds"]["all"],
         "descricao": data["weather"][0]["description"],

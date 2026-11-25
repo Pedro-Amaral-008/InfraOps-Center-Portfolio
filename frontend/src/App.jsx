@@ -22,6 +22,7 @@ import AmeacasPotenciais from './components/AmeacasPotenciais';
 import VpnExterna from './components/VpnExterna';
 import ConsumoRede from './components/ConsumoRede';
 import Acessos from './components/Acessos';
+import Clima from './components/Clima';
 import './App.css';
 
 const API_URL = '';
@@ -337,6 +338,8 @@ function App() {
               <h2 className="page-title">Solicitações</h2>
               <Solicitacoes token={token} />
             </>
+          ) : navPrincipal === 'clima' ? (
+            <Clima token={token} />
           ) : navPrincipal === 'relatorios' ? (
             <Relatorios token={token} role={usuario?.role} />
           ) : navPrincipal === 'metricas' ? (
@@ -401,7 +404,7 @@ function App() {
                       <td>{item.instance}</td>
                       <td>
                         <span className={`status-tag status-tag-${item.status}`}>
-                          {item.status === 'online' ? 'Online' : 'Offline'}
+                          {item.status === 'online' ? 'Online' : item.status === 'hibernando' ? 'Hibernação' : 'Offline'}
                         </span>
                       </td>
                     </tr>
@@ -752,7 +755,7 @@ function App() {
                       <td>{item.instance}</td>
                       <td>
                         <span className={`status-tag status-tag-${item.status}`}>
-                          {item.status === 'online' ? 'Online' : 'Offline'}
+                          {item.status === 'online' ? 'Online' : item.status === 'hibernando' ? 'Hibernação' : 'Offline'}
                         </span>
                       </td>
                     </tr>

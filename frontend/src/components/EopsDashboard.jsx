@@ -95,7 +95,7 @@ function EopsDashboard({ token, dados, onAbrirDispositivo }) {
       ...(dados.servidores_detalhe || []).filter((i) => i.status !== 'online').map((i) => i.nome),
       ...(dados.access_points_detalhe || []).filter((i) => i.status !== 'online').map((i) => i.nome),
       ...(dados.links_detalhe || []).filter((i) => i.status !== 'online').map((i) => i.nome),
-      ...(dados.impressoras_detalhe || []).filter((i) => i.status !== 'online').map((i) => i.nome),
+      ...(dados.impressoras_detalhe || []).filter((i) => i.status === 'offline').map((i) => i.nome),
     ];
     if (nomesOffline.length === 0) {
       setAlertasAtivos([]);

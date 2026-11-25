@@ -4,8 +4,8 @@ DATA=$(date +%Y-%m-%d_%H-%M-%S)
 BACKUP_DIR="/mnt/data/infraops/backups/postgres"
 ARQUIVO="infraops_db_${DATA}.sql.gz"
 CAMINHO_LOCAL="${BACKUP_DIR}/${ARQUIVO}"
-API_URL="IP_INTERNO_AQUI:8000"
-BACKUP_API_KEY="SUA_API_KEY_AQUI"
+API_URL="http://localhost:8000"
+BACKUP_API_KEY="88fbaae5cff91b198ba45e072b9c50f00b014a2998c03348"
 STATUS="Success"
 
 echo "=== Iniciando backup do PostgreSQL - ${DATA} ==="
@@ -20,8 +20,8 @@ else
     TAMANHO_BYTES=0
 fi
 
-echo "Enviando para servidor principal (IP_SRV_BACKUP)..."
-if scp -i ~/.ssh/backup_srv_principal -o StrictHostKeyChecking=no "$CAMINHO_LOCAL" "Administrador@IP_SRV_BACKUP:/A:/Backups/Bkp infraOps/"; then
+echo "Enviando para servidor principal (192.168.1.51)..."
+if scp -i ~/.ssh/backup_srv_principal -o StrictHostKeyChecking=no "$CAMINHO_LOCAL" "Administrador@192.168.1.51:/A:/Backups/Bkp infraOps/"; then
     echo "OK: enviado para principal"
 else
     echo "ERRO: falha ao enviar para principal"

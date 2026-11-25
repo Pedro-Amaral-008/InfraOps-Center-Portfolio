@@ -360,6 +360,9 @@ def _vpn_dentro_do_expediente() -> bool:
     return agora_local.weekday() <= 4 and 8 <= agora_local.hour < 18
 
 
+LIMITE_CHECKS_OFFLINE = 3  # so alerta apos 3 leituras consecutivas offline (~90s)
+
+
 async def verificar_alertas_vpns_vlans(db):
     from datetime import datetime
     from app.agent_alerts import obter_estado, definir_estado, enviar_telegram
@@ -380,23 +383,46 @@ async def verificar_alertas_vpns_vlans(db):
             registro = await obter_estado(db, f"pfsense-{tipo.lower()}", nome)
             estava_offline = registro.em_alerta if registro else False
             notificacao_ja_enviada = registro.notificacao_enviada if registro else False
+            contagem = registro.contagem_offline if registro and registro.contagem_offline else 0
             pode_alertar = _vpn_dentro_do_expediente() if tipo == "VPN" else True
             # fecha a transacao de leitura antes de qualquer chamada de rede (Telegram),
             # pra nao deixar transacao "idle in transaction" aberta enquanto espera resposta
             await db.commit()
 
             if offline and not estava_offline:
-                if pode_alertar:
-                    msg = (
-                        f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
-                        f"❌ <b>{tipo} {nome} ficou offline</b>\n\n"
-                        f"🕐 Horário: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
-                        f"⚠️ Ação: Verificar conectividade imediatamente"
-                    )
-                    await enviar_telegram(msg, parse_mode="HTML")
-                    await definir_estado(db, f"pfsense-{tipo.lower()}", nome, True, notificacao_enviada=True)
+                contagem += 1
+                if contagem >= LIMITE_CHECKS_OFFLINE:
+                    # offline confirmado apos N checks consecutivos
+                    if pode_alertar:
+                        msg = (
+                            f"🔔 <b>Monitoramento InfraOps Center</b>\n\n"
+                            f"❌ <b>{tipo} {nome} ficou offline</b>\n\n"
+                            f"🕐 Horário: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+                            f"⚠️ Ação: Verificar conectividade imediatamente"
+                        )
+                        await enviar_telegram(msg, parse_mode="HTML")
+                        await definir_estado(db, f"pfsense-{tipo.lower()}", nome, True, notificacao_enviada=True)
+                    else:
+                        await definir_estado(db, f"pfsense-{tipo.lower()}", nome, True, notificacao_enviada=False)
+                    # reseta contador apos confirmar queda
+                    reg = await obter_estado(db, f"pfsense-{tipo.lower()}", nome)
+                    if reg:
+                        reg.contagem_offline = 0
+                        await db.commit()
                 else:
-                    await definir_estado(db, f"pfsense-{tipo.lower()}", nome, True, notificacao_enviada=False)
+                    # ainda dentro do grace period - incrementa contador, nao alerta
+                    if registro:
+                        registro.contagem_offline = contagem
+                    else:
+                        from app.models import AgentAlertState
+                        registro = AgentAlertState(
+                            instance=f"pfsense-{tipo.lower()}", recurso=nome,
+                            em_alerta=False, notificacao_enviada=False,
+                            contagem_offline=contagem
+                        )
+                        db.add(registro)
+                    await db.commit()
+
             elif offline and estava_offline:
                 if pode_alertar and not notificacao_ja_enviada:
                     msg = (
@@ -407,6 +433,7 @@ async def verificar_alertas_vpns_vlans(db):
                     )
                     await enviar_telegram(msg, parse_mode="HTML")
                     await definir_estado(db, f"pfsense-{tipo.lower()}", nome, True, notificacao_enviada=True)
+
             elif not offline and estava_offline:
                 if notificacao_ja_enviada and pode_alertar:
                     msg = (
@@ -416,6 +443,17 @@ async def verificar_alertas_vpns_vlans(db):
                     )
                     await enviar_telegram(msg, parse_mode="HTML")
                 await definir_estado(db, f"pfsense-{tipo.lower()}", nome, False, notificacao_enviada=False)
+                # reseta contador na recuperacao
+                reg = await obter_estado(db, f"pfsense-{tipo.lower()}", nome)
+                if reg:
+                    reg.contagem_offline = 0
+                    await db.commit()
+
+            elif not offline and not estava_offline and contagem > 0:
+                # estava acumulando checks offline mas voltou antes do limite - reseta
+                if registro:
+                    registro.contagem_offline = 0
+                    await db.commit()
 
 
 async def registrar_status_vpns_vlans(db):

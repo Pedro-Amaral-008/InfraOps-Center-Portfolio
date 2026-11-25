@@ -95,6 +95,7 @@ class AgentAlertState(Base):
     recurso = Column(String, nullable=False)
     notificacao_enviada = Column(Boolean, default=False)
     em_alerta = Column(Boolean, default=False)
+    contagem_offline = Column(Integer, default=0)
     atualizado_em = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 

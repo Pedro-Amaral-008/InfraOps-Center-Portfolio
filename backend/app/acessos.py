@@ -1452,7 +1452,8 @@ async def get_dispositivos_acessos(db, horas: float = 1440, incluir_apelido: boo
     # unico SELECT DISTINCT ON e estoura o timeout de novo. E so um dado
     # cosmetico (ultimo hostname/ip visto); o mac representativo de cada
     # grupo ja vem garantido do Passo 1 (agregados_mac), nao daqui.
-    desde_info = max(desde, agora_calc - timedelta(days=3))
+    desde_info = max(desde, agora_calc - timedelta(days=1))
+    await db.execute(text("SET LOCAL statement_timeout = '30000'"))
     ultimos_mac = await db.execute(
         text(
             """

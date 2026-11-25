@@ -88,7 +88,7 @@ function VisaoGeral({ token, dados, parte = 'ambas' }) {
     ...(dados.servidores_detalhe || []).filter((i) => i.status !== 'online').map((i) => i.nome),
     ...(dados.access_points_detalhe || []).filter((i) => i.status !== 'online').map((i) => i.nome),
     ...(dados.links_detalhe || []).filter((i) => i.status !== 'online').map((i) => i.nome),
-    ...(dados.impressoras_detalhe || []).filter((i) => i.status !== 'online').map((i) => i.nome),
+    ...(dados.impressoras_detalhe || []).filter((i) => i.status === 'offline').map((i) => i.nome),
   ];
 
   const nivel = itensComProblema.length === 0 ? 'good' : (itensComProblema.length <= 2 ? 'warn' : 'bad');
@@ -96,6 +96,8 @@ function VisaoGeral({ token, dados, parte = 'ambas' }) {
     ? 'Tudo operando normalmente'
     : `${itensComProblema.length} alerta${itensComProblema.length > 1 ? 's' : ''} ativo${itensComProblema.length > 1 ? 's' : ''}`;
   const sub = itensComProblema.length ? itensComProblema.join(', ') : '';
+
+  const impressorasHibernando = (dados.impressoras_detalhe || []).filter((i) => i.status === 'hibernando').map((i) => i.nome);
 
   const valoresTendencia = tendencia.map((p) => p.valor);
   const pathSparkline = gerarPathSparkline(valoresTendencia);
@@ -118,6 +120,11 @@ function VisaoGeral({ token, dados, parte = 'ambas' }) {
           <div>
             <div className="phrase">{phrase}</div>
             <div className="sub">{sub}</div>
+            {impressorasHibernando.length > 0 && (
+              <div className="sub" style={{ opacity: 0.7, fontStyle: 'italic' }}>
+                Hibernando: {impressorasHibernando.join(', ')}
+              </div>
+            )}
           </div>
         </div>
         <div className="hero-stats">

@@ -380,6 +380,11 @@
   color: var(--status-offline);
 }
 
+.status-tag-hibernando {
+  background-color: rgba(243, 156, 18, 0.15);
+  color: var(--status-warning);
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));

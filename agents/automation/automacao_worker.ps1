@@ -1,7 +1,7 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$apiUrl = "http://IP_INTERNO_AQUI:8000"
-$apiKey = "SUA_API_KEY_AQUI"
+$apiUrl = "http://192.168.1.26:8000"
+$apiKey = "88fbaae5cff91b198ba45e072b9c50f00b014a2998c03348"
 $telegramChatId = "-1003927527414"
 
 $fluigIP = "10.10.0.5"

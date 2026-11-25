@@ -63,12 +63,6 @@ O projeto foi inicialmente concebido utilizando o Grafana como interface princip
 - [x] Integracao com UniFi Controller (clientes conectados por access point)
 - [x] Blackbox Exporter para checagem de disponibilidade de rede
 - [x] Monitoramento de servidores em redes remotas via agente proxy (WinRM)
- [x] Deteccao de 3 estados para impressoras (online/hibernando/offline) via fallback TCP, evitando falso alarme por modo de economia de energia
- [x] Status real de tuneis VPN site-a-site via socket de management do OpenVPN, sem depender de trafego recente
- [x] Ranking de produtividade por dispositivo no monitoramento de acessos a internet (top 10 mais/menos produtivos)
- [x] Monitoramento meteorologico em tempo real via API externa (temperatura, umidade, vento, precipitacao, nuvens, visibilidade)
- [x] Radar meteorologico interativo com visualizacao de precipitacao sobre a regiao da empresa
- [x] Previsao climatica das proximas horas com cards visuais
 
 ### Seguranca
 
@@ -86,7 +80,6 @@ O projeto foi inicialmente concebido utilizando o Grafana como interface princip
 - [x] Resumo diario consolidado (so notifica quando ha problema real)
 - [x] Sistema de cooldown para evitar alert fatigue (recursos instaveis notificam uma vez a cada 24h, nao a cada oscilacao)
 - [x] Deteccao de indisponibilidade por ausencia de heartbeat
- [x] Alertas automaticos de chuva forte e severa via Telegram, com verificacao periodica a cada 10 minutos
 
 ### Automacao
 
@@ -140,11 +133,6 @@ O projeto foi inicialmente concebido utilizando o Grafana como interface princip
 - Diagnosticar uma falha silenciosa no envio de alertas via Telegram: o sistema registrava internamente que a notificacao de queda de link havia sido enviada com sucesso, mas a mensagem nunca chegava. Investigacao revelou um erro de parsing da API do Telegram ao processar Markdown legado combinado com emojis e caracteres acentuados, retornando erro HTTP 400 que era silenciosamente ignorado pela funcao de envio. Corrigido migrando as mensagens afetadas para HTML, formato mais robusto para esse tipo de conteudo
 - Corrigir um bug de reconciliacao de estado no React causado por chaves (keys) duplicadas em uma tabela de detalhamento: dois registros de backup compartilhavam o mesmo valor de key (o status "Warning" reaproveitado como identificador), fazendo o React nao conseguir distinguir corretamente os elementos ao alternar entre diferentes cards de detalhe, misturando dados de contextos diferentes na tela. Corrigido utilizando uma chave composta e verdadeiramente unica para cada linha da tabela
 - Implementar e testar em producao a reversao manual do failover do servidor de arquivos redundante (retorno do IP ao servidor principal apos a substituicao temporaria). Durante o primeiro teste, a troca de IP (baseada em remover o endereco antigo e depois adicionar o novo) deixou a interface de rede momentaneamente sem nenhum IP configurado, interrompendo a conectividade do servidor. Corrigido invertendo a ordem da operacao — o novo IP e adicionado e confirmado antes do antigo ser removido — e tratando a rota de gateway padrao explicitamente, evitando o erro "Instance DefaultGateway already exists" que ocorria ao tentar definir um gateway ja existente na interface. Failover e reversao testados com sucesso em producao apos a correcao
-Diagnosticar falso positivo de indisponibilidade em impressoras que entravam em modo de hibernacao/economia de energia: o monitoramento via ping ICMP interpretava a ausencia de resposta durante o standby como equipamento offline, distorcendo a metrica de uptime. Corrigido adicionando uma checagem TCP via Blackbox Exporter como fallback do ICMP, permitindo distinguir tres estados reais (online, hibernando, offline) em vez de um binario que penalizava equipamentos apenas em economia de energia
-- Implementar integracao com API meteorologica externa para monitoramento climatico em tempo real, com radar de precipitacao sobre a regiao da empresa, previsao horaria e alertas automaticos via Telegram exclusivamente para condicoes severas (chuva forte e severa), evitando notificacoes desnecessarias para condicoes amenas
-Diagnosticar falso positivo de queda em tuneis VPN site-a-site: a deteccao de status combinava o estado da interface local com uma heuristica de trafego recente, marcando como offline um tunel genuinamente conectado mas ocioso. Corrigido consultando diretamente o socket de management do OpenVPN via SSH (usuario restrito por sudo a um unico script de leitura), que reflete se o peer remoto esta realmente conectado, independente de trafego
-Identificar que quedas rapidas nos links WAN nao eram refletidas corretamente na porcentagem de uptime, porque a checagem rodava no mesmo loop geral de 120 segundos usado para outras verificacoes, podendo pular uma instabilidade breve entre duas amostras. Corrigido isolando a checagem dos links WAN em um loop dedicado de 20 segundos
-Diagnosticar um erro de timeout de banco de dados ao gerar relatorios de acesso a internet para periodos superiores a 1 dia: o ranking de produtividade por dispositivo carregava todas as sessoes de navegacao brutas da rede inteira para processamento em Python, uma varredura inviavel para janelas de tempo maiores. Corrigido reescrevendo o calculo como uma agregacao direto no banco de dados, tornando a consulta viavel para qualquer periodo
 
 ---
 
